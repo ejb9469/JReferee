@@ -1,7 +1,7 @@
 package adjudication;
 
 import domain.Order;
-import util.Orders;
+import adjudication.util.Orders;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -13,14 +13,14 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 1 distinct raw `Judge` outcome observed by `Referee`.<br><br>
+ * 1 distinct raw `Judge` outcome observed by `Justice`.<br><br>
  *
  * A "candidate resolution" is grouped by its externally-meaningful adjudication
  * outcome. It retains representative orders plus the shuffled-trial details,
  * dependency cycles, and resolver bookkeeping observed for that outcome.
  */
 public final class CandidateResolution
-        implements Resolution, ParadoxAware {
+        implements Resolution, ParadoxTransparent {
 
 
     // Core state \\
@@ -32,7 +32,7 @@ public final class CandidateResolution
     private final List<ParadoxCycle> detectedCycles;
 
     /*
-     * `Referee.resolutionKey(...)` deliberately excludes `Order.resolved`, so
+     * `Justice.resolutionKey(...)` deliberately excludes `Order.resolved`, so
      * trials with the same external verdicts can have distinct recursive
      * bookkeeping. Retain all observed resolved states rather than making the
      * first representative outcome decide later meta-resolution.

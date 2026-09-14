@@ -1,4 +1,4 @@
-package util;
+package adjudication.util;
 
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -16,7 +16,7 @@ public abstract class Constants {
     public static final String ANSI_BRIGHTWHITE     = "\u001B[97m";
 
 
-    // used in old, inefficient implementation of `Referee`
+    // used in old, inefficient implementation of `Justice`
     /*public static int factorial(int n) {
         int product = 1;
         for (int i = n; i > 1; i--)

@@ -3,21 +3,20 @@ package adjudication;
 import domain.Order;
 import domain.OrderType;
 import domain.Province;
-import util.Orders;
+import adjudication.util.Orders;
 
 import java.util.*;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLong;  // diagnostic import
 
 /**
- * A DATC-oriented `Referee` that resolves convoy paradoxes using the
- * Szykman rule / principle, and utilizes "ordinary adjudication" if necessary,
- * via `Inspector` (probe-based).
+ * A DATC-oriented `Justice` that resolves convoy paradoxes using the
+ * Szykman rule / principle, and utilizes `Jury` (resolve-only) if necessary.
  *
- * <p>At this stage, this class retains `Referee`'s ordinary candidate collection
+ * <p>At this stage, this class retains `Justice`'s ordinary candidate collection
  * and final-selection behavior, then applies the existing narrow single-convoy
  * Szykman interpretation (used for 6.F.17.P).</p>
  *
- * <p>Future work belongs here rather than in {@code Referee} when it:</p>
+ * <p>Future work belongs here rather than in {@code Justice} when it:</p>
  *
  * <ul>
  *     <li>identifies a contradictory convoy-dependent component;</li>
@@ -29,12 +28,12 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * @author Evan B
  */
-public class SzykmanReferee extends Referee {
+public class SzykmanJustice extends Justice {
 
 
     // Constructors \\
 
-    public SzykmanReferee() {
+    public SzykmanJustice() {
         this(
                 Collections.emptyList(),
                 NUM_TRIALS_DEFAULT,
@@ -42,7 +41,7 @@ public class SzykmanReferee extends Referee {
         );
     }
 
-    public SzykmanReferee(Collection<Order> orders) {
+    public SzykmanJustice(Collection<Order> orders) {
         this(
                 orders,
                 NUM_TRIALS_DEFAULT,
@@ -50,7 +49,7 @@ public class SzykmanReferee extends Referee {
         );
     }
 
-    public SzykmanReferee(int numTrials) {
+    public SzykmanJustice(int numTrials) {
         this(
                 Collections.emptyList(),
                 numTrials,
@@ -58,10 +57,7 @@ public class SzykmanReferee extends Referee {
         );
     }
 
-    public SzykmanReferee(
-            Collection<Order> orders,
-            int numTrials
-    ) {
+    public SzykmanJustice(Collection<Order> orders, int numTrials) {
         this(
                 orders,
                 numTrials,
@@ -70,17 +66,13 @@ public class SzykmanReferee extends Referee {
     }
 
     /**
-     * Creates a SzykmanReferee with a known seed, allowing reproducible trial ordering.
+     * Creates a SzykmanJustice with a known seed, allowing reproducible trial ordering.
      *
      * @param orders orders to adjudicate
      * @param numTrials number of shuffled orderings to examine
      * @param shuffleSeed seed used to generate shuffled orderings
      */
-    public SzykmanReferee(
-            Collection<Order> orders,
-            int numTrials,
-            long shuffleSeed
-    ) {
+    public SzykmanJustice(Collection<Order> orders, int numTrials, long shuffleSeed) {
         super(orders, numTrials, shuffleSeed);
     }
 
@@ -88,7 +80,7 @@ public class SzykmanReferee extends Referee {
     // Final meta-resolution selection \\
 
     /**
-     * Applies the Szykman-specific convoy-paradox policy after `Referee` has
+     * Applies the Szykman-specific convoy-paradox policy after `Justice` has
      * collected raw candidates.<br><br>
      *
      * A single conflicting convoy retains the narrow F17 compatibility rule.
@@ -101,7 +93,7 @@ public class SzykmanReferee extends Referee {
         finalResolutionSelections.incrementAndGet();
 
         /*
-         * `Referee.judge()` restores `this.orders` to the submitted order set before
+         * `Justice.judge()` restores `this.orders` to the submitted order set before
          * calling this hook. Preserve that state before the inherited selector
          * potentially performs its tie-handling re-adjudication.
          */
@@ -113,7 +105,7 @@ public class SzykmanReferee extends Referee {
 
         /*
          * Most positions are not multi-convoy paradox candidates. Avoid running
-         * the ordinary-resolution probe unless raw Referee candidates disagree
+         * the ordinary-resolution probe unless raw Justice candidates disagree
          * about at least two convoy orders, which is the existing trigger for
          * the broad simultaneous-HOLD Szykman policy.
          */
@@ -147,9 +139,9 @@ public class SzykmanReferee extends Referee {
         ordinaryResolutionProbeInvocations.incrementAndGet();
 
         OrdinaryResolution ordinaryResolution =
-                new Inspector(
+                new Jury(
                         submittedOrders
-                ).probe();
+                ).inquire();
 
         if (ordinaryResolution.isComplete())
             completeOrdinaryResolutionProbes.incrementAndGet();
@@ -157,7 +149,7 @@ public class SzykmanReferee extends Referee {
         /*
          * A complete probe means ordinary adjudication determines every submitted
          * order without speculative cycle-breaking. Select the matching raw
-         * `Referee` candidate directly, before `Referee`'s inherited selection logic
+         * `Justice` candidate directly, before `Justice`'s inherited selection logic
          * can produce a multi-convoy fallback result.
          */
         if (ordinaryResolution.isComplete()) {
@@ -184,10 +176,10 @@ public class SzykmanReferee extends Referee {
     }
 
     /**
-     * Returns the raw Referee candidate whose verdicts match the complete
+     * Returns the raw Justice candidate whose verdicts match the complete
      * non-speculative ordinary-resolution probe result (`OrdinaryResolution`).<br><br>
      *
-     * Referee's inherited selection may synthesize a fallback result for a
+     * Justice's inherited selection may synthesize a fallback result for a
      * multi-convoy ambiguity, so use the original raw candidate here.
      */
     private Collection<Order> findProbeMatchingCandidate(
@@ -378,7 +370,7 @@ public class SzykmanReferee extends Referee {
 
 
     // TODO: Remove / refactor all below
-    // Probe diagnostics \\
+    // Resolver diagnostics \\
 
     private static final AtomicLong finalResolutionSelections =
             new AtomicLong();
@@ -398,10 +390,10 @@ public class SzykmanReferee extends Referee {
     private static final AtomicLong szykmanFallbacks =
             new AtomicLong();
 
-    // Probe diagnostic accessors \\
+    // Resolver diagnostic accessors \\
 
     /**
-     * Clears process-wide diagnostics accumulated by all SzykmanReferee
+     * Clears process-wide diagnostics accumulated by all SzykmanJustice
      * instances.
      *
      * <p>This is primarily intended for test harnesses that want counters for

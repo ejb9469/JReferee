@@ -2,8 +2,8 @@ package testing;
 
 import adjudication.Judge;
 import domain.Order;
-import util.Constants;
-import util.Orders;
+import adjudication.util.Constants;
+import adjudication.util.Orders;
 
 import java.util.*;
 

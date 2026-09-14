@@ -8,16 +8,16 @@ import parsing.DATCFileParser;
 import parsing.FileTestCaseParser;
 import testing.RefereeTestCase;
 import testing.TestCase;
-import util.Constants;
-import util.OrderComparator;
-import util.Orders;
+import adjudication.util.Constants;
+import adjudication.util.OrderComparator;
+import adjudication.util.Orders;
 
 import java.util.*;
 
 
 /**
  * Owns a collection of adjudication test cases.
- * Provides runners for `Judge`, `Referee`, and `SzykmanReferee` evaluation.
+ * Provides runners for `Judge`, `Justice`, and `SzykmanJustice` evaluation.
  *
  * @author Evan B
  */
@@ -26,16 +26,16 @@ public class TestCaseManager {
 
     // Constants \\
 
-    // MODE 0: `Referee.java` implementation
-    // MODE 1: pre-Referee implementation
+    // MODE 0: `Justice.java` implementation
+    // MODE 1: pre-Justice implementation
     public static final short MODE = 0;
 
     /*
      * Select the DATC/Szykman-oriented referee policy for diagnostics and any
-     * Referee instances constructed directly by this class.
+     * Justice instances constructed directly by this class.
      *
      * MODE 0 is evaluated by TestCaseReferee, which constructs its own Judge /
-     * Referee instance. Update TestCaseReferee separately to make normal
+     * Justice instance. Update TestCaseReferee separately to make normal
      * one-off test evaluation use this policy too.
      */
     public static final boolean USE_SZYKMAN_REFEREE = true;
@@ -181,7 +181,7 @@ public class TestCaseManager {
         System.out.println("REFEREE ONE-OFF TESTING:\n");
 
         if (USE_SZYKMAN_REFEREE)
-            SzykmanReferee.resetProbeDiagnostics();
+            SzykmanJustice.resetProbeDiagnostics();
 
         List<RefereeTestCase> refTCs = new ArrayList<>();
 
@@ -207,7 +207,7 @@ public class TestCaseManager {
 
     public void runJudgeSimulationTests() {
 
-        int NUM_TRIALS = Referee.NUM_TRIALS_DEFAULT;
+        int NUM_TRIALS = Justice.NUM_TRIALS_DEFAULT;
 
         Map<TestCase, Collection<Set<Order>>> refereeSimul =
                 new HashMap<>(this.testCases.size());
@@ -270,7 +270,7 @@ public class TestCaseManager {
 
         System.out.println("----------------------------------------\n");
 
-        Referee ref;
+        Justice ref;
 
         for (TestCase paradox : refereeSimulParadoxes.keySet()) {
             ref = createReferee(paradox.getOrders());
@@ -341,13 +341,13 @@ public class TestCaseManager {
 
     private void printProbeDiagnostics() {
 
-        SzykmanReferee.ProbeDiagnostics diagnostics =
-                SzykmanReferee.getProbeDiagnostics();
+        SzykmanJustice.ProbeDiagnostics diagnostics =
+                SzykmanJustice.getProbeDiagnostics();
 
         System.out.println("SZYKMAN PROBE DIAGNOSTICS:\n");
 
         System.out.printf(
-                "Final SzykmanReferee selections:\t\t\t%d%n",
+                "Final SzykmanJustice selections:\t\t\t%d%n",
                 diagnostics.finalResolutionSelections()
         );
         System.out.printf(
@@ -355,7 +355,7 @@ public class TestCaseManager {
                 diagnostics.multiConvoyCandidates()
         );
         System.out.printf(
-                "Inspector invocations:\t\t%d%n",
+                "Jury invocations:\t\t%d%n",
                 diagnostics.ordinaryResolutionProbeInvocations()
         );
         System.out.printf(
@@ -402,26 +402,26 @@ public class TestCaseManager {
     }
 
 
-    // Referee creation \\
+    // Justice creation \\
 
     /**
      * Creates the referee profile selected for diagnostics and direct
      * TestCaseManager referee use.
      */
-    private static Referee createReferee(Collection<Order> orders) {
+    private static Justice createReferee(Collection<Order> orders) {
 
         if (USE_SZYKMAN_REFEREE) {
-            return new SzykmanReferee(
+            return new SzykmanJustice(
                     orders,
-                    Referee.NUM_TRIALS_DEFAULT,
-                    Referee.SHUFFLE_SEED_DEFAULT
+                    Justice.NUM_TRIALS_DEFAULT,
+                    Justice.SHUFFLE_SEED_DEFAULT
             );
         }
 
-        return new Referee(
+        return new Justice(
                 orders,
-                Referee.NUM_TRIALS_DEFAULT,
-                Referee.SHUFFLE_SEED_DEFAULT
+                Justice.NUM_TRIALS_DEFAULT,
+                Justice.SHUFFLE_SEED_DEFAULT
         );
 
     }
@@ -430,21 +430,21 @@ public class TestCaseManager {
      * Creates the referee profile selected for diagnostics and direct
      * TestCaseManager referee use with a known random seed.
      */
-    private static Referee createReferee(
+    private static Justice createReferee(
             Collection<Order> orders,
             int numTrials,
             long shuffleSeed
     ) {
 
         if (USE_SZYKMAN_REFEREE) {
-            return new SzykmanReferee(
+            return new SzykmanJustice(
                     orders,
                     numTrials,
                     shuffleSeed
             );
         }
 
-        return new Referee(
+        return new Justice(
                 orders,
                 numTrials,
                 shuffleSeed
@@ -457,7 +457,7 @@ public class TestCaseManager {
     /**
      * Runs a test case repeatedly with known seeds and reports:<br><br>
      *
-     * - distinct final Referee outcomes;
+     * - distinct final Justice outcomes;
      * - distinct raw Judge candidates;
      * - raw-candidate occurrence frequency;
      * - seeds and trial samples that produced each candidate; and
@@ -475,18 +475,18 @@ public class TestCaseManager {
 
         for (long seed = 0; seed < numSeeds; seed++) {
 
-            Referee referee = createReferee(
+            Justice justice = createReferee(
                     new ArrayList<>(Orders.deepCopy(testCase.getOrders())),
                     numTrials,
                     seed
             );
 
-            referee.judge();
+            justice.judge();
 
-            finalOutcomes.add(finalOutcomeKey(referee.getOrders()));
+            finalOutcomes.add(finalOutcomeKey(justice.getOrders()));
 
             for (CandidateResolution candidateResolution :
-                    referee.getCandidateResolutions()) {
+                    justice.getCandidateResolutions()) {
 
                 String candidateKey = outcomeKey(
                         candidateResolution.getRepresentativeResolution()
@@ -593,7 +593,7 @@ public class TestCaseManager {
      * - direct attacks on the convoying fleet; and
      * - captured recursive cycles containing that convoy.<br><br>
      *
-     * This is diagnostic-only. It does not alter Referee selection logic.
+     * This is diagnostic-only. It does not alter Justice selection logic.
      */
     public static void diagnoseSecondOrderParadox(
             TestCase testCase,
@@ -606,16 +606,16 @@ public class TestCaseManager {
 
         for (long seed = 0; seed < numSeeds; seed++) {
 
-            Referee referee = createReferee(
+            Justice justice = createReferee(
                     new ArrayList<>(Orders.deepCopy(testCase.getOrders())),
                     numTrials,
                     seed
             );
 
-            referee.judge();
+            justice.judge();
 
             for (CandidateResolution candidateResolution :
-                    referee.getCandidateResolutions()) {
+                    justice.getCandidateResolutions()) {
 
                 Set<Order> resolution =
                         candidateResolution.getRepresentativeResolution();
@@ -774,9 +774,9 @@ public class TestCaseManager {
         }
 
         OrdinaryResolution result =
-                new Inspector(
+                new Jury(
                         testCase.getOrders()
-                ).probe();
+                ).inquire();
 
         System.out.printf(
                 "%n[ORDINARY RESOLUTION PROBE]%n%s%n"
@@ -914,7 +914,7 @@ public class TestCaseManager {
 
     /**
      * Aggregate diagnostic data for one raw verdict-level candidate across all
-     * tested Referee seeds.
+     * tested Justice seeds.
      */
     private static final class SecondOrderCandidateStats {
 

@@ -4,8 +4,8 @@ import contracts.HomogeneousState;
 import domain.Order;
 import domain.OrderType;
 import domain.Province;
-import util.Constants;
-import util.Orders;
+import adjudication.util.Constants;
+import adjudication.util.Orders;
 
 import java.util.Collection;
 import java.util.HashSet;

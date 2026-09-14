@@ -1,11 +1,11 @@
 package adjudication;
 
+import adjudication.util.Dependencies;
 import domain.Nation;
 import domain.Order;
 import domain.OrderType;
 import domain.Province;
-import util.Orders;
-import util.Convoys;
+import adjudication.util.Orders;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -14,22 +14,22 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Performs (!!)conservative(!!) ordinary adjudication WITHOUT speculative recursion
- * and WITHOUT applying the Szykman rule.
+ * Performs conservative ordinary adjudication WITHOUT speculative recursion
+ * (and WITHOUT applying the Szykman rule.)
  *
- * <p>`Inspector` repeatedly commits only SUCCESS or FAILURE outcomes that can
+ * <p>`Jury` repeatedly commits only SUCCESS or FAILURE outcomes that can
  * be established from already-known outcomes. A dependency whose result is
  * unknown keeps its consumer UNKNOWN; it is never guessed optimistically or
  * pessimistically (like in `Judge`).</p>
  */
-public class Inspector implements Probe {
+public class Jury implements Resolver {
 
 
     private final List<Order> orders;
     private final Map<String, ResolutionState> states;
 
 
-    public Inspector(Collection<Order> submittedOrders) {
+    public Jury(Collection<Order> submittedOrders) {
         this.orders = new ArrayList<>(submittedOrders);
         this.states = new LinkedHashMap<>();
         for (Order order : this.orders)
@@ -40,7 +40,7 @@ public class Inspector implements Probe {
 
 
     @Override
-    public OrdinaryResolution probe() {
+    public OrdinaryResolution inquire() {
 
         boolean changed;
 
@@ -524,7 +524,7 @@ public class Inspector implements Probe {
         List<List<Order>> unresolvedComponents = new ArrayList<>();
 
         for (List<Order> component :
-                DependencyComponents.partition(this.orders)) {
+                Dependencies.partition(this.orders)) {
 
             List<Order> unresolved = new ArrayList<>();
 

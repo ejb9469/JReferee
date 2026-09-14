@@ -2,7 +2,7 @@ package adjudication;
 
 import contracts.StrictState;
 import domain.Order;
-import util.Orders;
+import adjudication.util.Orders;
 
 import java.util.Collection;
 

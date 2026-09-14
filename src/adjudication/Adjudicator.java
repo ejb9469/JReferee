@@ -7,7 +7,7 @@ import java.util.Collection;
 
 /**
  * `Adjudicator` is (only) for engines that mutate Orders to produce an adjudicated Order collection.
- * (For an immutable contract, use `Probe`.)
+ * (For an immutable contract, use `Resolver`.)
  */
 public interface Adjudicator {
 

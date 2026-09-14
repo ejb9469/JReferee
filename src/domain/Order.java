@@ -1,16 +1,17 @@
 package domain;
 
-import util.OrderComparator;
+import contracts.Snapshot;
+import adjudication.util.OrderComparator;
 
 import java.util.Objects;
 
 /**
- * The `Order` class is a public-facing class representing a Diplomacy order 'struct'.<br><br>
+ * The `Order` class is a public-facing, *mutable* Diplomacy order 'struct'.<br><br>
  *
  * In addition to the relevant data fields, the `Order` class also contains adjudication-related 'metadata' fields --
- * (i.e. `<i>resolved</i>`, `<i>verdict</i>`, & `<i>visited</i>`) -- and a 'dangling' field <i>bool</i> `<i>dislodged</i>` for general-purpose.
+ * (e.g. `<i>resolved</i>`, `<i>verdict</i>`, & `<i>visited</i>`) -- and a 'dangling' field <i>bool</i> `<i>dislodged</i>` for general-purpose.
  */
-public class Order implements Comparable<Order> {
+public class Order implements Snapshot, Comparable<Order> {
 
     // TODO: Reformat? from class -> record (introduced Java 16; 2021)
 
@@ -88,15 +89,18 @@ public class Order implements Comparable<Order> {
     }
 
 
+    @Override
     public Order getSnapshot() {
         return this.originalOrder;
     }
 
+    @Override
     public void takeSnapshot() {
         this.originalOrder = new Order(this);  // CLONE constructor
         getSnapshot().originalOrder = null;  // avoid infinite reference loop
     }
 
+    @Override
     public void restoreFromSnapshot() {
 
         this.owner = getSnapshot().owner;
@@ -200,10 +204,8 @@ public class Order implements Comparable<Order> {
         if (this == other)
             return true;
 
-        if (!(other instanceof Order))
+        if (!(other instanceof Order order2))
             return false;
-
-        Order order2 = (Order) other;
 
         /*
          * Resolver metadata is intentionally ignored. An Order's identity is its
@@ -244,6 +246,7 @@ public class Order implements Comparable<Order> {
                 this.pos2,
                 this.dislodged
         );
+
     }
 
     /**

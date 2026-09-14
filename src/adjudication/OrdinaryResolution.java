@@ -1,7 +1,7 @@
 package adjudication;
 
 import domain.Order;
-import util.Orders;
+import adjudication.util.Orders;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -37,8 +37,7 @@ public record OrdinaryResolution(
     public ResolutionState stateOf(Order order) {
         return this.states.getOrDefault(
                 Orders.keyOf(order),
-                ResolutionState.UNKNOWN
-        );
+                ResolutionState.UNKNOWN);
     }
 
     @Override

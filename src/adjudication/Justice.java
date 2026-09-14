@@ -1,26 +1,27 @@
 package adjudication;
 
+import adjudication.util.Dependencies;
 import domain.Order;
 import domain.OrderType;
-import util.OrderComparator;
-import util.Orders;
+import adjudication.util.OrderComparator;
+import adjudication.util.Orders;
 
 import java.util.*;
 
 /**
- * `Referee` is a subclass of `Judge` which resolves both simple & complex
+ * `Justice` is a subclass of `Judge` which resolves both simple & complex
  * Paradoxes.<br><br>
  *
  * It does so by generating a large number of permutations, and running
  * `super::judge()` for them all to compare their results.<br><br>
  *
  * If there are multiple ( >1 ) possible resolutions (i.e. depends on
- * permutation), `Referee` will apply certain meta-resolution rules to
+ * permutation), `Justice` will apply certain meta-resolution rules to
  * determine the correct resolution.
  *
  * @author Evan B
  */
-public class Referee extends Judge {
+public class Justice extends Judge {
 
 
     // Constants \\
@@ -56,30 +57,30 @@ public class Referee extends Judge {
 
     // Constructors \\
 
-    public Referee() {
+    public Justice() {
         this(Collections.emptyList(), NUM_TRIALS_DEFAULT, SHUFFLE_SEED_DEFAULT);
     }
 
-    public Referee(Collection<Order> orders) {
+    public Justice(Collection<Order> orders) {
         this(orders, NUM_TRIALS_DEFAULT, SHUFFLE_SEED_DEFAULT);
     }
 
-    public Referee(int numTrials) {
+    public Justice(int numTrials) {
         this(Collections.emptyList(), numTrials, SHUFFLE_SEED_DEFAULT);
     }
 
-    public Referee(Collection<Order> orders, int numTrials) {
+    public Justice(Collection<Order> orders, int numTrials) {
         this(orders, numTrials, SHUFFLE_SEED_DEFAULT);
     }
 
     /**
-     * Creates a Referee with a known seed, allowing reproducible trial ordering.
+     * Creates a Justice with a known seed, allowing reproducible trial ordering.
      *
      * @param orders orders to adjudicate
      * @param numTrials number of shuffled orderings to examine; must be at least 1
      * @param shuffleSeed seed used to generate shuffled orderings
      */
-    public Referee(Collection<Order> orders, int numTrials, long shuffleSeed) {
+    public Justice(Collection<Order> orders, int numTrials, long shuffleSeed) {
 
         super(orders);
 
@@ -112,10 +113,10 @@ public class Referee extends Judge {
                 Orders.deepCopy(this.orders));
 
         List<List<Order>> components =
-                DependencyComponents.partition(submittedOrders);
+                Dependencies.partition(submittedOrders);
 
         /*
-         * Preserve the established `Referee` behavior for a position
+         * Preserve the established `Justice` behavior for a position
          * whose dependency graph is connected.
          */
         if (components.size() <= 1) {
@@ -181,7 +182,7 @@ public class Referee extends Judge {
     /**
      * Performs the final selection process for 1 dependency component.<br><br>
      *
-     * `SzykmanReferee::selectFinalResolution()` intentionally executes while
+     * `SzykmanJustice::selectFinalResolution()` intentionally executes while
      * `this.orders` and `candidateResolutions` describe *only* this component.
      */
     private Collection<Order> judgeAmbiguousComponent(Collection<Order> componentOrders) {
@@ -264,7 +265,7 @@ public class Referee extends Judge {
     // Component handling \\
 
     /**
-     * Returns whether a component needs shuffled Referee trials
+     * Returns whether a component needs shuffled Justice trials
      * after 1 `Judge` pass.<br><br>
      *
      * A recursive cycle is evidence of branch-sentitive resolution.
@@ -308,10 +309,10 @@ public class Referee extends Judge {
 
     /**
      * Returns distinct recursive dependency cycles found during the most recent
-     * top-level `Referee` run.<br><br>
+     * top-level `Justice` run.<br><br>
      *
      * A `Judge` returns cycles from its most recent single adjudication.
-     * `Referee` aggregates baseline and shuffled-trial cycles from every
+     * `Justice` aggregates baseline and shuffled-trial cycles from every
      * dependency component.
      */
     @Override
@@ -358,7 +359,7 @@ public class Referee extends Judge {
      * Selects the final resolution after {@link #judge()} has collected all raw
      * candidate outcomes.
      *
-     * <p>The default implementation preserves Referee's established
+     * <p>The default implementation preserves Justice's established
      * compatibility-oriented meta-resolution policy. Subclasses may override
      * this hook to apply another policy after candidate collection—for example,
      * a strict DATC/Szykman convoy-paradox interpretation.</p>
@@ -526,10 +527,10 @@ public class Referee extends Judge {
 
     /**
      * Returns deep copies of every distinct raw Judge candidate discovered
-     * before Referee meta-resolution selects a final result.<br><br>
+     * before Justice meta-resolution selects a final result.<br><br>
      *
      * For a multi-component position, candidates describe only dependency components
-     * that required shuffled `Referee` trials.
+     * that required shuffled `Justice` trials.
      * Components resolved by 1 baseline `Judge` pass do *not* produce `CandidateResolution` entries.
      */
     public Collection<CandidateResolution> getCandidateResolutions() {
@@ -573,7 +574,7 @@ public class Referee extends Judge {
      *
      * A lexicographically ordered resolution key is used only as a final stable
      * tie-breaker. This prevents HashSet iteration order from deciding a final
-     * Referee outcome.
+     * Justice outcome.
      */
     private Set<Order> selectMostSuccessfulCandidate(
             Collection<Set<Order>> candidates

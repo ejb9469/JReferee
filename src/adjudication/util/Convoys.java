@@ -1,4 +1,4 @@
-package util;
+package adjudication.util;
 
 import domain.Order;
 import domain.OrderType;

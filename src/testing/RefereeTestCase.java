@@ -1,9 +1,9 @@
 package testing;
 
 import adjudication.Judge;
-import adjudication.SzykmanReferee;
+import adjudication.SzykmanJustice;
 import domain.Order;
-import util.Orders;
+import adjudication.util.Orders;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -29,9 +29,9 @@ public class RefereeTestCase extends TestCase {
 
         Judge judge;
         if (!orders.isEmpty())
-            judge = new SzykmanReferee(new ArrayList<>(orders));
+            judge = new SzykmanJustice(new ArrayList<>(orders));
         else
-            judge = new SzykmanReferee();
+            judge = new SzykmanJustice();
 
         judge.judge();
         Collection<Order> adjudicatedOrders =

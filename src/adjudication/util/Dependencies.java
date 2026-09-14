@@ -1,4 +1,4 @@
-package adjudication;
+package adjudication.util;
 
 import domain.Order;
 import domain.OrderType;
@@ -28,7 +28,7 @@ import java.util.Set;
  * effect. Keeping extra orders in one component is safe; incorrectly
  * separating dependent orders is not.</p>
  */
-public abstract class DependencyComponents {
+public abstract class Dependencies {
 
 
     /**
@@ -99,8 +99,8 @@ public abstract class DependencyComponents {
 
             /*
              * Preserve the original order collection's iteration order inside
-             * each component. Judge behavior is intentionally order-sensitive
-             * before Referee performs its shuffled trials.
+             * each component. `Judge` behavior is intentionally order-sensitive
+             * before `Justice` performs its shuffled trials.
              */
             List<Order> component = new ArrayList<>();
 

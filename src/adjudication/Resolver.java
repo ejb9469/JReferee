@@ -5,8 +5,8 @@ package adjudication;
  * Analyzes what can be proven without committing a game result,
  * producing an `OrdinaryResolution` record (immutable).
  */
-public interface Probe {
+public interface Resolver {
 
-    OrdinaryResolution probe();
+    OrdinaryResolution inquire();
 
 }

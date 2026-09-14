@@ -1,7 +1,7 @@
 package adjudication;
 
 import domain.Order;
-import util.Orders;
+import adjudication.util.Orders;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -10,11 +10,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Selects a deterministic result from `Referee` and `SzykmanReferee` runs across
+ * Selects a deterministic result from `Justice` and `SzykmanJustice` runs across
  * a fixed sequence of shuffle seeds.<br><br>
  *
- * A stable `SzykmanReferee` result is preferred. If `SzykmanReferee` is unstable
- * but `Referee` is stable, the stable ordinary `Referee` result is selected.
+ * A stable `SzykmanJustice` result is preferred. If `SzykmanJustice` is unstable
+ * but `Justice` is stable, the stable ordinary `Justice` result is selected.
  */
 public final class StableReferee {
 
@@ -99,7 +99,7 @@ public final class StableReferee {
         }
 
         /*
-         * Preserve the current SzykmanReferee baseline if neither policy is
+         * Preserve the current SzykmanJustice baseline if neither policy is
          * stable across the fixed seed sequence.
          */
         SzykmanReferee fallback = new SzykmanReferee(

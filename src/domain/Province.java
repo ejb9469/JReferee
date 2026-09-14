@@ -1,12 +1,10 @@
 package domain;
 
-import contracts.StrictState;
-
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
-public enum Province implements StrictState {
+public enum Province {
 
     Boh("Bohemia", false, false),
     Bud("Budapest", Geography.INLAND, true, Nation.AUSTRIA),
@@ -119,7 +117,7 @@ public enum Province implements StrictState {
     public final String     fullName;
 
     public boolean          supplyCenter;
-    public Nation           owner;
+    public Nation homeowner;
 
     public Geography        geography;
 
@@ -132,13 +130,13 @@ public enum Province implements StrictState {
 
 
     // Full constructor - modern
-    private Province(String fullName, Geography geography, boolean supplyCenter, Nation owner, int coastId, boolean canal, boolean splitCoast, Province parent) {
+    private Province(String fullName, Geography geography, boolean supplyCenter, Nation homeowner, int coastId, boolean canal, boolean splitCoast, Province parent) {
 
         populateAdjacencyMap();
 
         this.fullName = fullName;
         this.supplyCenter = supplyCenter;
-        this.owner = owner;
+        this.homeowner = homeowner;
         this.geography = geography;
         this.coastId = coastId;
 
@@ -164,24 +162,24 @@ public enum Province implements StrictState {
     }
 
     // Full constructor + suffix - modern
-    private Province(String fullName, Geography geography, boolean supplyCenter, Nation owner, int coastId, boolean canal, boolean splitCoast, Province parent, String suffix) {
+    private Province(String fullName, Geography geography, boolean supplyCenter, Nation homeowner, int coastId, boolean canal, boolean splitCoast, Province parent, String suffix) {
 
-        this(fullName, geography, supplyCenter, owner, coastId, canal, splitCoast, parent);
+        this(fullName, geography, supplyCenter, homeowner, coastId, canal, splitCoast, parent);
         this.suffix = suffix;
 
     }
 
     // Mini-constructor + coast info - modern
-    private Province(String fullName, Geography geography, boolean supplyCenter, Nation owner, int coastId, boolean canal, boolean splitCoast) {
+    private Province(String fullName, Geography geography, boolean supplyCenter, Nation homeowner, int coastId, boolean canal, boolean splitCoast) {
 
-        this(fullName, geography, supplyCenter, owner, coastId, canal, splitCoast, null);
+        this(fullName, geography, supplyCenter, homeowner, coastId, canal, splitCoast, null);
 
     }
 
     // Mini-constructor - modern
-    private Province(String fullName, Geography geography, boolean supplyCenter, Nation owner) {
+    private Province(String fullName, Geography geography, boolean supplyCenter, Nation homeowner) {
 
-        this(fullName, geography, supplyCenter, owner, -1, false, false, null);
+        this(fullName, geography, supplyCenter, homeowner, -1, false, false, null);
 
     }
 
@@ -433,10 +431,10 @@ public enum Province implements StrictState {
     }
 
 
-    @Override
-    public void enforceStasis() throws IllegalStateException {
+    //@Override
+    private void enforceStasis() throws IllegalStateException {
 
-        if (this.owner != null)
+        if (this.homeowner != null)
             this.supplyCenter = true;
 
         if (this.geography != Geography.COASTAL) {
@@ -448,10 +446,10 @@ public enum Province implements StrictState {
 
         if (this.geography == Geography.WATER) {  // No SCs in Water (ATM), water cannot be owned (ATM)
             this.supplyCenter = false;
-            this.owner = null;
+            this.homeowner = null;
         }
 
-        if (this.parent != null) {  // Province is Coastal
+        if (this.parent != null) {  // Province is split-Coastal
             //this.geography = Geography.COASTAL; (redundant)
             // Will need to remove this block if we ever expand on the idea of Province hierarchy, beyond just split coasts
             this.coastType = CoastType.SPLIT;
@@ -462,23 +460,6 @@ public enum Province implements StrictState {
                     "`%s.%s:enforceStasis()`: CoastType is %s but coastId is %d, can/will lead to adjacency calculation issues",
                     this.getClass().getSimpleName(), this.toString(), this.coastType, this.coastId)
             );
-
-    }
-
-    public void configureCoast(int coastId, CoastType coastType) {
-
-        this.coastId = coastId;
-        this.coastType = coastType;
-        enforceStasis();  // Double-check for validity -- TODO
-
-    }
-
-    public void configureCoast(int coastId, Province parent) {
-
-        this.coastId = coastId;
-        this.coastType = CoastType.SPLIT;
-        this.parent = parent;
-        enforceStasis();  // Double-check for validity -- TODO
 
     }
 

@@ -1,8 +1,9 @@
 package adjudication;
 
+import adjudication.util.Dependencies;
 import domain.*;
-import util.Convoys;
-import util.Orders;
+import adjudication.util.Convoys;
+import adjudication.util.Orders;
 
 import java.util.*;
 
@@ -15,7 +16,7 @@ import java.util.*;
  *
  * @author Evan B
  */
-public class Judge implements Adjudicator, ParadoxAware {
+public class Judge implements Adjudicator, ParadoxTransparent {
 
 
     // Constants \\
@@ -106,7 +107,7 @@ public class Judge implements Adjudicator, ParadoxAware {
      * Definitively resolves the Collection of Orders `orders`.<br><br>
      *
      * Will handle some paradoxes, but not the more complex ones.<br>
-     * For more sophisticated paradox handling, using `Referee.java`<br><br>
+     * For more sophisticated paradox handling, using `Justice.java`<br><br>
      *
      * Acquires Orders' resolution 'verdicts' by calling top-level `resolve(...)` 3x per Order:<br>
      *      ~ 1st Mass-Resolve: sets each `order.verdict` to the output of the call `resolve(order, optimistic=true)`<br>
@@ -165,6 +166,7 @@ public class Judge implements Adjudicator, ParadoxAware {
         // 3rd run :: SOFT RESOLVE
         for (Order order : orders)
             resolve(order, true, this.rootContext);
+
     }
 
 
@@ -184,7 +186,7 @@ public class Judge implements Adjudicator, ParadoxAware {
     private boolean judgeComponents() {
 
         List<List<Order>> components =
-                DependencyComponents.partition(this.orders);
+                Dependencies.partition(this.orders);
 
         // Single Component
         if (components.size() <= 1)
@@ -675,7 +677,7 @@ public class Judge implements Adjudicator, ParadoxAware {
         if (order.visited) {
             /*
              * We hit an Order already active in this recursive call chain.
-             * Record the active-stack slice for Referee diagnostics before the legacy
+             * Record the active-stack slice for Justice diagnostics before the legacy
              * cycle bookkeeping changes it.
              */
             this.recordDetectedParadoxCycle(order);
@@ -713,8 +715,7 @@ public class Judge implements Adjudicator, ParadoxAware {
 
         if (stackLastIndex < 0 || this.resolutionStack.get(stackLastIndex) != order) {
             throw new IllegalStateException(
-                    "Resolution stack corruption while leaving: " + order
-            );
+                    "Resolution stack corruption while leaving: " + order);
         }
 
         this.resolutionStack.remove(stackLastIndex);
