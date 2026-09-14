@@ -21,11 +21,11 @@ These test cases include:
 - `TestCaseManager.java` *("main")* — loads and runs DATC test cases
 - `Adjudicator.java` — deterministic ('rules-based') orders resolvers
   - `Judge.java` *(impl. Adjudicator)* — resolves an *ordered set* of orders
-  - `Referee.java` *(ext. Judge)* — runs multiple shuffled adjudications and selects a result when raw results differ
-  - `SzykmanReferee.java` *(ext. Referee)* - applies Szykman convoy-paradox rules where conflicting convoy outcomes require, 
-      & compares result with result of a Probe if necessary
-- `Probe.java` — non-deterministic ('assumptions-based') orders resolvers
-  - `Inspector.java` - *(impl. Probe)* determines whether a potential convoy-paradox has a complete "ordinary resolution", without guesses
+  - `Justice.java` *(ext. Judge)* — runs multiple shuffled adjudications and selects a result when raw results differ
+  - `SzykmanReferee.java` *(ext. Justice)* - applies Szykman convoy-paradox rules where conflicting convoy outcomes require, 
+      & compares result with result of a Jury if necessary
+- `Resolver.java` — non-deterministic ('assumptions-based') orders resolvers [i.e. no *adjudicate(...)*]
+  - `Jury.java` - *(impl. Resolver)* determines whether a potential convoy-paradox has a complete "ordinary resolution", without guesses
 
 ---
 
