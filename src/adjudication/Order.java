@@ -13,11 +13,9 @@ import java.util.Objects;
  * The `Order` class is a public-facing, *mutable* Diplomacy order 'struct'.<br><br>
  *
  * In addition to the relevant data fields, the `Order` class also contains adjudication-related 'metadata' fields --
- * (e.g. `<i>resolved</i>`, `<i>verdict</i>`, & `<i>visited</i>`)
+ * (i.e. `<i>resolved</i>`, `<i>verdict</i>`, & `<i>visited</i>`)
  */
 public class Order implements Snapshot, Comparable<Order> {
-
-    // TODO: Reformat? from class -> record (introduced Java 16; 2021)
 
     // Core fields
     public Nation owner;
@@ -31,8 +29,6 @@ public class Order implements Snapshot, Comparable<Order> {
     public boolean verdict;
 
     public boolean visited;
-
-    public boolean suppressH2HAdjudication = false;
 
     /** 'SNAPSHOT' aka "Original order" field, used if Order is changed during adjudication...<br>
      *      ... (for e.g. using Szykman rules)<br><br>
@@ -71,7 +67,6 @@ public class Order implements Snapshot, Comparable<Order> {
         this.resolved = order2.resolved;
         this.verdict = order2.verdict;
         this.visited = order2.visited;
-        this.suppressH2HAdjudication = order2.suppressH2HAdjudication;
 
         /*
          * Snapshots should be copied rather than shared. takeSnapshot() ensures
@@ -112,14 +107,13 @@ public class Order implements Snapshot, Comparable<Order> {
 
     /**
      * Wipes all 'metadata' (adjudication-related) fields: e.g. `resolved`, `verdict`,<br>
-     * but not the 'state' fields: e.g. `pos0`, `dislodged`
+     * but not the 'state' fields: e.g. `pos0`
      */
     public void wipeMetaInf() {
         // DOES NOT WIPE SNAPSHOT INFO!!
         this.resolved = false;
         this.verdict = false;
         this.visited = false;
-        this.suppressH2HAdjudication = false;
         // DOES NOT WIPE SNAPSHOT INFO!!
     }
 
@@ -185,7 +179,7 @@ public class Order implements Snapshot, Comparable<Order> {
     /**
      * <b>Overridden</b> `equals()` method; compares Object equality with another given Object<br><br>
      *
-     * Will return the equality of the core Order fields & `<i>dislodged</i>`, while ignoring all metadata fields.
+     * Will return the equality of the core Order fields, while ignoring all metadata fields.
      *
      * @param other   the reference object with which to compare.
      * @return Object equality of this and `other`
@@ -209,6 +203,7 @@ public class Order implements Snapshot, Comparable<Order> {
                 && this.pos0 == order2.pos0
                 && this.pos1 == order2.pos1
                 && this.pos2 == order2.pos2;
+
     }
 
     /**

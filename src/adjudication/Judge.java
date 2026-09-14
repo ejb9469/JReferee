@@ -64,8 +64,9 @@ public class Judge implements Adjudicator, ParadoxTransparent {
 
     /*
      * Root context for the current `Judge.judge()` invocation.
+     * Stores temporary assumptions.
      *
-     * At this stage it is always empty. It is threaded through recursive calls
+     * It is threaded through recursive calls
      * so a later change can safely create branch-local contexts.
      */
     private ResolutionContext rootContext = ResolutionContext.empty();
@@ -264,7 +265,7 @@ public class Judge implements Adjudicator, ParadoxTransparent {
 
             // HEAD-TO-HEAD Battle
             if (headToHead != null
-                    && !isHeadToHeadSuppressed(order, context)) {
+                    && !context.suppressesHeadToHead(order)) {
 
                 // Calculate Move order's ATTACK STRENGTH
                 // [Must be greater than... a. the Defend Strength of the opposing mover, and
@@ -397,23 +398,17 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                     // For good measure, also tick our principal Order's `suppressH2HAdjudication` flag
                     // Note: THIS IS A 'SHORTCUT' AND VIOLATES THE DIVISION OF RESPONSIBILITY BTWN. `ADJUDICATE()` AND `RESOLVE()`
                     if (swapSuccess) {
+
                         /*
-                         * Treat the successful convoy swap as a branch-local interpretation.
+                         * Treat the successful convoy swap as a *branch-local* interpretation.
                          * Both participating moves are no longer ordinary head-to-head opponents.
                          */
+                        headToHead.resolved = false;
                         ResolutionContext swapContext =
                                 context.withHeadToHeadSuppressed(order, headToHead);
 
-                        /*
-                         * The legacy Order flags remain temporarily. They preserve
-                         * the original implementation's behavior while the context
-                         * infrastructure is being introduced.
-                         */
-                        headToHead.resolved = false;
-                        headToHead.suppressH2HAdjudication = true;
-                        order.suppressH2HAdjudication = true;
-
                         resolve(headToHead, optimistic, swapContext);
+
                     }
 
                     return swapSuccess;
@@ -434,8 +429,7 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                     Collection<Order> otherOpponents =
                             Orders.locateUnitsMovingToPosition(
                                     headToHead.pos1,
-                                    orders
-                            );
+                                    orders);
 
                     for (Order order2 : otherOpponents)
                         order2.resolved = false;
@@ -1393,7 +1387,7 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         }
 
         if (!pathSuccessful(moveOrder, optimistic, orders, context)
-                && !isHeadToHeadSuppressed(moveOrder, context)) {
+                && !context.suppressesHeadToHead(moveOrder)) {
             return 0;
         }
 
@@ -1456,24 +1450,6 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                 orders,
                 context
         );
-    }
-
-
-    // ResolutionContext helper \\
-
-    /**
-     * Transitional suppression lookup.<br><br>
-     *
-     * The legacy field is deliberately retained during the context migration,
-     * so this plumbing change preserves existing adjudication behavior.
-     */
-    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
-    private boolean isHeadToHeadSuppressed(
-            Order order,
-            ResolutionContext context
-    ) {
-        return order.suppressH2HAdjudication
-                || context.suppressesHeadToHead(order);
     }
 
 
