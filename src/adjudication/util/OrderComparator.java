@@ -1,6 +1,6 @@
 package adjudication.util;
 
-import domain.Order;
+import adjudication.Order;
 
 import java.util.Comparator;
 

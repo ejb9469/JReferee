@@ -1,6 +1,5 @@
 package adjudication;
 
-import domain.Order;
 import domain.OrderType;
 
 import java.util.ArrayList;

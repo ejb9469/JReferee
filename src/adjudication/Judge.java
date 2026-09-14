@@ -137,7 +137,8 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         //      DEFAULT IMPLEMENTATION:     \\
         // [1 Hard Resolve + 2 Soft Resolve]
 
-        Collection<Order> ordersCopy = new ArrayList<>(Orders.deepCopy(this.orders));
+        // new ArrayList<>(Orders.deepCopy()) is REDUNDANT!!
+        Collection<Order> ordersCopy = Orders.deepCopy(this.orders);
 
         // 1st run :: HARD RESOLVE
         for (Order order : orders)

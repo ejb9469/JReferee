@@ -8,6 +8,7 @@ public enum OrderType {
     CONVOY,
     RETREAT,
     DESTROY,
-    BUILD
+    BUILD,
+    WAIVE
 
 }

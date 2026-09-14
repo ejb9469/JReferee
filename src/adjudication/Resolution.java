@@ -1,7 +1,5 @@
 package adjudication;
 
-import domain.Order;
-
 
 /**
  * 'Resolution' assigned to submitted Orders.<br>

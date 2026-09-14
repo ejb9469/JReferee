@@ -2,7 +2,6 @@ package adjudication;
 
 import adjudication.util.Dependencies;
 import domain.Nation;
-import domain.Order;
 import domain.OrderType;
 import domain.Province;
 import adjudication.util.Orders;

@@ -2,7 +2,7 @@ package testing;
 
 import adjudication.Judge;
 import adjudication.SzykmanJustice;
-import domain.Order;
+import adjudication.Order;
 import adjudication.util.Orders;
 
 import java.util.ArrayList;

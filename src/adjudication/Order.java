@@ -1,7 +1,11 @@
-package domain;
+package adjudication;
 
 import contracts.Snapshot;
 import adjudication.util.OrderComparator;
+import domain.Nation;
+import domain.OrderType;
+import domain.Province;
+import domain.UnitType;
 
 import java.util.Objects;
 
@@ -9,21 +13,17 @@ import java.util.Objects;
  * The `Order` class is a public-facing, *mutable* Diplomacy order 'struct'.<br><br>
  *
  * In addition to the relevant data fields, the `Order` class also contains adjudication-related 'metadata' fields --
- * (e.g. `<i>resolved</i>`, `<i>verdict</i>`, & `<i>visited</i>`) -- and a 'dangling' field <i>bool</i> `<i>dislodged</i>` for general-purpose.
+ * (e.g. `<i>resolved</i>`, `<i>verdict</i>`, & `<i>visited</i>`)
  */
 public class Order implements Snapshot, Comparable<Order> {
 
     // TODO: Reformat? from class -> record (introduced Java 16; 2021)
 
     // Core fields
-    public Nation       owner;
-    public UnitType     unitType;
-    public OrderType    orderType;
-    public Province     pos0, pos1, pos2;
-
-    // `dislodged` field not currently utilized (09-21-25 -- now: building up test cases)
-    // TODO: Quasi-implemented: 10/19/25 --> WIP
-    public boolean      dislodged;
+    public Nation owner;
+    public UnitType unitType;
+    public OrderType orderType;
+    public Province pos0, pos1, pos2;
 
     // Metadata fields
     // REMEMBER to update `Order.wipeMetaInf()` when adding new metadata flags
@@ -41,18 +41,13 @@ public class Order implements Snapshot, Comparable<Order> {
     private Order originalOrder = null;
 
 
-    public Order(Nation owner, UnitType unitType, Province origin, OrderType orderType, Province pos1, Province pos2, boolean dislodged) {
+    public Order(Nation owner, UnitType unitType, Province origin, OrderType orderType, Province pos1, Province pos2) {
         this.owner = owner;
         this.unitType = unitType;
         this.orderType = orderType;
         this.pos0 = origin;
         this.pos1 = pos1;
         this.pos2 = pos2;
-        this.dislodged = dislodged;
-    }
-
-    public Order(Nation owner, UnitType unitType, Province origin, OrderType orderType, Province pos1, Province pos2) {
-        this(owner, unitType, origin, orderType, pos1, pos2, false);
     }
 
     public Order(Nation owner, UnitType unitType, Province origin, OrderType orderType, Province pos1) {
@@ -70,8 +65,7 @@ public class Order implements Snapshot, Comparable<Order> {
                 order2.pos0,
                 order2.orderType,
                 order2.pos1,
-                order2.pos2,
-                order2.dislodged
+                order2.pos2
         );
 
         this.resolved = order2.resolved;
@@ -109,8 +103,6 @@ public class Order implements Snapshot, Comparable<Order> {
         this.pos0 = getSnapshot().pos0;
         this.pos1 = getSnapshot().pos1;
         this.pos2 = getSnapshot().pos2;
-        // does replicate `dislodged` field, because so does clone constructor
-        this.dislodged = getSnapshot().dislodged;
 
         // un-set snapshot
         this.originalOrder = null;
@@ -148,7 +140,7 @@ public class Order implements Snapshot, Comparable<Order> {
      * @return String representation of this Order's metadata fields
      */
     public String metaToString() {
-        return String.format("%s:%b\t%s:%b\t%s:%b", "resolved", resolved, "verdict", verdict, "dislodged", dislodged);
+        return String.format("%s:%b\t%s:%b", "resolved", resolved, "verdict", verdict);
     }
 
 
@@ -216,8 +208,7 @@ public class Order implements Snapshot, Comparable<Order> {
                 && this.orderType == order2.orderType
                 && this.pos0 == order2.pos0
                 && this.pos1 == order2.pos1
-                && this.pos2 == order2.pos2
-                && this.dislodged == order2.dislodged;
+                && this.pos2 == order2.pos2;
     }
 
     /**
@@ -243,8 +234,7 @@ public class Order implements Snapshot, Comparable<Order> {
                 this.orderType,
                 this.pos0,
                 this.pos1,
-                this.pos2,
-                this.dislodged
+                this.pos2
         );
 
     }

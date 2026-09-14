@@ -1,7 +1,7 @@
 package _app;
 
 import adjudication.*;
-import domain.Order;
+import adjudication.Order;
 import domain.OrderType;
 import domain.Province;
 import parsing.DATCFileParser;

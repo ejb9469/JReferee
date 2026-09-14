@@ -1,6 +1,5 @@
 package adjudication;
 
-import domain.Order;
 import domain.OrderType;
 import domain.Province;
 import adjudication.util.Orders;
@@ -97,8 +96,8 @@ public class SzykmanJustice extends Justice {
          * calling this hook. Preserve that state before the inherited selector
          * potentially performs its tie-handling re-adjudication.
          */
-        Collection<Order> submittedOrders = new ArrayList<>(
-                Orders.deepCopy(this.orders));
+        Collection<Order> submittedOrders =
+                Orders.deepCopy(this.orders);
 
         Collection<Set<Order>> resolutions =
                 this.representativeCandidateResolutions();
@@ -224,8 +223,8 @@ public class SzykmanJustice extends Justice {
             Map<String, Order> conflictingConvoys
     ) {
 
-        List<Order> transformedOrders = new ArrayList<>(
-                Orders.deepCopy(submittedOrders));
+        List<Order> transformedOrders =
+                Orders.deepCopy(submittedOrders);
 
         for (Order order : transformedOrders) {
 

@@ -1,7 +1,7 @@
 package testing;
 
 import adjudication.Judge;
-import domain.Order;
+import adjudication.Order;
 import adjudication.util.Constants;
 import adjudication.util.Orders;
 
@@ -48,7 +48,7 @@ public class TestCase {
         this.actualFields.addAll(testCase.actualFields);
         this.score = testCase.score;
         this.eval = testCase.eval;
-        this.originalOrders = testCase.originalOrders;
+        this.originalOrders = Orders.deepCopy(testCase.originalOrders);
     }
 
 

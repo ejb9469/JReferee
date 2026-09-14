@@ -1,7 +1,6 @@
 package adjudication;
 
 import adjudication.util.Dependencies;
-import domain.Order;
 import domain.OrderType;
 import adjudication.util.OrderComparator;
 import adjudication.util.Orders;
@@ -109,8 +108,7 @@ public class Justice extends Judge {
 
         this.aggregateParadoxCycles.clear();
 
-        List<Order> submittedOrders = new ArrayList<>(
-                Orders.deepCopy(this.orders));
+        List<Order> submittedOrders = Orders.deepCopy(this.orders);
 
         List<List<Order>> components =
                 Dependencies.partition(submittedOrders);
@@ -141,7 +139,7 @@ public class Justice extends Judge {
              * might be order-sensitive.
              */
             Judge baselineJudge = new Judge(
-                    new ArrayList<>(Orders.deepCopy(component)));
+                    Orders.deepCopy(component));
 
             baselineJudge.judge();
 
@@ -172,8 +170,7 @@ public class Justice extends Judge {
         this.candidateResolutions.clear();
         this.candidateResolutions.putAll(allCandidates);
 
-        this.orders = new ArrayList<>(
-                Orders.deepCopy(finalOrders));
+        this.orders = Orders.deepCopy(finalOrders);
 
         this.refreshParadoxCycles();
 
@@ -193,8 +190,8 @@ public class Justice extends Judge {
          * Begin from a stable order before shuffling.
          * This ensures the same input order set + the same seed ==> same trials seq.
          */
-        List<Order> originalOrders = new ArrayList<>(
-                Orders.deepCopy(componentOrders));
+        // new ArrayList<>(Orders.deepCopy()) is REDUNDANT!!
+        List<Order> originalOrders = Orders.deepCopy(componentOrders);
 
         originalOrders.sort(new OrderComparator());
 
@@ -202,8 +199,7 @@ public class Justice extends Judge {
 
         for (int trial = 1; trial <= this.numTrials; trial++) {
 
-            List<Order> ordersClone = new ArrayList<>(
-                    Orders.deepCopy(originalOrders));
+            List<Order> ordersClone = Orders.deepCopy(originalOrders);
 
             Collections.shuffle(ordersClone, random);
 
@@ -211,8 +207,7 @@ public class Justice extends Judge {
              * Preserve the order before Judge mutates resolution metadata or
              * applies a Szykman convoy replacement.
              */
-            List<Order> trialInputOrder = new ArrayList<>(
-                    Orders.deepCopy(ordersClone));
+            List<Order> trialInputOrder = Orders.deepCopy(ordersClone);
 
             this.orders = ordersClone;
             super.judge();
@@ -243,7 +238,7 @@ public class Justice extends Judge {
          * Restore the original submitted state before selecting a final
          * meta-resolution.
          */
-        this.orders = new ArrayList<>(Orders.deepCopy(originalOrders));
+        this.orders = Orders.deepCopy(originalOrders);
 
         Collection<Order> finalResolution = this.selectFinalResolution();
 
@@ -252,12 +247,10 @@ public class Justice extends Judge {
          * restored original order set, matching the previous implementation.
          */
         if (finalResolution != null) {
-            this.orders = new ArrayList<>(
-                    Orders.deepCopy(finalResolution));
+            this.orders = Orders.deepCopy(finalResolution);
         }
 
-        return new ArrayList<>(
-                Orders.deepCopy(this.orders));
+        return Orders.deepCopy(this.orders);
 
     }
 
@@ -467,9 +460,7 @@ public class Justice extends Judge {
                         Collection<Order> szykmanOrders =
                                 this.szykmanRule(otherMostResolvedPerms);
 
-                        this.orders = new ArrayList<>(
-                                Orders.deepCopy(szykmanOrders)
-                        );
+                        this.orders = Orders.deepCopy(szykmanOrders);
 
                         for (Order order : this.orders)
                             order.wipeMetaInf();
@@ -477,8 +468,7 @@ public class Justice extends Judge {
                         super.judge();
 
                         mostResolvedPerm = new LinkedHashSet<>(
-                                Orders.deepCopy(this.orders)
-                        );
+                                Orders.deepCopy(this.orders));
 
                     }
 

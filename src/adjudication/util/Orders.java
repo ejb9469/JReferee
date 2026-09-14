@@ -1,9 +1,9 @@
 package adjudication.util;
 
+import adjudication.Order;
 import domain.*;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Abstract class of static utility functions re: Orders and Collections of Orders
@@ -333,17 +333,22 @@ public abstract class Orders {
     }
 
 
-    public static Collection<Order> deepCopy(Collection<Order> orders) {
-        // Default to List collection-type
-        return deepCopy(List.copyOf(orders));
+    public static List<Order> deepCopy(Collection<Order> orders) {
+        List<Order> copies = new ArrayList<>(orders.size());
+        for (Order order : orders)
+            copies.add(new Order(order));
+        return copies;
     }
 
     public static List<Order> deepCopy(List<Order> orders) {
-        return (new ArrayList<>(orders)).stream().map(Order::new).collect(Collectors.toList());
+        return deepCopy((Collection<Order>) orders);
     }
 
     public static Set<Order> deepCopy(Set<Order> orders) {
-        return (new HashSet<>(orders)).stream().map(Order::new).collect(Collectors.toSet());
+        Set<Order> copies = new HashSet<>(orders.size());
+        for (Order order : orders)
+            copies.add(new Order(order));
+        return copies;
     }
 
     /**
@@ -430,8 +435,7 @@ public abstract class Orders {
                 + "\u001F" + String.valueOf(originalOrder.orderType)
                 + "\u001F" + String.valueOf(originalOrder.pos0)
                 + "\u001F" + String.valueOf(originalOrder.pos1)
-                + "\u001F" + String.valueOf(originalOrder.pos2)
-                + "\u001F" + originalOrder.dislodged;
+                + "\u001F" + String.valueOf(originalOrder.pos2);
     }
 
     public static boolean sameKey(Order first, Order second) {
