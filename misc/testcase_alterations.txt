@@ -1,3 +1,7 @@
+6.A.06. ORDERING A UNIT OF ANOTHER COUNTRY
+    ~ This is simply not how orders are parsed-through in `JReferee`.
+
+
 6.A.10. SUPPORT ON UNREACHABLE DESTINATION NOT POSSIBLE ::
     ~ Technically, the support order should fail due to its invalidity, but the program calls it successful.
     ~ It still does not count the support, so I will leave the interpretation of this Test Case up to a higher level (ATM)
@@ -19,6 +23,10 @@
 6.B.08. SUPPORTING WITH UNSPECIFIED COAST WHEN ONLY ONE COAST IS POSSIBLE ::
     ~ The DATC indicates the French support should be followed despite its ambiguity, because it is a "poorly written order".
     ~ The DATC has elsewhere indicated matters of order writing judgement are a matter of preference. I will rule the other way.
+
+
+6.B.11. COAST CANNOT BE ORDERED TO CHANGE
+    ~ This funky non-ownership problem is equivalent to 6.A.6. This is likewise N/A.
 
 
 6.D.28. IMPOSSIBLE MOVE AND SUPPORT ::

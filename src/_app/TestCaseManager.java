@@ -364,11 +364,9 @@ public class TestCaseManager {
         System.out.println("PHASE PROCESSOR TESTING:\n");
 
         for (ProcessorTestCase<?,?> testCase : this.processorTestCases)
-            testCase.eval(this.willPrint());
+            testCase.eval(false);
 
-        this.printProcessorTestCaseResults(
-                this.processorTestCases
-        );
+        this.printProcessorTestCaseResults(this.processorTestCases);
 
         this.printProcessorTotals();
 
