@@ -8,132 +8,182 @@ import domain.UnitType;
 import java.util.Objects;
 
 /**
- * IMMUTABLE Order!
- * `phase.Order` is distinct from `adjudication.Order`, which is (fully) mutable.
+ * Immutable submitted movement order.
+ *
+ * <p>The issuing {@link UnitId} is persistent across turns. Its current
+ * location is supplied separately by MovementInput, rather than being encoded
+ * in this order or inferred from UnitId.origin().</p>
  */
 public final class Order {
 
-    private final Nation owner;
-    private final UnitType unitType;
+    private final UnitId unit;
     private final OrderType type;
-    private final Province origin;
     private final Province target;
     private final Province auxiliaryTarget;
 
-    // PRIVATE constructor; this class uses static method 'factory' constructors
     private Order(
-            Nation owner,
-            UnitType unitType,
+            UnitId unit,
             OrderType type,
-            Province origin,
             Province target,
             Province auxiliaryTarget
     ) {
-        this.owner = Objects.requireNonNull(owner, "owner");
-        this.unitType = Objects.requireNonNull(unitType, "unitType");
+        this.unit = Objects.requireNonNull(unit, "unit");
         this.type = Objects.requireNonNull(type, "type");
-        this.origin = Objects.requireNonNull(origin, "origin");
         this.target = target;
         this.auxiliaryTarget = auxiliaryTarget;
     }
 
-    public static Order hold(
-            Nation owner,
-            UnitType unitType,
-            Province origin
-    ) {
-        return new Order(owner, unitType, OrderType.HOLD, origin, null, null);
+    public static Order hold(UnitId unit) {
+        return new Order(unit, OrderType.HOLD, null, null);
     }
 
     public static Order move(
-            Nation owner,
-            UnitType unitType,
-            Province origin,
+            UnitId unit,
             Province destination
     ) {
         return new Order(
-                owner,
-                unitType,
+                unit,
                 OrderType.MOVE,
-                origin,
                 Objects.requireNonNull(destination, "destination"),
-                null
-        );
+                null);
     }
 
     public static Order supportHold(
-            Nation owner,
-            UnitType unitType,
-            Province origin,
+            UnitId unit,
             Province supportedUnitPosition
     ) {
         return new Order(
-                owner,
-                unitType,
+                unit,
                 OrderType.SUPPORT,
-                origin,
                 Objects.requireNonNull(
                         supportedUnitPosition,
                         "supportedUnitPosition"
                 ),
-                null
-        );
+                null);
     }
 
     public static Order supportMove(
-            Nation owner,
-            UnitType unitType,
-            Province origin,
+            UnitId unit,
             Province supportedUnitPosition,
             Province supportedDestination
     ) {
         return new Order(
-                owner,
-                unitType,
+                unit,
                 OrderType.SUPPORT,
-                origin,
                 Objects.requireNonNull(
                         supportedUnitPosition,
-                        "supportedUnitPosition"
-                ),
+                        "supportedUnitPosition"),
                 Objects.requireNonNull(
                         supportedDestination,
-                        "supportedDestination"
-                )
+                        "supportedDestination")
         );
     }
 
     public static Order convoy(
-            Nation owner,
-            Province fleetPosition,
-            Province armyOrigin,
+            UnitId fleet,
+            Province armyPosition,
             Province armyDestination
     ) {
+
+        if (fleet.unitType() != UnitType.FLEET)
+            throw new IllegalArgumentException(
+                    "Only fleets may receive convoy orders: " + fleet);
+
         return new Order(
-                owner,
-                UnitType.FLEET,
+                fleet,
                 OrderType.CONVOY,
-                fleetPosition,
-                Objects.requireNonNull(armyOrigin, "armyOrigin"),
-                Objects.requireNonNull(armyDestination, "armyDestination")
+                Objects.requireNonNull(armyPosition, "armyPosition"),
+                Objects.requireNonNull(
+                        armyDestination,
+                        "armyDestination")
+        );
+
+    }
+
+    /*
+     * Transitional factories for initial-position tests and callers. Do not
+     * use these once a game has persistent UnitId values created by prior
+     * adjustment phases.
+     */
+
+    @Deprecated
+    public static Order hold(
+            Nation owner,
+            UnitType unitType,
+            Province currentLocation
+    ) {
+        return hold(new UnitId(owner, unitType, currentLocation));
+    }
+
+    @Deprecated
+    public static Order move(
+            Nation owner,
+            UnitType unitType,
+            Province currentLocation,
+            Province destination
+    ) {
+        return move(
+                new UnitId(owner, unitType, currentLocation),
+                destination);
+    }
+
+    @Deprecated
+    public static Order supportHold(
+            Nation owner,
+            UnitType unitType,
+            Province currentLocation,
+            Province supportedUnitPosition
+    ) {
+        return supportHold(
+                new UnitId(owner, unitType, currentLocation),
+                supportedUnitPosition);
+    }
+
+    @Deprecated
+    public static Order supportMove(
+            Nation owner,
+            UnitType unitType,
+            Province currentLocation,
+            Province supportedUnitPosition,
+            Province supportedDestination
+    ) {
+        return supportMove(
+                new UnitId(owner, unitType, currentLocation),
+                supportedUnitPosition,
+                supportedDestination);
+    }
+
+    @Deprecated
+    public static Order convoy(
+            Nation owner,
+            Province fleetLocation,
+            Province armyPosition,
+            Province armyDestination
+    ) {
+        return convoy(
+                new UnitId(
+                        owner,
+                        UnitType.FLEET,
+                        fleetLocation),
+                armyPosition,
+                armyDestination
         );
     }
 
+    public UnitId unit() {
+        return unit;
+    }
 
     public Nation owner() {
-        return owner;
+        return unit.owner();
     }
 
     public UnitType unitType() {
-        return unitType;
+        return unit.unitType();
     }
 
     public OrderType type() {
         return type;
-    }
-
-    public Province origin() {
-        return origin;
     }
 
     public Province target() {
@@ -144,28 +194,23 @@ public final class Order {
         return auxiliaryTarget;
     }
 
-
     @Override
     public boolean equals(Object other) {
         if (this == other)
             return true;
         if (!(other instanceof Order that))
             return false;
-        return owner == that.owner
-                && unitType == that.unitType
+        return ( unit.equals(that.unit)
                 && type == that.type
-                && origin == that.origin
                 && target == that.target
-                && auxiliaryTarget == that.auxiliaryTarget;
+                && auxiliaryTarget == that.auxiliaryTarget );
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
-                owner,
-                unitType,
+                unit,
                 type,
-                origin,
                 target,
                 auxiliaryTarget
         );
@@ -174,10 +219,8 @@ public final class Order {
     @Override
     public String toString() {
         return "Order{"
-                + "owner=" + owner
-                + ", unitType=" + unitType
+                + "unit=" + unit
                 + ", type=" + type
-                + ", origin=" + origin
                 + ", target=" + target
                 + ", auxiliaryTarget=" + auxiliaryTarget
                 + '}';

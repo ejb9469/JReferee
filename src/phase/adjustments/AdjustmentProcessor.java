@@ -20,22 +20,19 @@ import java.util.Set;
 
 /**
  * Processes one winter adjustment phase.
- *
- * <p>The processor calculates balances once from the post-retreat board, then
- * applies submitted builds, waives, and voluntary disbands. It never derives
- * balance by mutating a shared per-nation counter while individual orders are
- * adjudicated.</p>
  */
 public final class AdjustmentProcessor
         implements Processor<AdjustmentInput, AdjustmentResult> {
 
+
     private final BalanceCalculator balanceCalculator;
     private final AutoDisbandPolicy autoDisbandPolicy;
 
+
     public AdjustmentProcessor(
             BalanceCalculator balanceCalculator,
-            AutoDisbandPolicy autoDisbandPolicy)
-    {
+            AutoDisbandPolicy autoDisbandPolicy
+    ) {
         this.balanceCalculator = Objects.requireNonNull(
                 balanceCalculator,
                 "balanceCalculator");
@@ -45,26 +42,25 @@ public final class AdjustmentProcessor
     }
 
     /**
-     * Creates a processor that requires voluntary orders to satisfy every
-     * mandatory disband until a civil-disorder policy is implemented.
+     * Uses the standard civil-disorder policy when voluntary disband orders do
+     * not satisfy a nation's required removals.
      */
     public AdjustmentProcessor() {
         this(
                 new BalanceCalculator(),
-                AutoDisbandPolicy.failWhenRequired());
+                new StandardAutoDisbandPolicy()
+        );
     }
+
 
     @Override
     public AdjustmentResult process(AdjustmentInput input) {
+
         Objects.requireNonNull(input, "input");
 
         Map<Nation, Balance> balances =
                 balanceCalculator.calculate(input);
 
-        /*
-         * Begin with the complete post-retreat board. Disbands remove entries;
-         * accepted builds add new, permanently distinct UnitIds.
-         */
         Map<UnitId, Province> finalLocations = new LinkedHashMap<>(
                 input.retreatResult().finalLocations());
 
@@ -73,9 +69,6 @@ public final class AdjustmentProcessor
         AdjustmentResult.Outcome.Status[] statuses =
                 new AdjustmentResult.Outcome.Status[
                         submittedOrders.size()];
-
-        markDuplicateBuildSites(submittedOrders, statuses);
-        markDuplicateDisbands(submittedOrders, statuses);
 
         Map<Nation, Integer> remainingBuilds =
                 allowanceMap(balances, true);
@@ -87,18 +80,11 @@ public final class AdjustmentProcessor
         Set<UnitId> disbandedUnits = new LinkedHashSet<>();
 
         /*
-         * Apply non-duplicate submitted orders in submission order.
-         *
-         * Valid adjustment orders consume a finite allowance. Once a nation's
-         * allowance is exhausted, subsequent otherwise-valid orders are
-         * rejected as excessive. This makes the behavior deterministic and
-         * gives clients a straightforward way to order preferred adjustments.
+         * Orders are evaluated in submitted order. Therefore, a second build
+         * at a previously built site is rejected as occupied, and a second
+         * disband of an already removed unit is rejected as absent.
          */
         for (int index = 0; index < submittedOrders.size(); index++) {
-
-            if (statuses[index] != null) {
-                continue;
-            }
 
             AdjustmentOrder order = submittedOrders.get(index);
 
@@ -129,8 +115,7 @@ public final class AdjustmentProcessor
             }
 
             throw new IllegalArgumentException(
-                    "Unsupported adjustment order type: "
-                            + order.getClass().getName());
+                    "Unsupported adjustment order type: " + order.getClass().getName());
 
         }
 
@@ -140,48 +125,16 @@ public final class AdjustmentProcessor
                 remainingDisbands,
                 disbandedUnits);
 
-        List<AdjustmentResult.Outcome> outcomes = resultOutcomes(submittedOrders, statuses);
-
         return new AdjustmentResult(
                 input.retreatResult(),
                 finalLocations,
                 balances,
-                outcomes,
+                resultOutcomes(submittedOrders, statuses),
                 disbandedUnits,
                 builtUnits);
 
     }
 
-    // private (static) helper for `process(...)`
-    private static List<AdjustmentResult.Outcome> resultOutcomes(
-            List<AdjustmentOrder> submittedOrders,
-            AdjustmentResult.Outcome.Status[] statuses) {
-
-        List<AdjustmentResult.Outcome> outcomes =
-                new ArrayList<>(submittedOrders.size());
-
-        for (int index = 0; index < submittedOrders.size(); index++) {
-
-            AdjustmentResult.Outcome.Status status =
-                    statuses[index];
-
-            if (status == null)
-                throw new IllegalStateException(
-                        "Adjustment order received no outcome: "
-                                + submittedOrders.get(index));
-
-            outcomes.add(
-                    new AdjustmentResult.Outcome(
-                            submittedOrders.get(index),
-                            status));
-
-        }
-
-        return outcomes;
-
-    }
-
-    // private helper for `process(...)`
     private AdjustmentResult.Outcome.Status processBuild(
             AdjustmentInput input,
             BuildOrder order,
@@ -196,10 +149,7 @@ public final class AdjustmentProcessor
             return AdjustmentResult.Outcome.Status.REJECTED_NO_BUILD_CAPACITY;
 
         AdjustmentResult.Outcome.Status locationStatus =
-                validateBuildSite(
-                        input,
-                        order,
-                        finalLocations);
+                validateBuildSite(input, order, finalLocations);
 
         if (locationStatus != null)
             return locationStatus;
@@ -209,13 +159,11 @@ public final class AdjustmentProcessor
                 order.unitType(),
                 order.location());
 
-        if (finalLocations.putIfAbsent(builtUnit, order.location()) != null)
-            throw new IllegalStateException(
-                    "Newly created UnitId already exists: " + builtUnit);
-
+        finalLocations.put(builtUnit, order.location());
         builtUnits.add(builtUnit);
 
-        remainingBuilds.put(nation,
+        remainingBuilds.put(
+                nation,
                 remainingBuilds.get(nation) - 1);
 
         return AdjustmentResult.Outcome.Status.ACCEPTED;
@@ -228,19 +176,19 @@ public final class AdjustmentProcessor
             Map<UnitId, Province> finalLocations
     ) {
 
-        Province suppliedLocation = order.location();
-        Province territory = canonicalProvince(suppliedLocation);
+        Province location = order.location();
+        Province territory = canonicalProvince(location);
 
         if (territory.homeowner != order.nation())
             return AdjustmentResult.Outcome.Status.REJECTED_NOT_HOME_SUPPLY_CENTER;
 
-        if (input.ownerOf(suppliedLocation) != order.nation())
+        if (input.ownerOf(location) != order.nation())
             return AdjustmentResult.Outcome.Status.REJECTED_SUPPLY_CENTER_NOT_CONTROLLED;
 
-        if (isOccupied(suppliedLocation, finalLocations))
+        if (isOccupied(location, finalLocations))
             return AdjustmentResult.Outcome.Status.REJECTED_BUILD_LOCATION_OCCUPIED;
 
-        if (!isLegalBuildUnitType(order.unitType(), suppliedLocation))
+        if (!isLegalBuildUnitType(order.unitType(), location))
             return AdjustmentResult.Outcome.Status.REJECTED_ILLEGAL_UNIT_TYPE;
 
         return null;
@@ -287,7 +235,8 @@ public final class AdjustmentProcessor
         finalLocations.remove(unit);
         disbandedUnits.add(unit);
 
-        remainingDisbands.put(nation,
+        remainingDisbands.put(
+                nation,
                 remainingDisbands.get(nation) - 1);
 
         return AdjustmentResult.Outcome.Status.ACCEPTED;
@@ -310,10 +259,10 @@ public final class AdjustmentProcessor
 
             Collection<UnitId> selected =
                     autoDisbandPolicy.select(
-                        input,
-                        Map.copyOf(finalLocations),
-                        nation,
-                        numberRequired);
+                            input,
+                            Map.copyOf(finalLocations),
+                            nation,
+                            numberRequired);
 
             if (selected == null)
                 throw new IllegalStateException(
@@ -323,18 +272,24 @@ public final class AdjustmentProcessor
 
             if (uniqueSelections.size() != numberRequired)
                 throw new IllegalStateException(
-                        "AutoDisbandPolicy must select exactly " + numberRequired
-                                + " unique unit(s) for " + nation);
+                        "AutoDisbandPolicy must select exactly "
+                                + numberRequired
+                                + " unique unit(s) for "
+                                + nation);
 
             for (UnitId unit : uniqueSelections) {
+
                 if (unit.owner() != nation)
                     throw new IllegalStateException(
                             "AutoDisbandPolicy selected another nation's unit: " + unit);
+
                 if (!finalLocations.containsKey(unit))
                     throw new IllegalStateException(
                             "AutoDisbandPolicy selected absent unit: " + unit);
+
                 finalLocations.remove(unit);
                 disbandedUnits.add(unit);
+
             }
 
             remainingDisbands.put(nation, 0);
@@ -343,68 +298,30 @@ public final class AdjustmentProcessor
 
     }
 
-    private void markDuplicateBuildSites(
-            List<AdjustmentOrder> orders,
+    private static List<AdjustmentResult.Outcome> resultOutcomes(
+            List<AdjustmentOrder> submittedOrders,
             AdjustmentResult.Outcome.Status[] statuses
     ) {
 
-        Map<Province, List<Integer>> indexesByLocation = new LinkedHashMap<>();
+        List<AdjustmentResult.Outcome> outcomes = new ArrayList<>(submittedOrders.size());
 
-        for (int index = 0; index < orders.size(); index++) {
+        for (int index = 0; index < submittedOrders.size(); index++) {
 
-            AdjustmentOrder order = orders.get(index);
+            AdjustmentResult.Outcome.Status status = statuses[index];
 
-            if (!(order instanceof BuildOrder buildOrder))
-                continue;
+            if (status == null)
+                throw new IllegalStateException(
+                        "Adjustment order received no outcome: " + submittedOrders.get(index));
 
-            Province territory = canonicalProvince(
-                    buildOrder.location());
-
-            indexesByLocation.computeIfAbsent(
-                    territory,
-                    ignored -> new ArrayList<>()
-            ).add(index);
-
-        }
-
-        for (List<Integer> indexes : indexesByLocation.values()) {
-            if (indexes.size() <= 1)
-                continue;
-            for (int index : indexes)
-                statuses[index] =
-                        AdjustmentResult.Outcome.Status.REJECTED_DUPLICATE_BUILD_LOCATION;
-        }
-
-    }
-
-    private void markDuplicateDisbands(
-            List<AdjustmentOrder> orders,
-            AdjustmentResult.Outcome.Status[] statuses
-    ) {
-
-        Map<UnitId, List<Integer>> indexesByUnit = new LinkedHashMap<>();
-
-        for (int index = 0; index < orders.size(); index++) {
-
-            AdjustmentOrder order = orders.get(index);
-
-            if (!(order instanceof DisbandOrder disbandOrder))
-                continue;
-
-            indexesByUnit.computeIfAbsent(
-                    disbandOrder.unit(),
-                    ignored -> new ArrayList<>()
-            ).add(index);
+            outcomes.add(
+                    new AdjustmentResult.Outcome(
+                            submittedOrders.get(index),
+                            status)
+            );
 
         }
 
-        for (List<Integer> indexes : indexesByUnit.values()) {
-            if (indexes.size() <= 1)
-                continue;
-            for (int index : indexes)
-                statuses[index] =
-                        AdjustmentResult.Outcome.Status.REJECTED_DUPLICATE_UNIT_ORDER;
-        }
+        return outcomes;
 
     }
 
@@ -413,21 +330,22 @@ public final class AdjustmentProcessor
             boolean builds
     ) {
 
-        Map<Nation, Integer> allowances = new EnumMap<>(Nation.class);
+        Map<Nation, Integer> allowances =
+                new EnumMap<>(Nation.class);
 
         for (Nation nation : Nation.values()) {
 
             Balance balance = balances.get(nation);
 
             if (balance == null)
-                throw new IllegalArgumentException(
-                        "Missing adjustment balance for " + nation);
+                throw new IllegalArgumentException("Missing adjustment balance for " + nation);
 
             allowances.put(
                     nation,
                     builds
                             ? balance.availableBuilds()
-                            : balance.requiredDisbands());
+                            : balance.requiredDisbands()
+            );
 
         }
 
@@ -437,10 +355,12 @@ public final class AdjustmentProcessor
 
     private static boolean isOccupied(
             Province province,
-            Map<UnitId, Province> finalLocations
+            Map<UnitId, Province> locations
     ) {
-        for (Province occupiedLocation : finalLocations.values())
-            if (Province.equalsIgnoreCoast(occupiedLocation, province))
+        for (Province occupiedLocation : locations.values())
+            if (Province.equalsIgnoreCoast(
+                    occupiedLocation,
+                    province))
                 return true;
         return false;
     }
@@ -450,20 +370,15 @@ public final class AdjustmentProcessor
             Province location
     ) {
 
-        if (unitType == UnitType.ARMY) {
-            /*
-             * An army is built in a territory, not on a selected coast. For
-             * split-coast provinces, callers must use the parent territory.
-             */
+        if (unitType == UnitType.ARMY)
             return ( location.geography != Geography.WATER
                     && location.parent == null );
-        }
 
         if (unitType == UnitType.FLEET) {
             /*
-             * Generic St Petersburg, Spain, and Bulgaria are represented as
-             * inland parent territories in the current map model. A fleet
-             * build must name the appropriate explicit coast.
+             * In the current Province model, generic Stp/Spa/Bul are INLAND
+             * while their explicit coast variants are COASTAL. This therefore
+             * accepts explicit coast builds and rejects ambiguous parents.
              */
             return ( location.geography == Geography.COASTAL
                     && location.coastType != CoastType.NONE );
@@ -479,5 +394,6 @@ public final class AdjustmentProcessor
                 ? province
                 : province.parent;
     }
+
 
 }

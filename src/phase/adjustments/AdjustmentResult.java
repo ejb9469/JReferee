@@ -175,8 +175,8 @@ public final class AdjustmentResult implements PhaseResult {
 
         public enum Status {
             ACCEPTED,
-            REJECTED_DUPLICATE_UNIT_ORDER,
-            REJECTED_DUPLICATE_BUILD_LOCATION,
+            //REJECTED_DUPLICATE_UNIT_ORDER,  // should not necessarily be rejected, `BUILD_LOCATION_OCCUPIED` if it is
+            //REJECTED_DUPLICATE_BUILD_LOCATION,  // should not necessarily be rejected, `UNIT_NOT_ON_BOARD` if it is
             REJECTED_UNIT_NOT_ON_BOARD,
             REJECTED_UNIT_NOT_OWNED,
             REJECTED_NOT_HOME_SUPPLY_CENTER,
