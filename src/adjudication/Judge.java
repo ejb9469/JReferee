@@ -1453,4 +1453,40 @@ public class Judge implements Adjudicator, ParadoxTransparent {
     }
 
 
+    /**
+     * Returns whether an *already-adjudicated* MOVE order had a usable path,
+     * for purposes of retreats.
+     *
+     * <p>A move may have a valid path but fail due to defensive strength or a bounce.
+     * Conversely, a move with no land route + a disrupted convoy path has no usable path.</p>
+     */
+    public boolean movePathIsOpen(Order order) {
+
+        Objects.requireNonNull(order, "order");
+
+        if (order.orderType != OrderType.MOVE)
+            throw new IllegalArgumentException(
+                    "movePathIsOpen(...) requires a MOVE order: " + order);
+
+        if (!order.resolved)
+            throw new IllegalStateException(
+                    "movePathIsOpen(...) requires an adjudicated order: " + order);
+
+        boolean belongsToMe = false;
+        for (Order knownOrder : this.orders) {
+            if (knownOrder == order) {
+                belongsToMe = true;
+                break;
+            }
+        }
+
+        if (!belongsToMe)
+            throw new IllegalArgumentException(
+                    "Order does not belong to this Judge instance: " + order);
+
+        return this.pathSuccessful(order, true, this.orders, this.rootContext);
+
+    }
+
+
 }

@@ -6,7 +6,7 @@ import domain.OrderType;
 import domain.Province;
 import parsing.DATCFileParser;
 import parsing.FileTestCaseParser;
-import testing.RefereeTestCase;
+import testing.DATCTestCase;
 import testing.TestCase;
 import adjudication.util.Constants;
 import adjudication.util.OrderComparator;
@@ -183,11 +183,11 @@ public class TestCaseManager {
         if (USE_SZYKMAN_REFEREE)
             SzykmanJustice.resetProbeDiagnostics();
 
-        List<RefereeTestCase> refTCs = new ArrayList<>();
+        List<DATCTestCase> refTCs = new ArrayList<>();
 
         for (TestCase testCase : this.testCases) {
-            RefereeTestCase refTC =
-                    new RefereeTestCase(testCase);
+            DATCTestCase refTC =
+                    new DATCTestCase(testCase);
 
             refTCs.add(refTC);
             refTC.eval(this.willPrint());
