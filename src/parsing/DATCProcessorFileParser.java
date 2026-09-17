@@ -671,13 +671,15 @@ public final class DATCProcessorFileParser {
 
     }
 
+    // normalization function
+    // [ will convert e.g. "tri", "StPNC" to proper format
+    //      for `province(...)` ]
     private static String provinceKey(String value) {
 
         StringBuilder key = new StringBuilder();
 
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
             if (Character.isLetterOrDigit(character))
                 key.append(Character.toLowerCase(character));
         }

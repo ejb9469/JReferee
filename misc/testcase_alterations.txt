@@ -109,3 +109,7 @@
 
 6.G.20. EXPLICIT CONVOY TO ADJACENT PROVINCE DISRUPTED ::
     ~ Fallback is allowed in base-class `Judge`, without the notion of "via convoy". This Test Case reflects that.
+
+
+6.H.12. RETREAT WHEN DISLODGED BY ADJACENT CONVOY WHILE TRYING TO DO THE SAME
+    ~ JReferee doesn't support `via convoy` -- it is baked into the program
