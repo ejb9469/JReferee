@@ -9,18 +9,18 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-public class DATCTestCase extends TestCase {
+public class DATCAdjTestCase extends AdjudicatorTestCase {
 
 
-    public DATCTestCase(String name, Order... orders) {
+    public DATCAdjTestCase(String name, Order... orders) {
         super(name, orders);
     }
 
-    public DATCTestCase(String name, List<Order> orders) {
+    public DATCAdjTestCase(String name, List<Order> orders) {
         super(name, orders);
     }
 
-    public DATCTestCase(TestCase testCase) {
+    public DATCAdjTestCase(AdjudicatorTestCase testCase) {
         super(testCase);
     }
 

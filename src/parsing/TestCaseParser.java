@@ -1,12 +1,12 @@
 package parsing;
 
-import testing.TestCase;
+import testing.AdjudicatorTestCase;
 
 /**
  * Interface describing the functionality of a test case parser (from String -> `TestCase`)
  */
 public interface TestCaseParser {
 
-    public TestCase parse(String source);
+    public AdjudicatorTestCase parse(String source);
 
 }

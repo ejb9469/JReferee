@@ -1,6 +1,6 @@
 package parsing;
 
-import testing.TestCase;
+import testing.AdjudicatorTestCase;
 
 import java.io.File;
 import java.io.IOException;
@@ -34,7 +34,7 @@ public class DATCFileParser extends DATCParser implements FileTestCaseParser {
 
 
     @Override
-    public TestCase parse(String path) {
+    public AdjudicatorTestCase parse(String path) {
 
         if (path.isBlank() || this.dirPath.isBlank())
             return null;
@@ -79,7 +79,7 @@ public class DATCFileParser extends DATCParser implements FileTestCaseParser {
                 return super.parse(contents);
             }
 
-            TestCase testCase = super.parse(contents);
+            AdjudicatorTestCase testCase = super.parse(contents);
             testCase.setName(path.substring(0, (path.length() - TESTGAMES_FILE_EXT.length()) ));
             testCase.setExpectedFields(this.parseSolution(solutionContents));
             return testCase;
@@ -115,7 +115,7 @@ public class DATCFileParser extends DATCParser implements FileTestCaseParser {
 
     }
 
-    public Collection<TestCase> parseManyFiles() {
+    public Collection<AdjudicatorTestCase> parseManyFiles() {
 
         if (this.dirPath.isBlank())
             return null;
@@ -135,7 +135,7 @@ public class DATCFileParser extends DATCParser implements FileTestCaseParser {
         if (testCaseFiles == null)
             return null;
 
-        List<TestCase> testCases = new ArrayList<>();
+        List<AdjudicatorTestCase> testCases = new ArrayList<>();
         for (File testCaseFile : testCaseFiles) {
             System.out.println("Reading from...\t\t["+testCaseFile.getPath()+"]");
             testCases.add(this.parse(testCaseFile.getName()));

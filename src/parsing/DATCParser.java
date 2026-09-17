@@ -2,7 +2,7 @@ package parsing;
 
 import adjudication.Order;
 import domain.*;
-import testing.TestCase;
+import testing.AdjudicatorTestCase;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,7 +19,7 @@ public class DATCParser implements TestCaseParser {
     protected int TC_ID = 1;
 
 
-    public TestCase parse(String source) {
+    public AdjudicatorTestCase parse(String source) {
 
         List<Order> orders = new ArrayList<>();
 
@@ -120,7 +120,7 @@ public class DATCParser implements TestCaseParser {
 
         }
 
-        return new TestCase(String.format("%s_%04d", TC_PREFIX, this.TC_ID++), orders);
+        return new AdjudicatorTestCase(String.format("%s_%04d", TC_PREFIX, this.TC_ID++), orders);
 
     }
 

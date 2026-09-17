@@ -6,11 +6,12 @@ import domain.OrderType;
 import domain.Province;
 import parsing.DATCFileParser;
 import parsing.FileTestCaseParser;
-import testing.DATCTestCase;
-import testing.TestCase;
+import testing.DATCAdjTestCase;
+import testing.AdjudicatorTestCase;
 import adjudication.util.Constants;
 import adjudication.util.OrderComparator;
 import adjudication.util.Orders;
+import testing.ProcessorTestCase;
 
 import java.util.*;
 
@@ -49,7 +50,9 @@ public class TestCaseManager {
 
     // Core state \\
 
-    protected final List<TestCase> testCases;
+    protected final List<AdjudicatorTestCase>       adjudicatorTestCases;
+    protected final List<ProcessorTestCase<?,?>>    processorTestCases;
+
     protected final boolean prints;
 
 
@@ -60,7 +63,8 @@ public class TestCaseManager {
     }
 
     public TestCaseManager(boolean willPrint) {
-        this.testCases = new ArrayList<>();
+        this.adjudicatorTestCases = new ArrayList<>();
+        this.processorTestCases = new ArrayList<>();
         this.prints = willPrint;
     }
 
@@ -71,7 +75,7 @@ public class TestCaseManager {
 
         int score = 0;
 
-        for (TestCase testCase : this.testCases) {
+        for (AdjudicatorTestCase testCase : this.adjudicatorTestCases) {
             if (testCase.getScore() == testCase.getOrders().size())
                 score++;
         }
@@ -81,14 +85,14 @@ public class TestCaseManager {
     }
 
     public int size() {
-        return this.testCases.size();
+        return this.adjudicatorTestCases.size();
     }
 
     public int ordersScore() {
 
         int score = 0;
 
-        for (TestCase testCase : this.testCases)
+        for (AdjudicatorTestCase testCase : this.adjudicatorTestCases)
             score += testCase.getScore();
 
         return score;
@@ -99,15 +103,58 @@ public class TestCaseManager {
 
         int size = 0;
 
-        for (TestCase testCase : this.testCases)
+        for (AdjudicatorTestCase testCase : this.adjudicatorTestCases)
             size += testCase.getOrders().size();
 
         return size;
 
     }
 
-    public List<TestCase> getTestCases() {
-        return this.testCases;
+    public int processorScore() {
+
+        int score = 0;
+
+        for (ProcessorTestCase<?,?> testCase : this.processorTestCases) {
+            if (testCase.getScore() == testCase.getSize())
+                score++;
+        }
+
+        return score;
+
+    }
+
+    public int processorSize() {
+        return this.processorTestCases.size();
+    }
+
+    public int processorChecksScore() {
+
+        int score = 0;
+
+        for (ProcessorTestCase<?,?> testCase : this.processorTestCases)
+            score += testCase.getScore();
+
+        return score;
+
+    }
+
+    public int processorChecksSize() {
+
+        int size = 0;
+
+        for (ProcessorTestCase<?,?> testCase : this.processorTestCases)
+            size += testCase.getSize();
+
+        return size;
+
+    }
+
+    public List<AdjudicatorTestCase> getAdjudicatorTestCases() {
+        return this.adjudicatorTestCases;
+    }
+
+    public List<ProcessorTestCase<?,?>> getProcessorTestCases() {
+        return this.processorTestCases;
     }
 
     public boolean willPrint() {
@@ -117,36 +164,48 @@ public class TestCaseManager {
 
     // Test case management \\
 
-    public void addTestCase(TestCase testCase) {
-        this.testCases.add(testCase);
+    public void addProcessorTestCase(ProcessorTestCase<?,?> testCase) {
+        this.processorTestCases.add(testCase);
     }
 
-    public void addTestCases(Collection<TestCase> testCases) {
-        this.testCases.addAll(testCases);
+    public void addProcessorTestCases(
+            Collection<? extends ProcessorTestCase<?,?>> testCases
+    ) {
+        this.processorTestCases.addAll(testCases);
     }
 
-    public void addTestCaseWithFields(
-            TestCase testCase,
+    public void addAdjudicatorTestCase(AdjudicatorTestCase testCase) {
+        this.adjudicatorTestCases.add(testCase);
+    }
+
+    public void addAdjudicatorTestCases(
+            Collection<? extends AdjudicatorTestCase> testCases
+    ) {
+        this.adjudicatorTestCases.addAll(testCases);
+    }
+
+    public void addAdjudicatorTestCaseWithFields(
+            AdjudicatorTestCase testCase,
             boolean evalNow,
             boolean... expectedFields
     ) {
 
         testCase.setExpectedFields(expectedFields);
-        this.testCases.add(testCase);
+        this.adjudicatorTestCases.add(testCase);
 
         if (evalNow)
             testCase.eval(this.prints);
 
     }
 
-    public void addTestCaseWithFields(
-            TestCase testCase,
+    public void addAdjudicatorTestCaseWithFields(
+            AdjudicatorTestCase testCase,
             boolean evalNow,
             boolean[]... expectedFields
     ) {
 
         testCase.setExpectedFields(expectedFields);
-        this.testCases.add(testCase);
+        this.adjudicatorTestCases.add(testCase);
 
         if (evalNow)
             testCase.eval(this.prints);
@@ -164,7 +223,7 @@ public class TestCaseManager {
          * Remove this invocation after the investigation, but keep
          * diagnoseRefereeStability(...) for future regressions.
          */
-        for (TestCase testCase : this.testCases) {
+        for (AdjudicatorTestCase testCase : this.adjudicatorTestCases) {
 
             String name = testCase.getName();
 
@@ -176,18 +235,18 @@ public class TestCaseManager {
 
     }
 
-    public void runRefereeTests() {
+    public void runJusticeTests() {
 
         System.out.println("REFEREE ONE-OFF TESTING:\n");
 
         if (USE_SZYKMAN_REFEREE)
             SzykmanJustice.resetProbeDiagnostics();
 
-        List<DATCTestCase> refTCs = new ArrayList<>();
+        List<DATCAdjTestCase> refTCs = new ArrayList<>();
 
-        for (TestCase testCase : this.testCases) {
-            DATCTestCase refTC =
-                    new DATCTestCase(testCase);
+        for (AdjudicatorTestCase testCase : this.adjudicatorTestCases) {
+            DATCAdjTestCase refTC =
+                    new DATCAdjTestCase(testCase);
 
             refTCs.add(refTC);
             refTC.eval(this.willPrint());
@@ -195,8 +254,8 @@ public class TestCaseManager {
 
         this.printTestCaseResults(refTCs);
 
-        this.testCases.clear();
-        this.testCases.addAll(refTCs);
+        this.adjudicatorTestCases.clear();
+        this.adjudicatorTestCases.addAll(refTCs);
 
         this.printTotals();
 
@@ -209,16 +268,16 @@ public class TestCaseManager {
 
         int NUM_TRIALS = Justice.NUM_TRIALS_DEFAULT;
 
-        Map<TestCase, Collection<Set<Order>>> refereeSimul =
-                new HashMap<>(this.testCases.size());
+        Map<AdjudicatorTestCase, Collection<Set<Order>>> refereeSimul =
+                new HashMap<>(this.adjudicatorTestCases.size());
 
         Collection<Set<Order>> permutations;
 
-        for (TestCase testCase : this.testCases) {
+        for (AdjudicatorTestCase testCase : this.adjudicatorTestCases) {
             permutations = new HashSet<>();
 
             for (int i = 1; i <= NUM_TRIALS; i++) {
-                TestCase testCaseClone = new TestCase(testCase);
+                AdjudicatorTestCase testCaseClone = new AdjudicatorTestCase(testCase);
                 testCaseClone.shuffle();
                 testCaseClone.eval();
 
@@ -232,7 +291,7 @@ public class TestCaseManager {
 
         System.out.println("REFEREE SIMUL TESTING:\n");
 
-        for (TestCase testCase : refereeSimul.keySet()) {
+        for (AdjudicatorTestCase testCase : refereeSimul.keySet()) {
             System.out.printf(
                     "[P=%d]\t%s%n",
                     refereeSimul.get(testCase).size(),
@@ -245,10 +304,10 @@ public class TestCaseManager {
                 "REFEREE SIMUL TESTING - PARADOX CASES:\n"
         );
 
-        Map<TestCase, Collection<Set<Order>>>
+        Map<AdjudicatorTestCase, Collection<Set<Order>>>
                 refereeSimulParadoxes = new HashMap<>();
 
-        for (TestCase testCase : refereeSimul.keySet()) {
+        for (AdjudicatorTestCase testCase : refereeSimul.keySet()) {
             if (refereeSimul.get(testCase).size() > 1) {
                 refereeSimulParadoxes.put(
                         testCase,
@@ -272,7 +331,7 @@ public class TestCaseManager {
 
         Justice ref;
 
-        for (TestCase paradox : refereeSimulParadoxes.keySet()) {
+        for (AdjudicatorTestCase paradox : refereeSimulParadoxes.keySet()) {
             ref = createReferee(paradox.getOrders());
             ref.judge();
 
@@ -291,11 +350,26 @@ public class TestCaseManager {
         System.out.println("----------------------------------------\n");
         System.out.println("ONE-OFF (Judge) TESTING:\n");
 
-        for (TestCase testCase : this.testCases)
+        for (AdjudicatorTestCase testCase : this.adjudicatorTestCases)
             testCase.eval(this.willPrint());
 
-        this.printTestCaseResults(this.testCases);
+        this.printTestCaseResults(this.adjudicatorTestCases);
         this.printTotals();
+
+    }
+
+    public void runProcessorTests() {
+
+        System.out.println("PHASE PROCESSOR TESTING:\n");
+
+        for (ProcessorTestCase<?,?> testCase : this.processorTestCases)
+            testCase.eval(this.willPrint());
+
+        this.printProcessorTestCaseResults(
+                this.processorTestCases
+        );
+
+        this.printProcessorTotals();
 
     }
 
@@ -303,12 +377,32 @@ public class TestCaseManager {
     // Reporting helpers \\
 
     private void printTestCaseResults(
-            Collection<? extends TestCase> testCases
+            Collection<? extends AdjudicatorTestCase> testCases
     ) {
 
         System.out.println("----------------------------------------\n");
 
-        for (TestCase testCase : testCases) {
+        for (AdjudicatorTestCase testCase : testCases) {
+            testCase.printNameAndScore();
+
+            if (testCase.getScore() != testCase.getSize()) {
+                System.out.println(
+                        Constants.ANSI_RED
+                                + "\tFAILED!!"
+                                + Constants.ANSI_RESET
+                );
+            }
+        }
+
+    }
+
+    private void printProcessorTestCaseResults(
+            Collection<? extends ProcessorTestCase<?,?>> testCases
+    ) {
+
+        System.out.println("----------------------------------------\n");
+
+        for (ProcessorTestCase<?,?> testCase : testCases) {
             testCase.printNameAndScore();
 
             if (testCase.getScore() != testCase.getSize()) {
@@ -334,6 +428,23 @@ public class TestCaseManager {
                 "TOTAL SCORE (by Orders):\t\t[%d/%d]%n",
                 this.ordersScore(),
                 this.ordersSize()
+        );
+        System.out.println("----------------------------------------\n");
+
+    }
+
+    private void printProcessorTotals() {
+
+        System.out.println("\n----------------------------------------");
+        System.out.printf(
+                "TOTAL SCORE (by Test Cases):\t[%d/%d]%n",
+                this.processorScore(),
+                this.processorSize()
+        );
+        System.out.printf(
+                "TOTAL SCORE (by Checks):\t\t[%d/%d]%n",
+                this.processorChecksScore(),
+                this.processorChecksSize()
         );
         System.out.println("----------------------------------------\n");
 
@@ -385,17 +496,20 @@ public class TestCaseManager {
         TestCaseManager manager = new TestCaseManager(true);
         FileTestCaseParser fileParser = new DATCFileParser();
 
-        manager.addTestCases(fileParser.parseManyFiles());
+        manager.addAdjudicatorTestCases(fileParser.parseManyFiles());
         //manager.runDiagnostics();
 
         System.out.println("\n----------------------------------------\n");
 
         switch (MODE) {
 
-            case 0 -> manager.runRefereeTests();
+            case 0 -> manager.runJusticeTests();
 
             case 1 -> manager.runJudgeSimulationTests();
         }
+
+        if (!manager.getProcessorTestCases().isEmpty())
+            manager.runProcessorTests();
 
         Constants.printTimestamp();
 
@@ -463,8 +577,8 @@ public class TestCaseManager {
      * - seeds and trial samples that produced each candidate; and
      * - one example shuffled input order for each candidate.
      */
-    public static void diagnoseRefereeStability(
-            TestCase testCase,
+    public static void diagnoseJusticeStability(
+            AdjudicatorTestCase testCase,
             int numSeeds,
             int numTrials
     ) {
@@ -596,7 +710,7 @@ public class TestCaseManager {
      * This is diagnostic-only. It does not alter Justice selection logic.
      */
     public static void diagnoseSecondOrderParadox(
-            TestCase testCase,
+            AdjudicatorTestCase testCase,
             int numSeeds,
             int numTrials
     ) {
@@ -766,7 +880,7 @@ public class TestCaseManager {
 
     }
 
-    private static void diagnoseOrdinaryProbe(TestCase testCase) {
+    private static void diagnoseOrdinaryProbe(AdjudicatorTestCase testCase) {
 
         if (!testCase.getName().contains("6.F.28")
                 && !testCase.getName().contains("6.F.29")) {
