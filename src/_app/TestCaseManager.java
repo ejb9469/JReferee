@@ -5,6 +5,7 @@ import adjudication.Order;
 import domain.OrderType;
 import domain.Province;
 import parsing.DATCFileParser;
+import parsing.DATCProcessorFileParser;
 import parsing.FileTestCaseParser;
 import testing.DATCAdjTestCase;
 import testing.AdjudicatorTestCase;
@@ -498,6 +499,14 @@ public class TestCaseManager {
 
         manager.addAdjudicatorTestCases(fileParser.parseManyFiles());
         //manager.runDiagnostics();
+
+        System.out.println("\n----------------------------------------\n");
+
+        DATCProcessorFileParser processorFileParser =
+                new DATCProcessorFileParser();
+
+        manager.addProcessorTestCases(
+                processorFileParser.parseManyFiles());
 
         System.out.println("\n----------------------------------------\n");
 
