@@ -1,4 +1,4 @@
-6.A.06. ORDERING A UNIT OF ANOTHER COUNTRY
+6.A.06. ORDERING A UNIT OF ANOTHER COUNTRY ::
     ~ This is simply not how orders are parsed-through in `JReferee`.
 
 
@@ -25,8 +25,19 @@
     ~ The DATC has elsewhere indicated matters of order writing judgement are a matter of preference. I will rule the other way.
 
 
-6.B.11. COAST CANNOT BE ORDERED TO CHANGE
+6.B.11. COAST CANNOT BE ORDERED TO CHANGE ::
     ~ This funky non-ownership problem is equivalent to 6.A.6. This is likewise N/A.
+
+
+6.B.15. SUPPORTING FOREIGN UNIT WITH UNSPECIFIED COAST ::
+    ~ The 'foreign' fact is irrelevant to the fail case here: `JReferee` requires complete factual correctness on all coast-related mismatches.
+    ~ In fact, the 1st support-move ("F Por S MAO - Spa") fails since 'Spa' is technically an inland province.
+
+
+6.B.16. HOLD SUPPORT WITH WRONG COAST ::
+        +(and)+
+6.B.17. MOVE SUPPORT WITH WRONG COAST FOR DEPARTURE PROVINCE ::
+    ~ Idem.
 
 
 6.D.28. IMPOSSIBLE MOVE AND SUPPORT ::
@@ -58,7 +69,7 @@
     ~ Idem. (https://webdiplomacy.net/doc/DATC_v3_0.html#4.E.1)
 
 
-6.FF.24. SECOND ORDER PARADOX WITH NO RESOLUTION ::
+6.F.24.P. SECOND ORDER PARADOX WITH NO RESOLUTION ::
     ~ This Test Case has "no resolution", and I argue that my alternative (F Lon's support is cut because F ENG is not dislodged, therefore F NTH holds succeeds)...
       ... conforms better to the Szykman Alternative, because F ENG is not really a problem convoy.
 
@@ -85,7 +96,7 @@
       ... (see 6.D.31. A TRICKY IMPOSSIBLE SUPPORT)
 
 
-6.G.8. EXPLICIT CONVOY THAT ISN'T THERE ::
+6.G.08. EXPLICIT CONVOY THAT ISN'T THERE ::
     ~ Not applicable without the "via convoy" explicit convoy intention signal feature. Says as much on the DATC page.
     ~ So, I left this one out of the Test Case suite for `Judge`.
 
@@ -119,5 +130,13 @@
     ~ Fallback is allowed in base-class `Judge`, without the notion of "via convoy". This Test Case reflects that.
 
 
-6.H.12. RETREAT WHEN DISLODGED BY ADJACENT CONVOY WHILE TRYING TO DO THE SAME
+6.H.02. NO SUPPORTS FROM RETREATING UNIT ::
+        +(and)+
+6.H.03. NO CONVOY DURING RETREAT ::
+        +(and)+
+6.H.04. NO OTHER MOVES DURING RETREAT ::
+    ~ `RetreatInput` intentionally cannot represent SUPPORT, CONVOY, or ordinary MOVE orders.
+
+
+6.H.12. RETREAT WHEN DISLODGED BY ADJACENT CONVOY WHILE TRYING TO DO THE SAME ::
     ~ JReferee doesn't support `via convoy` -- it is baked into the program
