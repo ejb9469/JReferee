@@ -169,9 +169,7 @@ public class TestCaseManager {
         this.processorTestCases.add(testCase);
     }
 
-    public void addProcessorTestCases(
-            Collection<? extends ProcessorTestCase<?,?>> testCases
-    ) {
+    public void addProcessorTestCases(Collection<? extends ProcessorTestCase<?,?>> testCases) {
         this.processorTestCases.addAll(testCases);
     }
 
@@ -179,9 +177,7 @@ public class TestCaseManager {
         this.adjudicatorTestCases.add(testCase);
     }
 
-    public void addAdjudicatorTestCases(
-            Collection<? extends AdjudicatorTestCase> testCases
-    ) {
+    public void addAdjudicatorTestCases(Collection<? extends AdjudicatorTestCase> testCases) {
         this.adjudicatorTestCases.addAll(testCases);
     }
 
@@ -248,7 +244,6 @@ public class TestCaseManager {
         for (AdjudicatorTestCase testCase : this.adjudicatorTestCases) {
             DATCAdjTestCase refTC =
                     new DATCAdjTestCase(testCase);
-
             refTCs.add(refTC);
             refTC.eval(this.willPrint());
         }
@@ -275,19 +270,19 @@ public class TestCaseManager {
         Collection<Set<Order>> permutations;
 
         for (AdjudicatorTestCase testCase : this.adjudicatorTestCases) {
+
             permutations = new HashSet<>();
 
             for (int i = 1; i <= NUM_TRIALS; i++) {
                 AdjudicatorTestCase testCaseClone = new AdjudicatorTestCase(testCase);
                 testCaseClone.shuffle();
                 testCaseClone.eval();
-
                 permutations.add(new HashSet<>(Set.copyOf(
-                        Orders.deepCopy(testCaseClone.getOrders())
-                )));
+                        Orders.deepCopy(testCaseClone.getOrders()))));
             }
 
             refereeSimul.put(testCase, permutations);
+
         }
 
         System.out.println("REFEREE SIMUL TESTING:\n");
@@ -296,14 +291,12 @@ public class TestCaseManager {
             System.out.printf(
                     "[P=%d]\t%s%n",
                     refereeSimul.get(testCase).size(),
-                    testCase.getName()
-            );
+                    testCase.getName());
         }
 
         System.out.println("\n----------------------------------------");
         System.out.println(
-                "REFEREE SIMUL TESTING - PARADOX CASES:\n"
-        );
+                "REFEREE SIMUL TESTING - PARADOX CASES:\n");
 
         Map<AdjudicatorTestCase, Collection<Set<Order>>>
                 refereeSimulParadoxes = new HashMap<>();
@@ -312,27 +305,24 @@ public class TestCaseManager {
             if (refereeSimul.get(testCase).size() > 1) {
                 refereeSimulParadoxes.put(
                         testCase,
-                        refereeSimul.get(testCase)
-                );
-
+                        refereeSimul.get(testCase));
                 System.out.printf(
                         "[P=%d]\t%s%n",
                         refereeSimul.get(testCase).size(),
-                        testCase.getName()
-                );
+                        testCase.getName());
             }
         }
 
         System.out.printf(
                 "%nTOTAL # PARADOXES: [%d]%n",
-                refereeSimulParadoxes.size()
-        );
+                refereeSimulParadoxes.size());
 
         System.out.println("----------------------------------------\n");
 
         Justice ref;
 
         for (AdjudicatorTestCase paradox : refereeSimulParadoxes.keySet()) {
+
             ref = createReferee(paradox.getOrders());
             ref.judge();
 
@@ -341,11 +331,11 @@ public class TestCaseManager {
             for (Order order : ref.getOrders()) {
                 System.out.println(
                         "\t" + order + ":\n\t\t"
-                                + order.metaToString()
-                );
+                                + order.metaToString());
             }
 
             System.out.println();
+
         }
 
         System.out.println("----------------------------------------\n");
@@ -375,42 +365,32 @@ public class TestCaseManager {
 
     // Reporting helpers \\
 
-    private void printTestCaseResults(
-            Collection<? extends AdjudicatorTestCase> testCases
-    ) {
+    private void printTestCaseResults(Collection<? extends AdjudicatorTestCase> testCases) {
 
         System.out.println("----------------------------------------\n");
 
         for (AdjudicatorTestCase testCase : testCases) {
             testCase.printNameAndScore();
-
-            if (testCase.getScore() != testCase.getSize()) {
+            if (testCase.getScore() != testCase.getSize())
                 System.out.println(
                         Constants.ANSI_RED
                                 + "\tFAILED!!"
-                                + Constants.ANSI_RESET
-                );
-            }
+                                + Constants.ANSI_RESET);
         }
 
     }
 
-    private void printProcessorTestCaseResults(
-            Collection<? extends ProcessorTestCase<?,?>> testCases
-    ) {
+    private void printProcessorTestCaseResults(Collection<? extends ProcessorTestCase<?,?>> testCases) {
 
         System.out.println("----------------------------------------\n");
 
         for (ProcessorTestCase<?,?> testCase : testCases) {
             testCase.printNameAndScore();
-
-            if (testCase.getScore() != testCase.getSize()) {
+            if (testCase.getScore() != testCase.getSize())
                 System.out.println(
                         Constants.ANSI_RED
                                 + "\tFAILED!!"
-                                + Constants.ANSI_RESET
-                );
-            }
+                                + Constants.ANSI_RESET);
         }
 
     }
@@ -421,13 +401,11 @@ public class TestCaseManager {
         System.out.printf(
                 "TOTAL SCORE (by Test Cases):\t[%d/%d]%n",
                 this.score(),
-                this.size()
-        );
+                this.size());
         System.out.printf(
                 "TOTAL SCORE (by Orders):\t\t[%d/%d]%n",
                 this.ordersScore(),
-                this.ordersSize()
-        );
+                this.ordersSize());
         System.out.println("----------------------------------------\n");
 
     }
@@ -438,13 +416,11 @@ public class TestCaseManager {
         System.out.printf(
                 "TOTAL SCORE (by Test Cases):\t[%d/%d]%n",
                 this.processorScore(),
-                this.processorSize()
-        );
+                this.processorSize());
         System.out.printf(
                 "TOTAL SCORE (by Checks):\t\t[%d/%d]%n",
                 this.processorChecksScore(),
-                this.processorChecksSize()
-        );
+                this.processorChecksSize());
         System.out.println("----------------------------------------\n");
 
     }
@@ -458,28 +434,22 @@ public class TestCaseManager {
 
         System.out.printf(
                 "Final SzykmanJustice selections:\t\t\t%d%n",
-                diagnostics.finalResolutionSelections()
-        );
+                diagnostics.finalResolutionSelections());
         System.out.printf(
                 "Multi-convoy candidates (2+ conflicts):\t\t%d%n",
-                diagnostics.multiConvoyCandidates()
-        );
+                diagnostics.multiConvoyCandidates());
         System.out.printf(
                 "Jury invocations:\t\t%d%n",
-                diagnostics.ordinaryResolutionProbeInvocations()
-        );
+                diagnostics.ordinaryResolutionProbeInvocations());
         System.out.printf(
                 "Complete ordinary probes:\t\t\t%d%n",
-                diagnostics.completeOrdinaryResolutionProbes()
-        );
+                diagnostics.completeOrdinaryResolutionProbes());
         System.out.printf(
                 "Matching ordinary candidates selected:\t\t%d%n",
-                diagnostics.ordinaryCandidateSelections()
-        );
+                diagnostics.ordinaryCandidateSelections());
         System.out.printf(
                 "Szykman simultaneous-HOLD fallbacks:\t\t%d%n",
-                diagnostics.szykmanFallbacks()
-        );
+                diagnostics.szykmanFallbacks());
         System.out.println();
 
     }
@@ -535,15 +505,13 @@ public class TestCaseManager {
             return new SzykmanJustice(
                     orders,
                     Justice.NUM_TRIALS_DEFAULT,
-                    Justice.SHUFFLE_SEED_DEFAULT
-            );
+                    Justice.SHUFFLE_SEED_DEFAULT);
         }
 
         return new Justice(
                 orders,
                 Justice.NUM_TRIALS_DEFAULT,
-                Justice.SHUFFLE_SEED_DEFAULT
-        );
+                Justice.SHUFFLE_SEED_DEFAULT);
 
     }
 
@@ -561,15 +529,14 @@ public class TestCaseManager {
             return new SzykmanJustice(
                     orders,
                     numTrials,
-                    shuffleSeed
-            );
+                    shuffleSeed);
         }
 
         return new Justice(
                 orders,
                 numTrials,
-                shuffleSeed
-        );
+                shuffleSeed);
+
     }
 
 
@@ -599,36 +566,32 @@ public class TestCaseManager {
             Justice justice = createReferee(
                     new ArrayList<>(Orders.deepCopy(testCase.getOrders())),
                     numTrials,
-                    seed
-            );
+                    seed);
 
             justice.judge();
 
             finalOutcomes.add(finalOutcomeKey(justice.getOrders()));
 
-            for (CandidateResolution candidateResolution :
-                    justice.getCandidateResolutions()) {
+            for (CandidateResolution candidateResolution : justice.getCandidateResolutions()) {
 
                 String candidateKey = outcomeKey(
-                        candidateResolution.getRepresentativeResolution()
-                );
+                        candidateResolution.getRepresentativeResolution());
 
                 CandidateStats stats = candidateStats.computeIfAbsent(
                         candidateKey,
                         ignored -> new CandidateStats(
                                 candidateResolution.getExampleInputOrder()
-                        )
-                );
+                        ));
 
                 stats.record(
                         seed,
                         candidateResolution.getOccurrences(),
-                        candidateResolution.getTrialNumbers()
-                );
+                        candidateResolution.getTrialNumbers());
                 stats.recordCycles(
-                        candidateResolution.getParadoxCycles()
-                );
+                        candidateResolution.getParadoxCycles());
+
             }
+
         }
 
         System.out.printf("%n[%s]%n", testCase.getName());
@@ -637,13 +600,11 @@ public class TestCaseManager {
                 "Observed %d final outcome(s) across %d seed(s), %d trial(s) per seed.%n",
                 finalOutcomes.size(),
                 numSeeds,
-                numTrials
-        );
+                numTrials);
 
         System.out.printf(
                 "Observed %d raw candidate resolution(s) before final meta-resolution.%n",
-                candidateStats.size()
-        );
+                candidateStats.size());
 
         int candidateNumber = 1;
 
@@ -654,26 +615,21 @@ public class TestCaseManager {
 
             System.out.printf(
                     "%n--- RAW CANDIDATE %d ---%n",
-                    candidateNumber++
-            );
+                    candidateNumber++);
 
             System.out.printf(
                     "Observed %d time(s) across %d seed(s).%n",
                     stats.occurrences,
-                    stats.seeds.size()
-            );
+                    stats.seeds.size());
 
             System.out.printf(
                     "Seeds: %s%n",
-                    stats.seeds
-            );
+                    stats.seeds);
 
-            if (!stats.provenanceSamples.isEmpty()) {
+            if (!stats.provenanceSamples.isEmpty())
                 System.out.printf(
                         "Trial samples: %s%n",
-                        stats.provenanceSamples
-                );
-            }
+                        stats.provenanceSamples);
 
             System.out.println("Example shuffled input order:");
 
@@ -681,13 +637,13 @@ public class TestCaseManager {
                 System.out.printf(
                         "  [%d] %s%n",
                         i,
-                        stats.exampleInputOrder.get(i)
-                );
+                        stats.exampleInputOrder.get(i));
             }
 
             stats.printCycles();
 
             System.out.printf("%n%s%n", entry.getKey());
+
         }
 
         int finalNumber = 1;
@@ -696,8 +652,7 @@ public class TestCaseManager {
             System.out.printf(
                     "%n--- FINAL OUTCOME %d ---%n%s%n",
                     finalNumber++,
-                    finalOutcome
-            );
+                    finalOutcome);
         }
 
     }
@@ -730,13 +685,11 @@ public class TestCaseManager {
             Justice justice = createReferee(
                     new ArrayList<>(Orders.deepCopy(testCase.getOrders())),
                     numTrials,
-                    seed
-            );
+                    seed);
 
             justice.judge();
 
-            for (CandidateResolution candidateResolution :
-                    justice.getCandidateResolutions()) {
+            for (CandidateResolution candidateResolution : justice.getCandidateResolutions()) {
 
                 Set<Order> resolution =
                         candidateResolution.getRepresentativeResolution();
@@ -756,9 +709,10 @@ public class TestCaseManager {
                         seed,
                         candidateResolution.getOccurrences(),
                         candidateResolution.getTrialNumbers(),
-                        candidateResolution.getParadoxCycles()
-                );
+                        candidateResolution.getParadoxCycles());
+
             }
+
         }
 
         System.out.printf(
@@ -780,26 +734,21 @@ public class TestCaseManager {
 
             System.out.printf(
                     "%n---------------- CANDIDATE %d ----------------%n",
-                    candidateNumber++
-            );
+                    candidateNumber++);
 
             System.out.printf(
                     "Observed: %d time(s) across %d seed(s)%n",
                     stats.occurrences,
-                    stats.seeds.size()
-            );
+                    stats.seeds.size());
 
             System.out.printf(
                     "Seeds: %s%n",
-                    stats.seeds
-            );
+                    stats.seeds);
 
-            if (!stats.provenanceSamples.isEmpty()) {
+            if (!stats.provenanceSamples.isEmpty())
                 System.out.printf(
                         "Trial samples: %s%n",
-                        stats.provenanceSamples
-                );
-            }
+                        stats.provenanceSamples);
 
             System.out.println("\nRepresentative input ordering:");
 
@@ -807,8 +756,7 @@ public class TestCaseManager {
                 System.out.printf(
                         "  [%d] %s%n",
                         i,
-                        stats.exampleInputOrder.get(i)
-                );
+                        stats.exampleInputOrder.get(i));
             }
 
             System.out.println("\nConvoy dependency summary:");
@@ -822,15 +770,13 @@ public class TestCaseManager {
 
             convoys.sort(new OrderComparator());
 
-            if (convoys.isEmpty()) {
+            if (convoys.isEmpty())
                 System.out.println("  No convoys in this candidate.");
-            }
 
             for (Order convoyVersion : convoys) {
                 printConvoyDependencySummary(
                         convoyVersion,
-                        stats.representativeResolution
-                );
+                        stats.representativeResolution);
             }
 
             System.out.println("\nCaptured convoy-containing cycles:");
@@ -846,18 +792,14 @@ public class TestCaseManager {
                 System.out.println("  None.");
             } else {
                 int cycleNumber = 1;
-
                 for (ParadoxCycle cycle : convoyCycles) {
                     System.out.printf(
                             "%n  -- Cycle %d --%n",
-                            cycleNumber++
-                    );
-
+                            cycleNumber++);
                     for (Order order : cycle.getMembers()) {
                         System.out.printf(
                                 "  %s%n",
-                                order
-                        );
+                                order);
                     }
                 }
             }
@@ -865,8 +807,7 @@ public class TestCaseManager {
             System.out.println("\nFull candidate outcome:");
 
             List<Order> sortedOrders = new ArrayList<>(
-                    stats.representativeResolution
-            );
+                    stats.representativeResolution);
 
             sortedOrders.sort(new OrderComparator());
 
@@ -876,14 +817,13 @@ public class TestCaseManager {
                         order,
                         order.resolved,
                         order.verdict,
-                        order.getSnapshot() != null
-                );
+                        order.getSnapshot() != null);
             }
+
         }
 
         System.out.printf(
-                "%n============================================================%n"
-        );
+                "%n============================================================%n");
 
     }
 
@@ -912,9 +852,9 @@ public class TestCaseManager {
             System.out.printf(
                     "  %-35s %s%n",
                     order,
-                    result.stateOf(order)
-            );
+                    result.stateOf(order));
         }
+
     }
 
 
@@ -939,7 +879,6 @@ public class TestCaseManager {
         for (Order order : resolution) {
             if (order.orderType != OrderType.MOVE)
                 continue;
-
             if (order.pos0 == submittedConvoy.pos1
                     && order.pos1 == submittedConvoy.pos2) {
                 correspondingMove = order;
@@ -949,33 +888,28 @@ public class TestCaseManager {
 
         System.out.printf(
                 "%n  Convoy fleet: %s%n",
-                submittedConvoy
-        );
+                submittedConvoy);
 
         System.out.printf(
                 "    candidate representation: %s%n",
-                convoyVersion
-        );
+                convoyVersion);
 
         System.out.printf(
                 "    convoy status: resolved=%b, verdict=%b, transformedToHold=%b%n",
                 convoyVersion.resolved,
                 convoyVersion.verdict,
-                convoyVersion.getSnapshot() != null
-        );
+                convoyVersion.getSnapshot() != null);
 
         if (correspondingMove == null) {
             System.out.println(
-                    "    corresponding army move: <not found>"
-            );
+                    "    corresponding army move: <not found>");
         } else {
             System.out.printf(
                     "    corresponding army move: %s"
                             + " | resolved=%b, verdict=%b%n",
                     correspondingMove,
                     correspondingMove.resolved,
-                    correspondingMove.verdict
-            );
+                    correspondingMove.verdict);
         }
 
         List<Order> directFleetAttacks = new ArrayList<>();
@@ -983,21 +917,17 @@ public class TestCaseManager {
         for (Order order : resolution) {
             if (order.orderType != OrderType.MOVE)
                 continue;
-
             if (Province.equalsIgnoreCoast(
                     order.pos1,
-                    submittedConvoy.pos0
-            )) {
+                    submittedConvoy.pos0))
                 directFleetAttacks.add(order);
-            }
         }
 
         directFleetAttacks.sort(new OrderComparator());
 
         if (directFleetAttacks.isEmpty()) {
             System.out.println(
-                    "    direct attacks on convoy fleet: <none>"
-            );
+                    "    direct attacks on convoy fleet: <none>");
             return;
         }
 
@@ -1008,8 +938,7 @@ public class TestCaseManager {
                     "      %s | resolved=%b, verdict=%b%n",
                     attack,
                     attack.resolved,
-                    attack.verdict
-            );
+                    attack.verdict);
         }
 
     }
@@ -1062,11 +991,9 @@ public class TestCaseManager {
             this.seeds = new TreeSet<>();
             this.provenanceSamples = new ArrayList<>();
             this.representativeResolution = new LinkedHashSet<>(
-                    Orders.deepCopy(representativeResolution)
-            );
+                    Orders.deepCopy(representativeResolution));
             this.exampleInputOrder = new ArrayList<>(
-                    Orders.deepCopy(exampleInputOrder)
-            );
+                    Orders.deepCopy(exampleInputOrder));
             this.detectedCycles = new TreeMap<>();
         }
 
@@ -1080,18 +1007,15 @@ public class TestCaseManager {
             this.seeds.add(seed);
             for (int trial : trialNumbers) {
                 if (this.provenanceSamples.size()
-                        >= MAX_PROVENANCE_SAMPLES) {
+                        >= MAX_PROVENANCE_SAMPLES)
                     break;
-                }
                 this.provenanceSamples.add(
-                        "seed=" + seed + ", trial=" + trial
-                );
+                        "seed=" + seed + ", trial=" + trial);
             }
             for (ParadoxCycle cycle : cycles) {
                 this.detectedCycles.putIfAbsent(
                         cycle.key(),
-                        cycle
-                );
+                        cycle);
             }
         }
 
@@ -1136,8 +1060,7 @@ public class TestCaseManager {
             this.seeds = new TreeSet<>();
             this.provenanceSamples = new ArrayList<>();
             this.exampleInputOrder = new ArrayList<>(
-                    Orders.deepCopy(exampleInputOrder)
-            );
+                    Orders.deepCopy(exampleInputOrder));
             this.detectedCycles = new TreeMap<>();
         }
 
@@ -1150,12 +1073,10 @@ public class TestCaseManager {
             this.seeds.add(seed);
             for (int trial : trialNumbers) {
                 if (this.provenanceSamples.size()
-                        >= MAX_PROVENANCE_SAMPLES) {
+                        >= MAX_PROVENANCE_SAMPLES)
                     return;
-                }
                 this.provenanceSamples.add(
-                        "seed=" + seed + ", trial=" + trial
-                );
+                        "seed=" + seed + ", trial=" + trial);
             }
         }
 
@@ -1165,23 +1086,25 @@ public class TestCaseManager {
         }
 
         private void printCycles() {
+
             if (this.detectedCycles.isEmpty()) {
                 System.out.println("Detected convoy/dependency cycles: none");
                 return;
             }
+
             System.out.printf(
                     "Detected convoy/dependency cycles: %d%n",
-                    this.detectedCycles.size()
-            );
+                    this.detectedCycles.size());
+
             int number = 1;
 
             for (ParadoxCycle cycle : this.detectedCycles.values()) {
                 System.out.printf(
                         "  -- CYCLE %d --%n%s%n",
                         number++,
-                        cycle
-                );
+                        cycle);
             }
+
         }
 
     }
