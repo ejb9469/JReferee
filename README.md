@@ -1,4 +1,4 @@
-# JReferee
+# JReferee v1
 
 A DATC-compliant* Diplomacy adjudicator, written in base Java (natively: OpenJDK 25).
 
@@ -27,12 +27,12 @@ These test cases include:
 
 - ### `src.adjudication.*`
   - `Adjudicator` — *interface of* deterministic ('rules-based') orders resolvers; '*Adjudicators*'
-    - `Judge` *(impl. Adjudicator)* — resolves an *ordered set* of orders
+    - `Judge` — resolves an *ordered set* of orders
     - `Justice` *(ext. Judge)* — runs multiple shuffled adjudications and selects a result when raw results differ
     - `SzykmanReferee` *(ext. Justice)* — applies Szykman convoy-paradox rules where conflicting convoy outcomes require, 
         & compares result with result of a Jury if necessary
   - `Resolver`  *interface of* non-deterministic ('assumptions-based') orders resolvers \[i.e. no *adjudicate(...)*\]
-    - `Jury` *(impl. Resolver)* — determines whether a potential convoy-paradox has a complete "ordinary resolution", without guesses
+    - `Jury` — determines whether a potential convoy-paradox has a complete "ordinary resolution", without guesses
 
 - ### `src.phase.*`
   - `Processor<PhaseInput, PhaseResult>` — *interface of* Retreats, Adjustments, and no-adjudication movement orders
