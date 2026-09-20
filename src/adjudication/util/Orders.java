@@ -6,9 +6,14 @@ import domain.*;
 import java.util.*;
 
 /**
- * Abstract class of static utility functions re: Orders and Collections of Orders
+ * Static class of static utility functions re: Orders and Collections of Orders
  */
-public abstract class Orders {
+public final class Orders {
+
+
+    // private constructor
+    private Orders() {  }
+
 
     /**
      * Checks the validity of an Order

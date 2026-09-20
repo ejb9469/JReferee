@@ -18,6 +18,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import static phase.BoardRules.isOccupied;
+
 /**
  * Processes one winter adjustment phase.
  */
@@ -177,7 +179,7 @@ public final class AdjustmentProcessor
     ) {
 
         Province location = order.location();
-        Province territory = canonicalProvince(location);
+        Province territory = Province.canonical(location);
 
         if (territory.homeowner != order.nation())
             return AdjustmentResult.Outcome.Status.REJECTED_NOT_HOME_SUPPLY_CENTER;
@@ -353,18 +355,6 @@ public final class AdjustmentProcessor
 
     }
 
-    private static boolean isOccupied(
-            Province province,
-            Map<UnitId, Province> locations
-    ) {
-        for (Province occupiedLocation : locations.values())
-            if (Province.equalsIgnoreCoast(
-                    occupiedLocation,
-                    province))
-                return true;
-        return false;
-    }
-
     private static boolean isLegalBuildUnitType(
             UnitType unitType,
             Province location
@@ -387,12 +377,6 @@ public final class AdjustmentProcessor
         throw new IllegalArgumentException(
                 "Unsupported unit type: " + unitType);
 
-    }
-
-    private static Province canonicalProvince(Province province) {
-        return province.parent == null
-                ? province
-                : province.parent;
     }
 
 

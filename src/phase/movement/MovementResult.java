@@ -387,7 +387,7 @@ public final class MovementResult implements PhaseResult {
                 continue;
 
             failedMovesByDestination.merge(
-                    canonicalProvince(order.pos1),
+                    Province.canonical(order.pos1),
                     1,
                     Integer::sum);
 
@@ -416,12 +416,6 @@ public final class MovementResult implements PhaseResult {
 
         return standoffs;
 
-    }
-
-    private static Province canonicalProvince(Province province) {
-        return province.parent == null
-                ? province
-                : province.parent;
     }
 
     /**
@@ -465,7 +459,7 @@ public final class MovementResult implements PhaseResult {
 
         Objects.requireNonNull(province, "province");
 
-        Province territory = canonicalProvince(province);
+        Province territory = Province.canonical(province);
 
         for (Province standoff : standoffProvinces)
             if (Province.equalsIgnoreCoast(standoff, territory))

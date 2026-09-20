@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import static phase.BoardRules.isOccupied;
+
 /**
  * Adjudicates retreat orders using immutable movement-phase facts.
  */
@@ -127,7 +129,7 @@ public final class RetreatProcessor
 
         for (Map.Entry<UnitId, RetreatOrder> entry : legalOrders.entrySet()) {
 
-            Province territory = canonicalProvince(
+            Province territory = Province.canonical(
                     entry.getValue().destination());
 
             unitsByDestination.computeIfAbsent(
@@ -183,25 +185,6 @@ public final class RetreatProcessor
                 outcomes,
                 destroyedUnits);
 
-    }
-
-    private static boolean isOccupied(
-            Province destination,
-            Map<UnitId, Province> locations
-    ) {
-        for (Province occupiedLocation : locations.values()) {
-            if (Province.equalsIgnoreCoast(
-                    occupiedLocation,
-                    destination))
-                return true;
-        }
-        return false;
-    }
-
-    private static Province canonicalProvince(Province province) {
-        return province.parent == null
-                ? province
-                : province.parent;
     }
 
 }

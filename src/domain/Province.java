@@ -6,6 +6,7 @@ import java.util.Map;
 
 public enum Province {
 
+
     Boh("Bohemia", false, false),
     Bud("Budapest", Geography.INLAND, true, Nation.AUSTRIA),
     Gal("Galicia", false, false),
@@ -464,7 +465,14 @@ public enum Province {
     }
 
     public static Map<Province, Province[]> getAdjacencyMapCopy() {
-        return new HashMap<>(adjacencyMap);  // TODO: does using this constructor produce a shallow or deep copy??
+        return new HashMap<>(adjacencyMap);
+    }
+
+
+    public static Province canonical(Province p) {
+        return ( p.parent == null
+                  ? p  // return p if non-split coast
+                  : p.parent);  // return `p.parent` if split-coast
     }
 
 

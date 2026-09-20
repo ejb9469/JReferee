@@ -12,7 +12,7 @@ import java.util.UUID;
  * Stable identity for a unit across phases and turns.
  *
  * <p>Origin records where the unit was created. It is not its current board
- * location; current locations live in PhaseResult.finalLocations().</p>
+ * location; current locations live in `PhaseResult.finalLocations()`.</p>
  */
 public record UnitId(
         UUID value,

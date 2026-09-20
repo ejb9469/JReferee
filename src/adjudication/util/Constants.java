@@ -3,7 +3,10 @@ package adjudication.util;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
-public abstract class Constants {
+public final class Constants {
+
+    // private constructor
+    private Constants() {   }
 
     public static final int STARTING_YEAR = 1901;
 

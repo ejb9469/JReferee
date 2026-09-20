@@ -67,7 +67,7 @@ public final class AdjustmentInput
      */
     public Nation ownerOf(Province province) {
         Objects.requireNonNull(province, "province");
-        return supplyCenterOwners.get(canonicalProvince(province));
+        return supplyCenterOwners.get(Province.canonical(province));
     }
 
     private static Map<Province, Nation> canonicalOwners(Map<Province, Nation> supplyCenterOwners) {
@@ -88,7 +88,7 @@ public final class AdjustmentInput
                     entry.getValue(),
                     "supplyCenterOwners contains a null owner");
 
-            Province territory = canonicalProvince(suppliedProvince);
+            Province territory = Province.canonical(suppliedProvince);
 
             if (!territory.supplyCenter)
                 throw new IllegalArgumentException(
@@ -107,10 +107,6 @@ public final class AdjustmentInput
 
         return Collections.unmodifiableMap(canonicalOwners);
 
-    }
-
-    private static Province canonicalProvince(Province province) {
-        return province.parent == null ? province : province.parent;
     }
 
 }

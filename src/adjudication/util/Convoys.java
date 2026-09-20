@@ -9,9 +9,14 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Abstract class of static utility functions re: Convoy and Convoy pathing functionality
+ * Static class of static utility functions re: Convoy and Convoy pathing functionality
  */
-public abstract class Convoys /*extends Orders*/ {
+public final class Convoys /*extends Orders*/ {
+
+
+    // private constructor
+    private Convoys() { }
+
 
     public static boolean convoyPathIsValid(Order moveOrder, List<Order> convoyPath) {
 
