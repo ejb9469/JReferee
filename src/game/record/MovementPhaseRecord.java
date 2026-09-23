@@ -1,6 +1,7 @@
 package game.record;
 
 import game.BoardState;
+import game.GamePhase;
 import game.Moment;
 import phase.Order;
 import phase.movement.MovementResult;
@@ -30,6 +31,11 @@ public record MovementPhaseRecord(
             throw new IllegalArgumentException("Movement phase record requires a movement moment");
 
         BoardState expectedBoardAfter = boardBefore.after(result);
+        if (resolvedAt.gamePhase() == GamePhase.FALL_MOVEMENT
+                && result.dislodgements().isEmpty())
+            expectedBoardAfter = boardBefore.afterFallTurn(result);
+        else
+            expectedBoardAfter = boardBefore.after(result);
 
         if (!expectedBoardAfter.equals(boardAfter))
             throw new IllegalArgumentException("Movement boardAfter does not match its phase result");

@@ -51,8 +51,16 @@ public record GameRecord(
         resolvedPhases = List.copyOf(Objects.requireNonNull(resolvedPhases, "resolvedPhases"));
         pressMessages = List.copyOf(Objects.requireNonNull(pressMessages, "pressMessages"));
 
-        verifyPhaseTimeline();
-        verifyPressTimeline();
+        verifyPhaseTimeline(
+                initialMoment,
+                initialBoard,
+                resolvedPhases
+        );
+
+        verifyPressTimeline(
+                initialMoment,
+                pressMessages
+        );
 
     }
 
@@ -126,24 +134,27 @@ public record GameRecord(
 
     }
 
-    private void verifyPhaseTimeline() {
+    private static void verifyPhaseTimeline(GameMoment initialMoment, BoardState initialBoard,
+                                            List<ResolvedPhaseRecord> resolvedPhases) {
 
         BoardState expectedBoardBefore = initialBoard;
         GameMoment previousMoment = null;
 
-        for (int i = 0; i < resolvedPhases.size(); i++) {  // might produce NPE here, but this is fine
-                                                            // (the purpose of this func. is to verify, good place to throw)
+        for (int i = 0; i < resolvedPhases.size(); i++) {
 
             ResolvedPhaseRecord phase = resolvedPhases.get(i);
 
             if (i == 0 && !phase.gameMoment().equals(initialMoment))
                 throw new IllegalArgumentException("First resolved phase must match initialMoment");
 
-            if (previousMoment != null && phase.gameMoment().compareTo(previousMoment) <= 0)
+            if ( previousMoment != null && (phase.gameMoment().compareTo(previousMoment) <= 0) )
                 throw new IllegalArgumentException("Resolved phases must be in strictly increasing game order");
 
             if (!expectedBoardBefore.equals(phase.boardBefore()))
-                throw new IllegalArgumentException("Phase boardBefore does not match the preceding boardAfter: " + phase.gameMoment());
+                throw new IllegalArgumentException(
+                        "Phase boardBefore does not match the preceding "
+                                + "boardAfter: "
+                                + phase.gameMoment());
 
             previousMoment = phase.gameMoment();
             expectedBoardBefore = phase.boardAfter();
@@ -152,15 +163,16 @@ public record GameRecord(
 
     }
 
-    private void verifyPressTimeline() {
+    private static void verifyPressTimeline(GameMoment initialMoment,
+                                            List<PressMessage> pressMessages) {
 
         Set<UUID> messageIds = new HashSet<>();
 
-        for (PressMessage message : pressMessages) {  // might produce NPE here, but this is fine, ibid
+        for (PressMessage message : pressMessages) {
             if (!messageIds.add(message.id()))
                 throw new IllegalArgumentException("Duplicate press message ID: " + message.id());
             if ( (message.moment().gameMoment()).compareTo(initialMoment) < 0 )
-                throw new IllegalArgumentException("Press cannot precede the initial game moment");
+                throw new IllegalArgumentException("Press cannot precede initialMoment");
         }
 
     }

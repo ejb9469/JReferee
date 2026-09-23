@@ -11,6 +11,8 @@ import phase.PhaseResult;
  * <p>The resolvedAt `Moment` records when adjudication completed.
  * Its `GameMoment` identifies the board position and phase in replay.</p>
  */
+// this is implemented this way because of the non-inheritance structure of the `phase` package
+// (i.e. all records & interfaces)
 public sealed interface ResolvedPhaseRecord
         permits MovementPhaseRecord,
                 RetreatPhaseRecord,
