@@ -1,71 +1,59 @@
 package game.press;
 
-import static adjudication.util.Constants.STARTING_YEAR;
 import domain.Nation;
-import game.GamePhase;
+import game.Moment;
 
-import java.time.Instant;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Immutable message sent during a game.
+ * Immutable persisted Diplomacy press.
  *
- * <p>A press message is game-domain data, i.e. NOT suitable for network delivery.<br>
- * A {@link PressProcedure} decides how, if at all, to deliver it.</p>
+ * <p>This is game-record data only. It does not know how to save or deliver
+ * itself, and it does not communicate with UI, network, inbox, or simulation
+ * infrastructure.</p>
+ *
+ * <p>Callers supply the stable ID and {@link Moment}. This keeps replay,
+ * importing, persistence, and testing deterministic.</p>
  */
 public record PressMessage(
         UUID id,
-        int year,
-        GamePhase phase,
+        Moment moment,
         Nation sender,
         Set<Nation> recipients,
         String subject,
-        String body,
-        Instant sentAt
+        String body
 ) {
 
     public PressMessage {
 
         Objects.requireNonNull(id, "id");
-
-        if (year < STARTING_YEAR)  // `STARTING_YEAR` from the adjudication pkg!
-            throw new IllegalArgumentException("year must be at least " + STARTING_YEAR);
-
-        Objects.requireNonNull(phase, "phase");
+        Objects.requireNonNull(moment, "moment");
         Objects.requireNonNull(sender, "sender");
 
-        recipients = Set.copyOf(Objects.requireNonNull(
-                recipients, "recipients"));
-
+        recipients = Set.copyOf(Objects.requireNonNull(recipients, "recipients"));
         if (recipients.isEmpty())
             throw new IllegalArgumentException("Press requires at least one recipient");
 
         Objects.requireNonNull(subject, "subject");
-
         if (subject.isBlank())
             throw new IllegalArgumentException("Press subject must not be blank");
 
         Objects.requireNonNull(body, "body");
-
         if (body.isBlank())
             throw new IllegalArgumentException("Press body must not be blank");
-
-        Objects.requireNonNull(sentAt, "sentAt");
 
     }
 
     /**
-     * Returns whether a nation may view this message through the official game
-     * press history.
-     *
-     * <p>The sender always retains visibility, even when they are not one of
-     * the recipients.</p>
+     * The sender can always view their sent message. Each named recipient can
+     * also view it; all other powers cannot.
      */
     public boolean isVisibleTo(Nation nation) {
         Objects.requireNonNull(nation, "nation");
-        return( sender == nation || recipients.contains(nation) );
+
+        return sender == nation || recipients.contains(nation);
     }
 
 }

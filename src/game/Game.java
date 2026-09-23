@@ -1,9 +1,8 @@
 package game;
 
 import domain.Nation;
-import game.press.PressExchange;
+import game.press.PressLedger;
 import game.press.PressMessage;
-import game.press.PressProcedure;
 import phase.Order;
 import phase.PhaseInput;
 import phase.PhaseResult;
@@ -47,7 +46,7 @@ public final class Game {
     private final Processor<AdjustmentInput, AdjustmentResult>
             adjustmentProcessor;
 
-    private final PressExchange pressExchange;
+    private final PressLedger pressLedger;
 
     private final List<Processor<? extends PhaseInput, ? extends PhaseResult>>
             processorHistory = new ArrayList<>();
@@ -80,7 +79,7 @@ public final class Game {
                 new MovementProcessor(),
                 new RetreatProcessor(),
                 new AdjustmentProcessor(),
-                new PressExchange());
+                new PressLedger());
     }
 
     /**
@@ -102,15 +101,15 @@ public final class Game {
                 movementProcessor,
                 retreatProcessor,
                 adjustmentProcessor,
-                new PressExchange());
+                new PressLedger());
     }
 
     /**
      * Creates a game at the start of Spring movement using supplied processors
-     * and press exchange.
+     * and press ledger.
      *
-     * <p>The supplied exchange permits callers to pre-register an in-memory,
-     * file, or external delivery procedure before the game begins.</p>
+     * <p>The supplied ledger permits callers to restore a persisted press
+     * timeline before the game begins.</p>
      */
     public Game(
             int startingYear,
@@ -118,7 +117,7 @@ public final class Game {
             Processor<MovementInput, MovementResult> movementProcessor,
             Processor<RetreatInput, RetreatResult> retreatProcessor,
             Processor<AdjustmentInput, AdjustmentResult> adjustmentProcessor,
-            PressExchange pressExchange
+            PressLedger pressLedger
     ) {
 
         if (startingYear < STARTING_YEAR)
@@ -131,7 +130,7 @@ public final class Game {
         this.movementProcessor = Objects.requireNonNull(movementProcessor, "movementProcessor");
         this.retreatProcessor = Objects.requireNonNull(retreatProcessor, "retreatProcessor");
         this.adjustmentProcessor = Objects.requireNonNull(adjustmentProcessor, "adjustmentProcessor");
-        this.pressExchange = Objects.requireNonNull(pressExchange, "pressExchange");
+        this.pressLedger = Objects.requireNonNull(pressLedger, "pressLedger");
 
     }
 
@@ -148,69 +147,47 @@ public final class Game {
     }
 
     /**
-     * Creates, records, and delivers press in the current game year and phase.
+     * Records caller-created press in the current game year and phase.
      *
      * <p>Press does not modify board state, submitted orders, phase state, or
-     * processor history.</p>
+     * processor history. Delivery, notification, inbox, and network concerns
+     * belong outside the core game model.</p>
      */
-    public PressMessage sendPress(
-            Nation sender,
-            Collection<Nation> recipients,
-            String subject,
-            String body
-    ) {
-        return pressExchange.send(
-                year,
-                phase,
-                sender,
-                recipients,
-                subject,
-                body);
+    public PressMessage recordPress(PressMessage message) {
+
+        Objects.requireNonNull(message, "message");
+
+        Moment moment = message.moment();
+
+        if (moment.year() != year || moment.gamePhase() != phase)
+            throw new IllegalArgumentException("Press moment does not match the current game position");
+
+        return pressLedger.append(message);
+
     }
 
     /**
-     * Registers a procedure for delivery of future press messages.
-     */
-    public void registerPressProcedure(
-            PressProcedure procedure
-    ) {
-        pressExchange.registerProcedure(procedure);
-    }
-
-    /**
-     * Removes a delivery procedure.
-     *
-     * @return whether the procedure had been registered
-     */
-    public boolean unregisterPressProcedure(
-            PressProcedure procedure
-    ) {
-        return pressExchange.unregisterProcedure(procedure);
-    }
-
-    /**
-     * Returns all accepted game press in chronological send order.
+     * Returns all recorded game press in chronological append order.
+     * "Pulled through" method from `PressLedger`
      */
     public List<PressMessage> pressHistory() {
-        return pressExchange.history();
+        return pressLedger.messages();
     }
 
     /**
-     * Returns press visible to one nation in chronological send order.
+     * Returns press visible to one nation in chronological append order.
+     * "Pulled through" method from `PressLedger`
      */
-    public List<PressMessage> pressVisibleTo(
-            Nation nation
-    ) {
-        return pressExchange.visibleTo(nation);
+    public List<PressMessage> pressVisibleTo(Nation nation) {
+        return pressLedger.visibleTo(nation);
     }
 
     /**
      * Returns processors that have completed, non-errored phases, in chronological order.
      */
     public List<Processor<? extends PhaseInput, ? extends PhaseResult>>
-    processorHistory()
-    {
-        return List.copyOf(processorHistory);  // copy of the references list
+        processorHistory() {
+            return List.copyOf(processorHistory);  // copy of the references list
     }
 
 
