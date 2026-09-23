@@ -1,4 +1,4 @@
-# JReferee v1
+# JReferee v1.1
 
 A DATC-compliant* Diplomacy adjudicator, written in base Java (natively: OpenJDK 25).
 
@@ -20,7 +20,7 @@ These test cases include:
 
 ---
 
-## Notable classes
+## Notable Classes & Infrastructure
 
 - ### `src._app.*`
   - `TestCaseManager.java` *(Entry Point)* — loads and runs DATC test cases
@@ -39,6 +39,12 @@ These test cases include:
     - `movement.MovementProcessor`
     - `retreats.RetreatProcessor`
     - `adjustments.AdjustmentProcessor`
+
+- ### `src.game.*`
+  - `Game` — primary orchestrator / internal representation of a Dip game: stores board & time information, board state, and related *Processor*s
+  - `BoardState` — record (immutable) of a Board State - i.e. unit locations & supply-center ownership
+  - `record` package: `GameRecord` and `GameRecordBuilder` — record & record-builder for Games
+  - `press` package: `PressMessage` and `PressLedger` for basic storage
 
 ---
 
