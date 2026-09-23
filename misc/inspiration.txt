@@ -1,0 +1,2 @@
+DipTool     :: https://www.hagenah.de/diptool/documentation.htm
+ChessBase   :: https://en.chessbase.com/

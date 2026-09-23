@@ -99,4 +99,24 @@ public final class BoardState {
     }
 
 
+    @Override
+    public boolean equals(Object other) {
+
+        if (this == other)
+            return true;
+
+        if (!(other instanceof BoardState that))
+            return false;
+
+        return unitLocations.equals(that.unitLocations)
+                && scOwners.equals(that.scOwners);
+
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(unitLocations, scOwners);
+    }
+
+
 }

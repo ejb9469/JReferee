@@ -14,4 +14,5 @@ public record WaiveOrder(Nation nation) implements AdjustmentOrder {
     public WaiveOrder {
         Objects.requireNonNull(nation, "nation");
     }
+
 }
