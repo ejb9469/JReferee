@@ -1,5 +1,9 @@
 package game;
 
+import domain.Nation;
+import game.press.PressExchange;
+import game.press.PressMessage;
+import game.press.PressProcedure;
 import phase.Order;
 import phase.PhaseInput;
 import phase.PhaseResult;
@@ -15,6 +19,7 @@ import phase.retreats.RetreatInput;
 import phase.retreats.RetreatOrder;
 import phase.retreats.RetreatProcessor;
 import phase.retreats.RetreatResult;
+import static adjudication.util.Constants.STARTING_YEAR;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -42,8 +47,10 @@ public final class Game {
     private final Processor<AdjustmentInput, AdjustmentResult>
             adjustmentProcessor;
 
+    private final PressExchange pressExchange;
+
     private final List<Processor<? extends PhaseInput, ? extends PhaseResult>>
-                    processorHistory = new ArrayList<>();
+            processorHistory = new ArrayList<>();
 
     private BoardState board;
     private int year;
@@ -72,7 +79,8 @@ public final class Game {
                 initialBoard,
                 new MovementProcessor(),
                 new RetreatProcessor(),
-                new AdjustmentProcessor());
+                new AdjustmentProcessor(),
+                new PressExchange());
     }
 
     /**
@@ -88,9 +96,33 @@ public final class Game {
             Processor<RetreatInput, RetreatResult> retreatProcessor,
             Processor<AdjustmentInput, AdjustmentResult> adjustmentProcessor
     ) {
+        this(
+                startingYear,
+                initialBoard,
+                movementProcessor,
+                retreatProcessor,
+                adjustmentProcessor,
+                new PressExchange());
+    }
 
-        if (startingYear < 1901)
-            throw new IllegalArgumentException("startingYear must be at least 1901");
+    /**
+     * Creates a game at the start of Spring movement using supplied processors
+     * and press exchange.
+     *
+     * <p>The supplied exchange permits callers to pre-register an in-memory,
+     * file, or external delivery procedure before the game begins.</p>
+     */
+    public Game(
+            int startingYear,
+            BoardState initialBoard,
+            Processor<MovementInput, MovementResult> movementProcessor,
+            Processor<RetreatInput, RetreatResult> retreatProcessor,
+            Processor<AdjustmentInput, AdjustmentResult> adjustmentProcessor,
+            PressExchange pressExchange
+    ) {
+
+        if (startingYear < STARTING_YEAR)
+            throw new IllegalArgumentException("startingYear must be at least " + STARTING_YEAR);
 
         this.year = startingYear;
         this.phase = GamePhase.SPRING_MOVEMENT;
@@ -99,6 +131,7 @@ public final class Game {
         this.movementProcessor = Objects.requireNonNull(movementProcessor, "movementProcessor");
         this.retreatProcessor = Objects.requireNonNull(retreatProcessor, "retreatProcessor");
         this.adjustmentProcessor = Objects.requireNonNull(adjustmentProcessor, "adjustmentProcessor");
+        this.pressExchange = Objects.requireNonNull(pressExchange, "pressExchange");
 
     }
 
@@ -115,10 +148,67 @@ public final class Game {
     }
 
     /**
+     * Creates, records, and delivers press in the current game year and phase.
+     *
+     * <p>Press does not modify board state, submitted orders, phase state, or
+     * processor history.</p>
+     */
+    public PressMessage sendPress(
+            Nation sender,
+            Collection<Nation> recipients,
+            String subject,
+            String body
+    ) {
+        return pressExchange.send(
+                year,
+                phase,
+                sender,
+                recipients,
+                subject,
+                body);
+    }
+
+    /**
+     * Registers a procedure for delivery of future press messages.
+     */
+    public void registerPressProcedure(
+            PressProcedure procedure
+    ) {
+        pressExchange.registerProcedure(procedure);
+    }
+
+    /**
+     * Removes a delivery procedure.
+     *
+     * @return whether the procedure had been registered
+     */
+    public boolean unregisterPressProcedure(
+            PressProcedure procedure
+    ) {
+        return pressExchange.unregisterProcedure(procedure);
+    }
+
+    /**
+     * Returns all accepted game press in chronological send order.
+     */
+    public List<PressMessage> pressHistory() {
+        return pressExchange.history();
+    }
+
+    /**
+     * Returns press visible to one nation in chronological send order.
+     */
+    public List<PressMessage> pressVisibleTo(
+            Nation nation
+    ) {
+        return pressExchange.visibleTo(nation);
+    }
+
+    /**
      * Returns processors that have completed, non-errored phases, in chronological order.
      */
     public List<Processor<? extends PhaseInput, ? extends PhaseResult>>
-            processorHistory()
+    processorHistory()
     {
         return List.copyOf(processorHistory);  // copy of the references list
     }
@@ -138,9 +228,9 @@ public final class Game {
 
         MovementResult result = movementProcessor
                 .process(
-                    new MovementInput(
-                            board.locations(),
-                            immutableList(submittedOrders, "submittedOrders"))
+                        new MovementInput(
+                                board.locations(),
+                                immutableList(submittedOrders, "submittedOrders"))
                 );
 
         processorHistory.add(movementProcessor);  // add to history (ps references list)
@@ -171,11 +261,9 @@ public final class Game {
 
         RetreatResult result = retreatProcessor
                 .process(
-                    new RetreatInput(
-                            pendingMovement,
-                            immutableList(
-                                    submittedOrders,
-                                    "submittedOrders"))
+                        new RetreatInput(
+                                pendingMovement,
+                                immutableList(submittedOrders, "submittedOrders"))
                 );
 
         processorHistory.add(retreatProcessor);  // add to history (ps references list)
@@ -218,12 +306,10 @@ public final class Game {
 
         AdjustmentResult result = adjustmentProcessor
                 .process(
-                    new AdjustmentInput(
-                            latestFallRetreat,
-                            board.owners(),
-                            immutableList(
-                                    submittedOrders,
-                                    "submittedOrders"))
+                        new AdjustmentInput(
+                                latestFallRetreat,
+                                board.owners(),
+                                immutableList(submittedOrders, "submittedOrders"))
                 );
 
         processorHistory.add(adjustmentProcessor);  // add to history (ps references list)
