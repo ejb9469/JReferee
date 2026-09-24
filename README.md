@@ -4,7 +4,7 @@ A DATC-compliant* Diplomacy adjudicator, written in base Java (natively: OpenJDK
 
 ---
 
-At present, the program (i.e. its only entry point) reads the [DATC test cases](https://petermc.net/diplomacy/datc_v3_3.html) from disk, and compares them to  the adjudicator's results. 
+At present, the program's "core" (i.e. its main entry point) reads the [DATC test cases](https://petermc.net/diplomacy/datc_v3_3.html) from disk, and compares them to  the adjudicator's results. 
 
 These test cases include:
 * Illegal orders & invalid orders
@@ -17,6 +17,19 @@ These test cases include:
 
 \*Several DATC cases are incompatible / adjusted with the program - see: *Limitations and Idiosyncrasies* below, and <u>`misc/testcase_alterations.txt`</u>.
 <br>The DATC allows an adjudicator to be called compliant when every test passes or deviations are made consciously. (<a href=https://petermc.net/diplomacy/datc_v3_3.html>petermc.net</a>)
+
+---
+
+## Limitations & Idiosyncrasies
+
+1. *JReferee* allows convoy kidnapping.
+
+It is fun!
+Some adjudicators (like <a href="https://www.backstabbr.com/">Backstabbr</a>) allow it, and some do not.
+
+2. *JReferee* does not natively support a `via convoy` flag.
+
+The existence of a convoy operation is an implied result of the convoying fleet 'succeeding', the move succeeding, and the move itself existing.
 
 ---
 
@@ -62,10 +75,9 @@ The test cases are read from:
 
 The program prints each test result and gives a final DATC-compliance score.
 
-For the board-viewer API classes:
-- Compile and run `ui.BoardSnapshotSelfCheck` for a dependency-free mapper/JSON self-check.
+---
 
-## Board viewer API integration
+## Board viewer API integration (experimental!)
 
 `BoardViewerServer` is reusable around any already-constructed `game.Game`:
 
@@ -99,14 +111,3 @@ Notes:
 - This change does not require static asset hosting; callers can serve existing `resources/ui/...` assets separately if desired.
 
 ---
-
-## Limitations & Idiosyncrasies
-
-1. *JReferee* allows convoy kidnapping.
-
-It is fun!
-Some adjudicators (like <a href="https://www.backstabbr.com/">Backstabbr</a>) allow it, and some do not.
-
-2. *JReferee* does not natively support a `via convoy` flag.
-
-The existence of a convoy operation is an implied result of the convoying fleet 'succeeding', the move succeeding, and the move itself existing.
