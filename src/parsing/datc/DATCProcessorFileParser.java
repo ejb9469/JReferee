@@ -1,4 +1,4 @@
-package parsing;
+package parsing.datc;
 
 import domain.Nation;
 import domain.Province;

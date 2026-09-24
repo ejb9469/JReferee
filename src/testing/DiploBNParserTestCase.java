@@ -53,17 +53,6 @@ public final class DiploBNParserTestCase implements TestCase {
     public DiploBNParserTestCase() {    }
 
 
-    public static void main(String[] args) {
-
-        DiploBNParserTestCase testCase =
-                new DiploBNParserTestCase();
-
-        testCase.eval(true);
-        testCase.printNameAndScore();
-
-    }
-
-
     @Override
     public void eval(boolean print) {
 

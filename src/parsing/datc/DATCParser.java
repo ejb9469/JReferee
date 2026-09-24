@@ -1,4 +1,4 @@
-package parsing;
+package parsing.datc;
 
 import adjudication.Order;
 import domain.*;

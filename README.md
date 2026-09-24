@@ -1,10 +1,10 @@
-# JReferee v1.2
+# JReferee v1.3
 
 A DATC-compliant* Diplomacy adjudicator, written in base Java (natively: OpenJDK 25).
 
 ---
 
-At present, the program's "core" (i.e. its main entry point) reads the [DATC test cases](https://petermc.net/diplomacy/datc_v3_3.html) from disk, and compares them to  the adjudicator's results. 
+At present, the program's "core" (i.e. its grandfather entry point) reads the [DATC test cases](https://petermc.net/diplomacy/datc_v3_3.html) from disk (or, alternatively, games from external platforms), and compares them to  the adjudicator's results. 
 
 These test cases include:
 * Illegal orders & invalid orders
@@ -16,7 +16,7 @@ These test cases include:
 * Retreats & Adjustments
 
 \*Several DATC cases are incompatible / adjusted with the program - see: *Limitations and Idiosyncrasies* below, and <u>`misc/testcase_alterations.txt`</u>.
-<br>The DATC allows an adjudicator to be called compliant when every test passes or deviations are made consciously. (<a href=https://petermc.net/diplomacy/datc_v3_3.html>petermc.net</a>)
+<br><br>The DATC allows an adjudicator to be called compliant when every test passes or deviations are made consciously. (<a href=https://petermc.net/diplomacy/datc_v3_3.html>petermc.net</a>)
 
 ---
 
@@ -37,6 +37,8 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 
 - ### `src._app.*`
   - `TestCaseManager.java` *(Entry Point)* — loads and runs DATC test cases
+  - `DiploBNAdjudicationComparator.java` *(ibid)* — compares game(s) hosted on <u>[diplobn.com](https://diplobn.com/)</u> to local adjudication results
+  - `BoardViewerApp.java` *(ibid)* — entry point for WIP graphics interface
 
 - ### `src.adjudication.*`
   - `Adjudicator` — *interface of* deterministic ('rules-based') orders resolvers; '*Adjudicators*'
@@ -67,13 +69,15 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 
 ## Tests
 
-Run `TestCaseManager`.
+Option A. Run `TestCaseManager`.
 
 The test cases are read from:
 * SUITE 1 (Raw adjudication): \[\[`src/resources/testgames/*` & `/src/resources/testgames_solutions/*`\]\]
 * SUITE 2 (Board state, Retreats & adjustments): \[\[`src/resources/testgames_phase/*`\]\]
 
 The program prints each test result and gives a final DATC-compliance score.
+
+b. Option B. Run `DiploBNAdjudicationComparator` and supply a [diplobn.com](https://diplobn.com/) game link to test against.
 
 ---
 
