@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"
+    >
+    <title>JReferee Board Viewer</title>
+    <link rel="stylesheet" href="/ui/viewer.css">
+    <script defer src="/ui/viewer.js"></script>
+</head>
+
+<body>
+<header class="toolbar">
+    <h1>JReferee Board Viewer</h1>
+
+    <output id="turn-label" aria-live="polite">
+        Loading board…
+    </output>
+
+    <button id="reset-selection" type="button">
+        Reset selection
+    </button>
+</header>
+
+<main class="viewer-layout">
+    <section class="map-panel" aria-label="Diplomacy board">
+        <div id="map-host" class="map-host"></div>
+        <div id="tooltip" class="tooltip" hidden></div>
+    </section>
+
+    <aside class="details-panel" aria-live="polite">
+        <h2>Selected province</h2>
+
+        <p id="selection-empty">
+            Click a province or unit on the board.
+        </p>
+
+        <dl id="province-details" hidden>
+            <dt>Province</dt>
+            <dd id="detail-province"></dd>
+
+            <dt>Supply-center owner</dt>
+            <dd id="detail-owner"></dd>
+
+            <dt>Unit</dt>
+            <dd id="detail-unit"></dd>
+        </dl>
+    </aside>
+</main>
+</body>
+</html>

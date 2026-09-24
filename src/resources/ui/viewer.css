@@ -1,0 +1,43 @@
+/* Labels and existing supply-center markers must not consume map clicks. */
+#layer4,
+#layer5,
+#decorations {
+  pointer-events: none;
+}
+
+/* Only actual playable province shapes receive these classes at runtime. */
+.province {
+  cursor: pointer;
+  outline: none;
+}
+
+.province:hover,
+.province:focus-visible {
+  filter: brightness(1.08);
+  stroke: #1f2937 !important;
+  stroke-width: 0.6px !important;
+}
+
+.province.is-selected {
+  filter: brightness(1.12) drop-shadow(0 0 1.2px #f59e0b);
+  stroke: #f59e0b !important;
+  stroke-width: 1.1px !important;
+}
+
+/* SVG unit tokens appended to #units. */
+.unit-token {
+  cursor: pointer;
+  stroke: #111827;
+  stroke-width: 0.45;
+}
+
+.unit-token:hover {
+  stroke: #ffffff;
+  stroke-width: 0.8;
+}
+
+/*
+#layer7 {
+  pointer-events: none;
+}
+*/

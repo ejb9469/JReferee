@@ -1,0 +1,5 @@
+/                    -> src/resources/ui/index.html
+/ui/viewer.js        -> src/resources/ui/viewer.js
+/ui/viewer.css       -> src/resources/ui/viewer.css
+/ui/maps/standard.svg -> src/resources/ui/maps/standard.svg
+/api/board           -> existing JSON handler
