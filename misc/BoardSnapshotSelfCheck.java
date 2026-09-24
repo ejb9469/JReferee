@@ -3,6 +3,7 @@ package ui;
 import domain.Nation;
 import domain.Province;
 import domain.UnitType;
+import game.BoardSnapshot;
 import game.BoardState;
 import game.Game;
 import game.GamePhase;
