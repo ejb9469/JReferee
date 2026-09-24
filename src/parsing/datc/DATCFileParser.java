@@ -1,4 +1,4 @@
-package parsing;
+package parsing.datc;
 
 import testing.AdjudicatorTestCase;
 
