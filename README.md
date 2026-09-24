@@ -46,6 +46,10 @@ These test cases include:
   - `record` package: `GameRecord` and `GameRecordBuilder` — record & record-builder for Games
   - `press` package: `PressMessage` and `PressLedger` for basic storage
 
+- ### `src.ui.*`
+  - `BoardViewerServer` — loopback-only HTTP endpoint at `GET /api/board` for current `Game` state
+  - `BoardSnapshotMapper` / `BoardSnapshotJsonWriter` — dependency-free DTO mapping and JSON serialization for viewer clients
+
 ---
 
 ## Tests
@@ -57,6 +61,42 @@ The test cases are read from:
 * SUITE 2 (Board state, Retreats & adjustments): \[\[`src/resources/testgames_phase/*`\]\]
 
 The program prints each test result and gives a final DATC-compliance score.
+
+For the board-viewer API classes:
+- Compile and run `ui.BoardSnapshotSelfCheck` for a dependency-free mapper/JSON self-check.
+
+## Board viewer API integration
+
+`BoardViewerServer` is reusable around any already-constructed `game.Game`:
+
+```java
+Game game = ...; // caller-owned game instance
+try (BoardViewerServer server = new BoardViewerServer(game, 0)) { // 0 = ephemeral port
+    server.start();
+    int port = server.address().getPort();
+    // GET http://127.0.0.1:<port>/api/board
+}
+```
+
+`GET /api/board` returns JSON like:
+
+```json
+{
+  "year": 1901,
+  "phase": "SPRING_MOVEMENT",
+  "units": [
+    { "nation": "ENGLAND", "type": "FLEET", "province": "Edi" }
+  ],
+  "supplyCenterOwners": {
+    "Edi": "ENGLAND"
+  }
+}
+```
+
+Notes:
+- Unit locations preserve exact provinces (including split coasts like `StpNC`).
+- Supply-center ownership keys are canonicalized (for example `Stp`, `Spa`, `Bul`).
+- This change does not require static asset hosting; callers can serve existing `resources/ui/...` assets separately if desired.
 
 ---
 
