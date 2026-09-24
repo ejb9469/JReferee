@@ -9,10 +9,12 @@ import parsing.DATCProcessorFileParser;
 import parsing.FileTestCaseParser;
 import testing.DATCAdjTestCase;
 import testing.AdjudicatorTestCase;
-import adjudication.util.Constants;
+import testing.DiploBNParserTestCase;
+import domain.Constants;
 import adjudication.util.OrderComparator;
 import adjudication.util.Orders;
 import testing.ProcessorTestCase;
+import testing.TestCase;
 
 import java.util.*;
 
@@ -53,6 +55,7 @@ public class TestCaseManager {
 
     protected final List<AdjudicatorTestCase>       adjudicatorTestCases;
     protected final List<ProcessorTestCase<?,?>>    processorTestCases;
+    protected final List<TestCase>                  parserTestCases;
 
     protected final boolean prints;
 
@@ -66,6 +69,7 @@ public class TestCaseManager {
     public TestCaseManager(boolean willPrint) {
         this.adjudicatorTestCases = new ArrayList<>();
         this.processorTestCases = new ArrayList<>();
+        this.parserTestCases = new ArrayList<>();
         this.prints = willPrint;
     }
 
@@ -150,12 +154,55 @@ public class TestCaseManager {
 
     }
 
+    public int parserScore() {
+
+        int score = 0;
+
+        for (TestCase testCase : this.parserTestCases) {
+            if (testCase.getScore() == testCase.getSize())
+                score++;
+        }
+
+        return score;
+
+    }
+
+    public int parserSize() {
+        return this.parserTestCases.size();
+    }
+
+    public int parserChecksScore() {
+
+        int score = 0;
+
+        for (TestCase testCase : this.parserTestCases)
+            score += testCase.getScore();
+
+        return score;
+
+    }
+
+    public int parserChecksSize() {
+
+        int size = 0;
+
+        for (TestCase testCase : this.parserTestCases)
+            size += testCase.getSize();
+
+        return size;
+
+    }
+
     public List<AdjudicatorTestCase> getAdjudicatorTestCases() {
         return this.adjudicatorTestCases;
     }
 
     public List<ProcessorTestCase<?,?>> getProcessorTestCases() {
         return this.processorTestCases;
+    }
+
+    public List<TestCase> getParserTestCases() {
+        return this.parserTestCases;
     }
 
     public boolean willPrint() {
@@ -171,6 +218,16 @@ public class TestCaseManager {
 
     public void addProcessorTestCases(Collection<? extends ProcessorTestCase<?,?>> testCases) {
         this.processorTestCases.addAll(testCases);
+    }
+
+    public void addParserTestCase(TestCase testCase) {
+        this.parserTestCases.add(testCase);
+    }
+
+    public void addParserTestCases(
+            Collection<? extends TestCase> testCases
+    ) {
+        this.parserTestCases.addAll(testCases);
     }
 
     public void addAdjudicatorTestCase(AdjudicatorTestCase testCase) {
@@ -362,12 +419,25 @@ public class TestCaseManager {
 
     }
 
+    public void runParserTests() {
+
+        System.out.println("PARSER TESTING:\n");
+
+        for (TestCase testCase : this.parserTestCases)
+            testCase.eval(false);
+
+        this.printParserTestCaseResults(this.parserTestCases);
+
+        this.printParserTotals();
+
+    }
+
 
     // Reporting helpers \\
 
     private void printTestCaseResults(Collection<? extends AdjudicatorTestCase> testCases) {
 
-        System.out.println("----------------------------------------\n");
+        //System.out.println("----------------------------------------\n");
 
         for (AdjudicatorTestCase testCase : testCases) {
             testCase.printNameAndScore();
@@ -382,9 +452,24 @@ public class TestCaseManager {
 
     private void printProcessorTestCaseResults(Collection<? extends ProcessorTestCase<?,?>> testCases) {
 
-        System.out.println("----------------------------------------\n");
+        //System.out.println("----------------------------------------\n");
 
         for (ProcessorTestCase<?,?> testCase : testCases) {
+            testCase.printNameAndScore();
+            if (testCase.getScore() != testCase.getSize())
+                System.out.println(
+                        Constants.ANSI_RED
+                                + "\tFAILED!!"
+                                + Constants.ANSI_RESET);
+        }
+
+    }
+
+    private void printParserTestCaseResults(Collection<? extends TestCase> testCases) {
+
+        //System.out.println("----------------------------------------\n");
+
+        for (TestCase testCase : testCases) {
             testCase.printNameAndScore();
             if (testCase.getScore() != testCase.getSize())
                 System.out.println(
@@ -421,6 +506,21 @@ public class TestCaseManager {
                 "TOTAL SCORE (by Checks):\t\t[%d/%d]%n",
                 this.processorChecksScore(),
                 this.processorChecksSize());
+        System.out.println("----------------------------------------\n");
+
+    }
+
+    private void printParserTotals() {
+
+        System.out.println("\n----------------------------------------");
+        System.out.printf(
+                "TOTAL SCORE (by Test Cases):\t[%d/%d]%n",
+                this.parserScore(),
+                this.parserSize());
+        System.out.printf(
+                "TOTAL SCORE (by Checks):\t\t[%d/%d]%n",
+                this.parserChecksScore(),
+                this.parserChecksSize());
         System.out.println("----------------------------------------\n");
 
     }
@@ -476,6 +576,9 @@ public class TestCaseManager {
         manager.addProcessorTestCases(
                 processorFileParser.parseManyFiles());
 
+        manager.addParserTestCase(
+                new DiploBNParserTestCase());
+
         System.out.println("\n----------------------------------------\n");
 
         switch (MODE) {
@@ -487,6 +590,9 @@ public class TestCaseManager {
 
         if (!manager.getProcessorTestCases().isEmpty())
             manager.runProcessorTests();
+
+        if (!manager.getParserTestCases().isEmpty())
+            manager.runParserTests();
 
         Constants.printTimestamp();
 

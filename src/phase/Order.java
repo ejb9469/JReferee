@@ -1,5 +1,6 @@
 package phase;
 
+import contracts.OrderForm;
 import domain.Nation;
 import domain.OrderType;
 import domain.Province;
@@ -14,7 +15,8 @@ import java.util.Objects;
  * location is supplied separately by MovementInput, rather than being encoded
  * in this order or inferred from UnitId.origin().</p>
  */
-public final class Order {
+public final class Order
+        implements OrderForm {
 
     private final UnitId unit;
     private final OrderType type;

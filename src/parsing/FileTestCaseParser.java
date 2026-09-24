@@ -1,6 +1,7 @@
 package parsing;
 
 import testing.AdjudicatorTestCase;
+import testing.TestCase;
 
 import java.util.Collection;
 
@@ -10,8 +11,9 @@ import java.util.Collection;
 public interface FileTestCaseParser extends TestCaseParser {
 
     @Override
-    public AdjudicatorTestCase parse(String source);
+    public TestCase parse(String source);
 
+    @Deprecated
     public Collection<AdjudicatorTestCase> parseManyFiles();
 
 }

@@ -1,0 +1,19 @@
+{
+  "GamePhases": [
+    {
+      "Phase": 19011,
+      "Status": "AwaitingOrders",
+      "Units": {
+        "France": [
+          [
+            "F",
+            [
+              "Spa",
+              "wc"
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 package phase.retreats;
 
+import contracts.OrderForm;
 import domain.Province;
 import phase.UnitId;
 
@@ -15,7 +16,7 @@ import java.util.Objects;
 public record RetreatOrder(
         UnitId unit,
         Province destination
-) {
+) implements OrderForm {
 
     public RetreatOrder {
         Objects.requireNonNull(unit, "unit");

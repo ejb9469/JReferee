@@ -1,0 +1,228 @@
+{
+  "Competition": "JReferee DiploBN import fixture",
+  "GameLabel": "Parser coverage game",
+  "URL": "https://diplobn.com/",
+  "GamePhases": [
+    {
+      "Phase": 19011,
+      "Status": "AwaitingOrders",
+      "SupplyCenters": {
+        "England": [
+          "Edi",
+          "Lon"
+        ],
+        "France": [
+          "Bre",
+          "Spa"
+        ],
+        "Germany": [
+          "Ber"
+        ]
+      },
+      "Units": {
+        "England": [
+          [
+            "F",
+            "ENG"
+          ],
+          [
+            "A",
+            "Lon"
+          ],
+          [
+            "F",
+            "NTH"
+          ],
+          [
+            "F",
+            "Edi"
+          ]
+        ],
+        "France": [
+          [
+            "A",
+            "Bre"
+          ],
+          [
+            "F",
+            [
+              "Spa",
+              "sc"
+            ]
+          ]
+        ],
+        "Germany": [
+          [
+            "A",
+            "Bel"
+          ]
+        ]
+      },
+      "Orders": {
+        "England": [
+          [
+            "ENG",
+            [
+              "c",
+              "Lon",
+              "Bre"
+            ],
+            "s"
+          ],
+          [
+            "Lon",
+            [
+              "m",
+              "Bel"
+            ],
+            [
+              "f",
+              "Bounced"
+            ]
+          ],
+          [
+            "NTH",
+            [
+              "sm",
+              "Lon",
+              "Bel"
+            ],
+            "s"
+          ],
+          [
+            "Edi",
+            [
+              "sh",
+              "Lon"
+            ],
+            "s"
+          ]
+        ],
+        "France": [
+          [
+            "Bre",
+            "h",
+            "s"
+          ],
+          [
+            "Spa",
+            [
+              "m",
+              "Por"
+            ],
+            "f"
+          ]
+        ],
+        "Germany": [
+          [
+            "Bel",
+            [
+              "h"
+            ],
+            "s"
+          ]
+        ]
+      }
+    },
+    {
+      "Phase": 19011,
+      "Status": "AwaitingRetreats",
+      "SupplyCenters": {
+        "England": [
+          "Edi",
+          "Lon"
+        ],
+        "France": [
+          "Bre",
+          "Spa"
+        ]
+      },
+      "Units": {
+        "England": [
+          [
+            "A",
+            "Lon"
+          ]
+        ],
+        "France": [
+          [
+            "F",
+            "ENG"
+          ]
+        ]
+      },
+      "RetreatOrders": {
+        "England": [
+          [
+            "Lon",
+            [
+              "m",
+              "Wal"
+            ],
+            [
+              "s",
+              "Retreated"
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "Phase": 19013,
+      "Status": "AwaitingOrders",
+      "SupplyCenters": {
+        "England": [
+          "Edi",
+          "Lon"
+        ],
+        "France": [
+          "Bre",
+          "Spa"
+        ]
+      },
+      "Units": {
+        "England": [
+          [
+            "A",
+            "Lon"
+          ],
+          [
+            "F",
+            "Edi"
+          ]
+        ],
+        "France": [
+          [
+            "A",
+            "Bre"
+          ]
+        ]
+      },
+      "Orders": {
+        "England": [
+          [
+            "Wal",
+            [
+              "b",
+              [
+                "F",
+                "Wal"
+              ]
+            ],
+            "s"
+          ]
+        ],
+        "France": [
+          [
+            "Bre",
+            "d",
+            [
+              "f",
+              "Too many units"
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

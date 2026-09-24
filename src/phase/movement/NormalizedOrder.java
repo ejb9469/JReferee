@@ -1,5 +1,6 @@
 package phase.movement;
 
+import contracts.OrderForm;
 import phase.Order;
 import phase.UnitId;
 
@@ -15,7 +16,7 @@ record NormalizedOrder(
         UnitId unit,
         Order order,
         boolean submitted
-) {
+) implements OrderForm {
 
     NormalizedOrder {
         Objects.requireNonNull(unit, "unit");

@@ -3,6 +3,7 @@ package game;
 import domain.Nation;
 import game.press.PressLedger;
 import game.press.PressMessage;
+import game.press.Pressable;
 import phase.Order;
 import phase.PhaseInput;
 import phase.PhaseResult;
@@ -18,7 +19,7 @@ import phase.retreats.RetreatInput;
 import phase.retreats.RetreatOrder;
 import phase.retreats.RetreatProcessor;
 import phase.retreats.RetreatResult;
-import static adjudication.util.Constants.STARTING_YEAR;
+import static domain.Constants.STARTING_YEAR;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -27,14 +28,15 @@ import java.util.Objects;
 
 
 /**
- * Stateful Diplomacy game (phase-transition) orchestrator.
+ * Stateful Diplomacy game (phase-transition) representation & orchestrator.
  *
  * <p>`Game` owns the current BoardState, year, and phase. The individual phase
  * `Processor`s remain responsible for their own adjudication rules.<br>
  * `Game` builds the correct input, invokes the appropriate processor, applies the result to
  * the persistent board, and advances to the next phase.</p>
  */
-public final class Game {
+public class Game
+        implements Orchestrator, Pressable {
 
 
     private final Processor<MovementInput, MovementResult>
@@ -146,6 +148,7 @@ public final class Game {
         return board;
     }
 
+
     /**
      * Records caller-created press in the current game year and phase.
      *
@@ -153,6 +156,7 @@ public final class Game {
      * processor history. Delivery, notification, inbox, and network concerns
      * belong outside the core game model.</p>
      */
+    @Override
     public PressMessage recordPress(PressMessage message) {
 
         Objects.requireNonNull(message, "message");
@@ -170,6 +174,7 @@ public final class Game {
      * Returns all recorded game press in chronological append order.
      * "Pulled through" method from `PressLedger`
      */
+    @Override
     public List<PressMessage> pressHistory() {
         return pressLedger.messages();
     }
@@ -178,16 +183,20 @@ public final class Game {
      * Returns press visible to one nation in chronological append order.
      * "Pulled through" method from `PressLedger`
      */
+    @Override
     public List<PressMessage> pressVisibleTo(Nation nation) {
         return pressLedger.visibleTo(nation);
     }
 
+
     /**
      * Returns processors that have completed, non-errored phases, in chronological order.
      */
-    public List<Processor<? extends PhaseInput, ? extends PhaseResult>>
-        processorHistory() {
-            return List.copyOf(processorHistory);  // copy of the references list
+    public List<Processor<
+            ? extends PhaseInput,
+            ? extends PhaseResult>> processorHistory()
+    {
+        return List.copyOf(processorHistory);  // copy of the references list
     }
 
 
@@ -199,6 +208,7 @@ public final class Game {
      * MovementProcessor. If no units are dislodged, the corresponding retreat
      * phase is skipped.</p>
      */
+    @Override
     public MovementResult resolveMovement(Collection<Order> submittedOrders) {
 
         requireMovementPhase();
@@ -228,6 +238,7 @@ public final class Game {
      * <p>Missing retreat orders are allowed. The RetreatProcessor destroys
      * dislodged units that have no valid retreat order.</p>
      */
+    @Override
     public RetreatResult resolveRetreats(Collection<RetreatOrder> submittedOrders) {
 
         requireRetreatPhase();
@@ -271,6 +282,7 @@ public final class Game {
      * Fall board. The completed adjustment result becomes the next Spring
      * movement board.</p>
      */
+    @Override
     public AdjustmentResult resolveAdjustments(Collection<AdjustmentOrder> submittedOrders) {
 
         if (phase != GamePhase.WINTER_ADJUSTMENT)

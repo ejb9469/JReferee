@@ -1,4 +1,4 @@
-package adjudication.util;
+package domain;
 
 import java.time.ZoneId;
 import java.time.ZonedDateTime;

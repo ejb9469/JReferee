@@ -15,8 +15,7 @@ import java.util.Map;
 public final class StandardGameFactory {
 
 
-    private StandardGameFactory() {
-    }
+    private StandardGameFactory() {     }
 
 
     /**

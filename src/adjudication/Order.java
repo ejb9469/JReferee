@@ -1,5 +1,6 @@
 package adjudication;
 
+import contracts.OrderForm;
 import contracts.Snapshot;
 import adjudication.util.OrderComparator;
 import domain.Nation;
@@ -15,7 +16,8 @@ import java.util.Objects;
  * In addition to the relevant data fields, the `Order` class also contains adjudication-related 'metadata' fields --
  * (i.e. `<i>resolved</i>`, `<i>verdict</i>`, & `<i>visited</i>`)
  */
-public class Order implements Snapshot, Comparable<Order> {
+public class Order
+        implements OrderForm, Snapshot, Comparable<Order> {
 
     // Core fields
     public Nation owner;
