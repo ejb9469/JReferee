@@ -21,10 +21,23 @@ body {
 .toolbar h1 {
   margin: 0;
   font-size: 1.1rem;
+  white-space: nowrap;
 }
 
-.toolbar output {
+.replay-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
   margin-left: auto;
+}
+
+.replay-controls output {
+  min-width: 14rem;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toolbar button {
@@ -36,9 +49,14 @@ body {
   cursor: pointer;
 }
 
-.toolbar button:hover,
-.toolbar button:focus-visible {
+.toolbar button:hover:not(:disabled),
+.toolbar button:focus-visible:not(:disabled) {
   background: #475569;
+}
+
+.toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .viewer-layout {
@@ -61,8 +79,8 @@ body {
 }
 
 /*
- * Labels, map decorations, and supply-center indicators should never intercept
- * a click intended for the actual province path beneath them.
+ * Labels, decorations, and supply-center rings must not intercept clicks
+ * intended for a province shape below them.
  */
 #layer4,
 #layer5,
@@ -70,15 +88,6 @@ body {
   pointer-events: none;
 }
 
-/*
- * The existing SVG layer is now stateful:
- *
- * - outer circle: supply-center owner color
- * - inner circle: white center dot
- *
- * Viewer JavaScript applies these colors using inline style properties because
- * the Inkscape SVG already has inline style attributes.
- */
 #layer5 > g {
   opacity: 1;
 }
@@ -91,7 +100,6 @@ body {
   transition: fill 160ms ease;
 }
 
-/* Only actual playable province shapes receive this class at runtime. */
 .province {
   cursor: pointer;
   outline: none;
@@ -110,7 +118,6 @@ body {
   stroke-width: 1.1px !important;
 }
 
-/* SVG unit tokens appended dynamically to #units. */
 .unit-token {
   cursor: pointer;
   stroke: #111827;
@@ -128,7 +135,8 @@ body {
   background: #ffffff;
 }
 
-.details-panel h2 {
+.details-panel h2,
+.details-panel h3 {
   margin-top: 0;
 }
 
@@ -141,6 +149,35 @@ body {
   margin: 0.2rem 0 0;
 }
 
+.keyboard-help {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.keyboard-help h3 {
+  margin-bottom: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.keyboard-help p {
+  margin: 0;
+  color: #4b5563;
+  font-size: 0.85rem;
+  line-height: 1.8;
+}
+
+kbd {
+  padding: 0.05rem 0.25rem;
+  border: 1px solid #9ca3af;
+  border-bottom-width: 2px;
+  border-radius: 0.2rem;
+  color: #111827;
+  background: #f9fafb;
+  font-family: inherit;
+  font-size: 0.8rem;
+}
+
 .tooltip {
   position: fixed;
   z-index: 2;
@@ -151,6 +188,24 @@ body {
   background: #111827;
   pointer-events: none;
   font-size: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .toolbar {
+    flex-wrap: wrap;
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .replay-controls {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .replay-controls output {
+    flex: 1;
+  }
 }
 
 @media (max-width: 760px) {

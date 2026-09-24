@@ -15,9 +15,47 @@
 <header class="toolbar">
     <h1>JReferee Board Viewer</h1>
 
-    <output id="turn-label" aria-live="polite">
-        Loading board…
-    </output>
+    <nav class="replay-controls" aria-label="Board history navigation">
+        <button
+                id="first-turn"
+                type="button"
+                title="First recorded position"
+                aria-label="First recorded position"
+        >
+            |&lt;
+        </button>
+
+        <button
+                id="previous-turn"
+                type="button"
+                title="Previous recorded position"
+                aria-label="Previous recorded position"
+        >
+            &lt;
+        </button>
+
+        <output id="turn-label" aria-live="polite">
+            Loading board history…
+        </output>
+
+        <button
+                id="next-turn"
+                type="button"
+                title="Next recorded position"
+                aria-label="Next recorded position"
+        >
+            &gt;
+        </button>
+
+        <button
+                id="last-turn"
+                type="button"
+                title="Latest recorded position"
+                aria-label="Latest recorded position"
+        >
+            &gt;|
+        </button>
+    </nav>
 
     <button id="reset-selection" type="button">
         Reset selection
@@ -47,6 +85,16 @@
             <dt>Unit</dt>
             <dd id="detail-unit"></dd>
         </dl>
+
+        <section class="keyboard-help" aria-label="Keyboard controls">
+            <h3>History controls</h3>
+            <p>
+                <kbd>←</kbd> Previous
+                <kbd>→</kbd> Next
+                <kbd>Home</kbd> First
+                <kbd>End</kbd> Latest
+            </p>
+        </section>
     </aside>
 </main>
 </body>
