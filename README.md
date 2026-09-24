@@ -1,4 +1,4 @@
-# JReferee v1.1
+# JReferee v1.2
 
 A DATC-compliant* Diplomacy adjudicator, written in base Java (natively: OpenJDK 25).
 
