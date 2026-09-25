@@ -15,14 +15,9 @@ import java.util.Objects;
  * order and mutable adjudication work-order representations. Translators can
  * convert it to either representation through {@link contracts.OrderTranslator}.</p>
  */
-public record DiploBNOrder(
-        UnitId unit,
-        OrderType type,
-        Province target,
-        Province auxiliaryTarget
-) implements OrderForm {
+public class DiploBNOrder extends phase.Order {
 
-    public DiploBNOrder {
+    public DiploBNOrder(UnitId unit, OrderType type, Province target, Province auxiliaryTarget) {
 
         Objects.requireNonNull(unit, "unit");
         Objects.requireNonNull(type, "type");
@@ -31,27 +26,9 @@ public record DiploBNOrder(
                 && type != OrderType.MOVE
                 && type != OrderType.SUPPORT
                 && type != OrderType.CONVOY)
-            throw new IllegalArgumentException(
-                    "DiploBN movement order cannot use "
-                            + type);
+            throw new IllegalArgumentException("DiploBN movement order cannot use " + type);
 
-        if (type == OrderType.HOLD
-                && (target != null || auxiliaryTarget != null))
-            throw new IllegalArgumentException(
-                    "Hold order must not have targets");
-
-        if (type == OrderType.MOVE && target == null)
-            throw new IllegalArgumentException(
-                    "Move order requires a destination");
-
-        if (type == OrderType.SUPPORT && target == null)
-            throw new IllegalArgumentException(
-                    "Support order requires a supported position");
-
-        if (type == OrderType.CONVOY
-                && (target == null || auxiliaryTarget == null))
-            throw new IllegalArgumentException(
-                    "Convoy order requires army origin and destination");
+        super(unit, type, target, auxiliaryTarget);
 
     }
 

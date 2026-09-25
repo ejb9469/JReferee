@@ -15,7 +15,7 @@ import java.util.Objects;
  * location is supplied separately by MovementInput, rather than being encoded
  * in this order or inferred from UnitId.origin().</p>
  */
-public final class Order
+public class Order
         implements OrderForm {
 
     private final UnitId unit;
@@ -23,7 +23,7 @@ public final class Order
     private final Province target;
     private final Province auxiliaryTarget;
 
-    private Order(
+    public Order(
             UnitId unit,
             OrderType type,
             Province target,

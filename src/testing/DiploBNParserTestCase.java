@@ -1,13 +1,16 @@
 package testing;
 
 import domain.Province;
+import domain.OrderType;
 import game.Game;
 import game.GamePhase;
 import parsing.diplobn.DiploBNGame;
+import parsing.diplobn.DiploBNOrder;
 import parsing.diplobn.DiploBNOrderResolution;
-import parsing.diplobn.DiploBNParseException;
+import parsing.diplobn.ParseException;
 import parsing.diplobn.DiploBNParser;
 import parsing.diplobn.DiploBNPhase;
+import phase.Order;
 import phase.adjustments.AdjustmentOrder;
 import phase.adjustments.BuildOrder;
 import phase.adjustments.DisbandOrder;
@@ -168,6 +171,68 @@ public final class DiploBNParserTestCase implements TestCase {
                 7,
                 phase.movementOrders().size()
         );
+
+        checks.expect(
+                "Source movement order count",
+                phase.movementOrders().size(),
+                phase.sourceMovementOrders().size()
+        );
+
+        List<DiploBNOrder> sourceOrders =
+                phase.sourceMovementOrders();
+
+        if (!sourceOrders.isEmpty()) {
+            DiploBNOrder firstSourceOrder =
+                    sourceOrders.getFirst();
+
+            checks.expect(
+                    "First source movement order type",
+                    OrderType.MOVE,
+                    firstSourceOrder.type()
+            );
+
+            checks.expect(
+                    "First source movement order target",
+                    Province.ENG,
+                    firstSourceOrder.target()
+            );
+        }
+
+        for (int index = 0;
+             index < phase.sourceMovementOrders().size();
+             index++) {
+
+            DiploBNOrder sourceOrder =
+                    phase.sourceMovementOrders().get(index);
+
+            Order translatedOrder =
+                    phase.movementOrders().get(index);
+
+            checks.expect(
+                    "Movement order " + index + " unit alignment",
+                    sourceOrder.unit(),
+                    translatedOrder.unit()
+            );
+
+            checks.expect(
+                    "Movement order " + index + " type alignment",
+                    sourceOrder.type(),
+                    translatedOrder.type()
+            );
+
+            checks.expect(
+                    "Movement order " + index + " target alignment",
+                    sourceOrder.target(),
+                    translatedOrder.target()
+            );
+
+            checks.expect(
+                    "Movement order " + index
+                            + " auxiliary target alignment",
+                    sourceOrder.auxiliaryTarget(),
+                    translatedOrder.auxiliaryTarget()
+            );
+        }
 
         checks.expect(
                 "Movement phase has no retreat orders",
@@ -410,11 +475,11 @@ public final class DiploBNParserTestCase implements TestCase {
 
             checks.expect(
                     "Unsupported Spain west coast is rejected",
-                    "DiploBNParseException",
+                    "ParseException",
                     "No exception"
             );
 
-        } catch (DiploBNParseException exception) {
+        } catch (ParseException exception) {
             checks.expect(
                     "Unsupported Spain west coast is rejected",
                     true,

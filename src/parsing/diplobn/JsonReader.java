@@ -297,8 +297,8 @@ final class JsonReader {
         return source.charAt(index);
     }
 
-    private DiploBNParseException error(String message) {
-        return new DiploBNParseException(
+    private ParseException error(String message) {
+        return new ParseException(
                 "JSON character " + index + ": " + message);
     }
 

@@ -26,6 +26,7 @@ public final class DiploBNPhase {
     private final GamePhase gamePhase;
     private final BoardState board;
 
+    private final List<DiploBNOrder> sourceMovementOrders;
     private final List<Order> movementOrders;
     private final List<RetreatOrder> retreatOrders;
     private final List<AdjustmentOrder> adjustmentOrders;
@@ -39,6 +40,7 @@ public final class DiploBNPhase {
             String sourceStatus,
             GamePhase gamePhase,
             BoardState board,
+            List<DiploBNOrder> sourceMovementOrders,
             List<Order> movementOrders,
             List<RetreatOrder> retreatOrders,
             List<AdjustmentOrder> adjustmentOrders,
@@ -54,10 +56,20 @@ public final class DiploBNPhase {
         this.gamePhase = Objects.requireNonNull(gamePhase, "gamePhase");
         this.board = Objects.requireNonNull(board, "board");
 
+        this.sourceMovementOrders = List.copyOf(
+                Objects.requireNonNull(
+                        sourceMovementOrders,
+                        "sourceMovementOrders"));
+
         this.movementOrders = List.copyOf(
                 Objects.requireNonNull(
                         movementOrders,
                         "movementOrders"));
+
+        if (this.sourceMovementOrders.size()
+                != this.movementOrders.size())
+            throw new IllegalArgumentException(
+                    "Source and translated movement order counts differ");
 
         this.retreatOrders = List.copyOf(
                 Objects.requireNonNull(
@@ -111,7 +123,16 @@ public final class DiploBNPhase {
     }
 
     /**
-     * Submitted movement orders. Empty for retreat and winter snapshots.
+     * Decoded source movement submissions. Empty for retreat and winter
+     * snapshots.
+     */
+    public List<DiploBNOrder> sourceMovementOrders() {
+        return sourceMovementOrders;
+    }
+
+    /**
+     * Submitted movement orders translated into JReferee's immutable phase
+     * representation. Empty for retreat and winter snapshots.
      */
     public List<Order> movementOrders() {
         return movementOrders;

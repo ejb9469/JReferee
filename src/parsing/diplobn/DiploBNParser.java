@@ -1,11 +1,11 @@
 package parsing.diplobn;
 
 import domain.Nation;
+import domain.OrderType;
 import domain.Province;
 import domain.UnitType;
 import game.BoardState;
 import game.GamePhase;
-import phase.Order;
 import phase.UnitId;
 import phase.adjustments.AdjustmentOrder;
 import phase.adjustments.BuildOrder;
@@ -95,6 +95,7 @@ public final class DiploBNParser {
         ParsedOrders submittedOrders = parseSubmittedOrders(
                 optionalObject(rawPhase, "Orders", path),
                 units,
+                board,
                 gamePhase,
                 false,
                 path + ".Orders");
@@ -102,6 +103,7 @@ public final class DiploBNParser {
         ParsedOrders submittedRetreatOrders = parseSubmittedOrders(
                 optionalObject(rawPhase, "RetreatOrders", path),
                 units,
+                board,
                 gamePhase,
                 true,
                 path + ".RetreatOrders");
@@ -111,6 +113,7 @@ public final class DiploBNParser {
                 status,
                 gamePhase,
                 board,
+                submittedOrders.sourceMovementOrders,
                 submittedOrders.movementOrders,
                 submittedRetreatOrders.retreatOrders,
                 submittedOrders.adjustmentOrders,
@@ -164,7 +167,7 @@ public final class DiploBNParser {
                         location);
 
                 if (units.putIfAbsent(unit, location) != null)
-                    throw new DiploBNParseException(
+                    throw new ParseException(
                             unitPath,
                             "Duplicate unit identity: " + unit);
 
@@ -195,7 +198,6 @@ public final class DiploBNParser {
                     path + "." + entry.getKey());
 
             for (int index = 0; index < rawNationCenters.size(); index++) {
-
                 Province center = province(
                         string(rawNationCenters.get(index),
                                 path + "." + entry.getKey()
@@ -210,7 +212,7 @@ public final class DiploBNParser {
                         nation);
 
                 if (previousOwner != null && previousOwner != nation)
-                    throw new DiploBNParseException(
+                    throw new ParseException(
                             path,
                             "Supply center has conflicting owners: "
                                     + canonicalCenter);
@@ -226,6 +228,7 @@ public final class DiploBNParser {
     private ParsedOrders parseSubmittedOrders(
             Map<String, Object> rawOrders,
             Map<UnitId, Province> units,
+            BoardState board,
             GamePhase gamePhase,
             boolean retreatOrders,
             String path
@@ -235,6 +238,9 @@ public final class DiploBNParser {
 
         if (rawOrders == null)
             return parsed;
+
+        DiploBNOrderTranslator movementOrderTranslator =
+                new DiploBNOrderTranslator();
 
         for (Map.Entry<String, Object> entry : rawOrders.entrySet()) {
 
@@ -256,7 +262,7 @@ public final class DiploBNParser {
 
                 if (rawOrderAndResult.size() < 2
                         || rawOrderAndResult.size() > 3)
-                    throw new DiploBNParseException(
+                    throw new ParseException(
                             orderPath,
                             "OrderAndResolution must contain two or three values");
 
@@ -292,13 +298,21 @@ public final class DiploBNParser {
                             orderPath + "[1]"
                     ));
                 } else {
-                    parsed.movementOrders.add(parseMovementOrder(
-                            nation,
-                            issuingProvince,
-                            rawOrder,
-                            units,
-                            orderPath + "[1]"
-                    ));
+                    DiploBNOrder sourceMovementOrder =
+                            parseMovementOrder(
+                                    nation,
+                                    issuingProvince,
+                                    rawOrder,
+                                    units,
+                                    orderPath + "[1]");
+
+                    parsed.sourceMovementOrders.add(
+                            sourceMovementOrder);
+
+                    parsed.movementOrders.add(
+                            movementOrderTranslator.translate(
+                                    sourceMovementOrder,
+                                    board));
                 }
 
                 if (rawOrderAndResult.size() == 3) {
@@ -319,7 +333,7 @@ public final class DiploBNParser {
 
     }
 
-    private Order parseMovementOrder(
+    private DiploBNOrder parseMovementOrder(
             Nation nation,
             Province issuingProvince,
             Object rawOrder,
@@ -335,52 +349,79 @@ public final class DiploBNParser {
 
         if (rawOrder instanceof String orderText) {
             if (!orderText.equals("h"))
-                throw new DiploBNParseException(
+                throw new ParseException(
                         path,
                         "Expected movement order tuple or hold 'h'");
 
-            return Order.hold(unit);
+            return new DiploBNOrder(
+                    unit,
+                    OrderType.HOLD,
+                    null,
+                    null);
         }
 
         List<Object> order = array(rawOrder, path);
 
         if (order.isEmpty())
-            throw new DiploBNParseException(path, "Order tuple must not be empty");
+            throw new ParseException(
+                    path,
+                    "Order tuple must not be empty");
 
         String tag = string(order.getFirst(), path + "[0]");
 
         return switch (tag) {
             case "h" -> {
                 requireSize(order, 1, path);
-                yield Order.hold(unit);
+
+                yield new DiploBNOrder(
+                        unit,
+                        OrderType.HOLD,
+                        null,
+                        null);
             }
             case "m" -> {
                 requireSize(order, 2, path);
-                yield Order.move(
+
+                yield new DiploBNOrder(
                         unit,
-                        location(order.get(1), path + "[1]"));
+                        OrderType.MOVE,
+                        location(order.get(1), path + "[1]"),
+                        null);
             }
             case "sh" -> {
                 requireSize(order, 2, path);
-                yield Order.supportHold(
+
+                yield new DiploBNOrder(
                         unit,
-                        location(order.get(1), path + "[1]"));
+                        OrderType.SUPPORT,
+                        supportedUnitLocation(
+                                location(order.get(1), path + "[1]"),
+                                units,
+                                path + "[1]"),
+                        null);
             }
             case "sm" -> {
                 requireSize(order, 3, path);
-                yield Order.supportMove(
+
+                yield new DiploBNOrder(
                         unit,
-                        location(order.get(1), path + "[1]"),
+                        OrderType.SUPPORT,
+                        supportedUnitLocation(
+                                location(order.get(1), path + "[1]"),
+                                units,
+                                path + "[1]"),
                         location(order.get(2), path + "[2]"));
             }
             case "c" -> {
                 requireSize(order, 3, path);
-                yield Order.convoy(
+
+                yield new DiploBNOrder(
                         unit,
+                        OrderType.CONVOY,
                         location(order.get(1), path + "[1]"),
                         location(order.get(2), path + "[2]"));
             }
-            default -> throw new DiploBNParseException(
+            default -> throw new ParseException(
                     path + "[0]",
                     "Unsupported movement order tag: " + tag);
         };
@@ -405,7 +446,7 @@ public final class DiploBNParser {
             if (orderText.equals("d"))
                 return null;
 
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "Retreat order must be move ['m', Location]"
                             + " or disband 'd'");
@@ -414,7 +455,7 @@ public final class DiploBNParser {
         List<Object> order = array(rawOrder, path);
 
         if (order.isEmpty())
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "Retreat order tuple must not be empty");
 
@@ -426,7 +467,7 @@ public final class DiploBNParser {
         }
 
         if (!tag.equals("m"))
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path + "[0]",
                     "Retreat order must use move tag 'm'"
                             + " or disband tag 'd'");
@@ -449,7 +490,7 @@ public final class DiploBNParser {
 
         if (rawOrder instanceof String orderText) {
             if (!orderText.equals("d"))
-                throw new DiploBNParseException(
+                throw new ParseException(
                         path,
                         "Winter string order must be disband 'd'");
 
@@ -461,7 +502,9 @@ public final class DiploBNParser {
         List<Object> order = array(rawOrder, path);
 
         if (order.isEmpty())
-            throw new DiploBNParseException(path, "Order tuple must not be empty");
+            throw new ParseException(
+                    path,
+                    "Order tuple must not be empty");
 
         String tag = string(order.getFirst(), path + "[0]");
 
@@ -474,7 +517,7 @@ public final class DiploBNParser {
         }
 
         if (!tag.equals("b"))
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path + "[0]",
                     "Unsupported winter order tag: " + tag);
 
@@ -513,7 +556,7 @@ public final class DiploBNParser {
         List<Object> result = array(rawResolution, path);
 
         if (result.isEmpty() || result.size() > 2)
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "OrderResult tuple must contain one or two values");
 
@@ -550,7 +593,7 @@ public final class DiploBNParser {
         else if (resultCode.equals("f"))
             successful = false;
         else
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "Order result must be 's' or 'f'");
 
@@ -585,7 +628,7 @@ public final class DiploBNParser {
                 continue;
 
             if (found != null)
-                throw new DiploBNParseException(
+                throw new ParseException(
                         path,
                         "Multiple " + nation
                                 + " units match "
@@ -596,13 +639,63 @@ public final class DiploBNParser {
         }
 
         if (found == null)
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "No " + nation
                             + " unit exists at "
                             + province);
 
         return found;
+
+    }
+
+    private Province supportedUnitLocation(
+            Province sourceLocation,
+            Map<UnitId, Province> units,
+            String path
+    ) {
+
+        if (!isGenericSplitCoast(sourceLocation))
+            return sourceLocation;
+
+        Province resolvedLocation = null;
+
+        for (Map.Entry<UnitId, Province> entry : units.entrySet()) {
+
+            UnitId unit = entry.getKey();
+            Province location = entry.getValue();
+
+            if (unit.unitType() != UnitType.FLEET)
+                continue;
+
+            if (!Province.equalsIgnoreCoast(
+                    location,
+                    sourceLocation))
+                continue;
+
+            if (resolvedLocation != null)
+                throw new ParseException(
+                        path,
+                        "Multiple fleets match supported location: "
+                                + sourceLocation);
+
+            resolvedLocation = location;
+
+        }
+
+        return resolvedLocation == null
+                ? sourceLocation
+                : resolvedLocation;
+
+    }
+
+    private boolean isGenericSplitCoast(
+            Province province
+    ) {
+
+        return province == Province.Stp
+                || province == Province.Spa
+                || province == Province.Bul;
 
     }
 
@@ -613,7 +706,7 @@ public final class DiploBNParser {
     ) {
 
         if (sourcePhase < 10000 || sourcePhase > 99999)
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path + ".Phase",
                     "Phase must be a five-digit integer");
 
@@ -634,7 +727,7 @@ public final class DiploBNParser {
         if (phaseCode == 3)
             return GamePhase.WINTER_ADJUSTMENT;
 
-        throw new DiploBNParseException(
+        throw new ParseException(
                 path + ".Phase",
                 "Phase suffix must be 1, 2, or 3");
 
@@ -648,7 +741,7 @@ public final class DiploBNParser {
         List<Object> location = array(rawLocation, path);
 
         if (location.isEmpty() || location.size() > 2)
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "Location must contain one or two values");
 
@@ -692,12 +785,12 @@ public final class DiploBNParser {
 
     }
 
-    private DiploBNParseException unsupportedCoast(
+    private ParseException unsupportedCoast(
             Province province,
             String coast,
             String path
     ) {
-        return new DiploBNParseException(
+        return new ParseException(
                 path,
                 "Unsupported coast "
                         + coast
@@ -709,7 +802,7 @@ public final class DiploBNParser {
         try {
             return Province.valueOf(value);
         } catch (IllegalArgumentException exception) {
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "Unknown standard-map province: " + value);
         }
@@ -724,7 +817,7 @@ public final class DiploBNParser {
             case "Italy" -> Nation.ITALY;
             case "Russia" -> Nation.RUSSIA;
             case "Turkey" -> Nation.TURKEY;
-            default -> throw new DiploBNParseException(
+            default -> throw new ParseException(
                     path,
                     "Unknown country: " + value);
         };
@@ -734,7 +827,7 @@ public final class DiploBNParser {
         return switch (value) {
             case "A" -> UnitType.ARMY;
             case "F" -> UnitType.FLEET;
-            default -> throw new DiploBNParseException(
+            default -> throw new ParseException(
                     path,
                     "Unit type must be 'A' or 'F'");
         };
@@ -746,7 +839,7 @@ public final class DiploBNParser {
             String path
     ) {
         if (!object.containsKey(key))
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "Missing required property: " + key);
 
@@ -781,7 +874,7 @@ public final class DiploBNParser {
             String path
     ) {
         if (!(value instanceof Map<?, ?>))
-            throw new DiploBNParseException(path, "Expected object");
+            throw new ParseException(path, "Expected object");
 
         return (Map<String, Object>) value;
     }
@@ -792,14 +885,14 @@ public final class DiploBNParser {
             String path
     ) {
         if (!(value instanceof List<?>))
-            throw new DiploBNParseException(path, "Expected array");
+            throw new ParseException(path, "Expected array");
 
         return (List<Object>) value;
     }
 
     private static String string(Object value, String path) {
         if (!(value instanceof String text))
-            throw new DiploBNParseException(path, "Expected string");
+            throw new ParseException(path, "Expected string");
 
         return text;
     }
@@ -807,16 +900,16 @@ public final class DiploBNParser {
     private static int integer(Object value, String path) {
 
         if (!(value instanceof Number number))
-            throw new DiploBNParseException(path, "Expected integer");
+            throw new ParseException(path, "Expected integer");
 
         long converted = number.longValue();
 
         if (number.doubleValue() != converted)
-            throw new DiploBNParseException(path, "Expected integer");
+            throw new ParseException(path, "Expected integer");
 
         if (converted < Integer.MIN_VALUE
                 || converted > Integer.MAX_VALUE)
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "Integer is outside Java int range");
 
@@ -830,7 +923,7 @@ public final class DiploBNParser {
             String path
     ) {
         if (values.size() != expectedSize)
-            throw new DiploBNParseException(
+            throw new ParseException(
                     path,
                     "Expected "
                             + expectedSize
@@ -841,8 +934,14 @@ public final class DiploBNParser {
 
     private static final class ParsedOrders {
 
-        private final List<Order> movementOrders = new ArrayList<>();
+        private final List<DiploBNOrder> sourceMovementOrders =
+                new ArrayList<>();
+
+        private final List<phase.Order> movementOrders =
+                new ArrayList<>();
+
         private final List<RetreatOrder> retreatOrders = new ArrayList<>();
+
         private final List<AdjustmentOrder> adjustmentOrders =
                 new ArrayList<>();
 

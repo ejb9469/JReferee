@@ -4,7 +4,6 @@ import adjudication.Adjudicator;
 import adjudication.Judge;
 import contracts.OrderTranslator;
 import game.BoardState;
-import phase.Order;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -45,7 +44,7 @@ public final class DiploBNMovementAdjudicator
     ) {
         this(
                 Objects.requireNonNull(phase, "phase").board(),
-                sourceOrdersOf(phase),
+                phase.sourceMovementOrders(),
                 new DiploBNAdjudicationOrderTranslator());
     }
 
@@ -148,24 +147,6 @@ public final class DiploBNMovementAdjudicator
      */
     public BoardState board() {
         return board;
-    }
-
-
-    private static List<DiploBNOrder> sourceOrdersOf(
-            DiploBNPhase phase
-    ) {
-
-        List<DiploBNOrder> sourceOrders =
-                new ArrayList<>(
-                        phase.movementOrders().size());
-
-        for (Order order : phase.movementOrders()) {
-            sourceOrders.add(
-                    DiploBNOrder.from(order));
-        }
-
-        return sourceOrders;
-
     }
 
 }

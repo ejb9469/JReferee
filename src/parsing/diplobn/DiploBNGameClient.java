@@ -223,7 +223,7 @@ public final class DiploBNGameClient {
 
         try {
             parsedResponse = JsonReader.read(responseBody);
-        } catch (DiploBNParseException exception) {
+        } catch (ParseException exception) {
             throw new IOException(
                     "DiploBN returned malformed JSON for GameID "
                             + gameId,
@@ -280,7 +280,7 @@ public final class DiploBNGameClient {
 
             try {
                 return findGameObject(JsonReader.read(stripped));
-            } catch (DiploBNParseException exception) {
+            } catch (ParseException exception) {
                 return null;
             }
 

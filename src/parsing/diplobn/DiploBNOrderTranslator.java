@@ -11,7 +11,7 @@ import java.util.Objects;
  * Translates one decoded DiploBN movement order into JReferee's immutable
  * movement-phase order representation.
  */
-public final class DiploBNPhaseOrderTranslator
+public final class DiploBNOrderTranslator
         implements OrderTranslator<DiploBNOrder, Order> {
 
 

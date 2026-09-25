@@ -1,7 +1,7 @@
 package _app;
 
 import domain.Constants;
-import parsing.diplobn.DiploBNAdjudicationComparison;
+import parsing.diplobn.DiploBNAdjudicationComparator;
 import parsing.diplobn.DiploBNGame;
 import parsing.diplobn.DiploBNGameClient;
 
@@ -13,10 +13,10 @@ import java.util.Scanner;
  * Downloads one DiploBN game and compares its recorded movement outcomes with
  * JReferee's independently adjudicated results.
  */
-public final class DiploBNAdjudicationComparator {
+public final class DiploBNChecker {
 
 
-    private DiploBNAdjudicationComparator() {
+    private DiploBNChecker() {
     }
 
 
@@ -125,6 +125,8 @@ public final class DiploBNAdjudicationComparator {
 
         int comparedOrders = 0;
         int matchingOrders = 0;
+        int coastAmbiguousOrders = 0;
+        int ineffectiveSupportOrders = 0;
         int mismatchingOrders = 0;
 
         for (var phase : imported.phases()) {
@@ -132,11 +134,14 @@ public final class DiploBNAdjudicationComparator {
             if (phase.movementOrders().isEmpty())
                 continue;
 
-            DiploBNAdjudicationComparison comparison =
-                    DiploBNAdjudicationComparison.compare(phase);
+            DiploBNAdjudicationComparator comparison =
+                    DiploBNAdjudicationComparator.compare(phase);
 
             comparedOrders += comparison.comparedCount();
             matchingOrders += comparison.matchingCount();
+            coastAmbiguousOrders += comparison.coastAmbiguousCount();
+            ineffectiveSupportOrders +=
+                    comparison.ineffectiveSupportCount();
             mismatchingOrders += comparison.mismatchingCount();
 
             System.out.printf(
@@ -145,24 +150,77 @@ public final class DiploBNAdjudicationComparator {
                     comparison.matchingCount(),
                     comparison.comparedCount());
 
-            if (comparison.mismatchingCount() == 0) {
+            if (comparison.coastAmbiguousCount() > 0)
+                System.out.printf(
+                        "  %s[%d COAST AMBIGUOUS]%s",
+                        Constants.ANSI_ORANGE,
+                        comparison.coastAmbiguousCount(),
+                        Constants.ANSI_RESET);
+
+            if (comparison.ineffectiveSupportCount() > 0)
+                System.out.printf(
+                        "  %s[%d INEFFECTIVE SUPPORT]%s",
+                        Constants.ANSI_YELLOW,
+                        comparison.ineffectiveSupportCount(),
+                        Constants.ANSI_RESET);
+
+            if (comparison.mismatchingCount() == 0
+                    && comparison.coastAmbiguousCount() == 0
+                    && comparison.ineffectiveSupportCount() == 0) {
                 System.out.println("  [OK]");
                 continue;
             }
 
-            System.out.printf("   %s[MISMATCH]%s\n", Constants.ANSI_RED, Constants.ANSI_RESET);
+            if (comparison.mismatchingCount() == 0) {
+                System.out.printf(
+                        "  %s[COMPATIBILITY DIFFERENCE]%s%n",
+                        Constants.ANSI_YELLOW,
+                        Constants.ANSI_RESET);
+            } else {
+                System.out.printf(
+                        "  %s[MISMATCH]%s%n",
+                        Constants.ANSI_RED,
+                        Constants.ANSI_RESET);
+            }
 
             for (var entry : comparison.entries()) {
 
-                if (!entry.compared() || entry.matches())
+                if (!entry.coastAmbiguous()
+                        && !entry.ineffectiveSupport()
+                        && !entry.mismatches())
                     continue;
 
-                System.out.printf(
-                        "    SOURCE=%-5b JREFEREE=%-5b %s%n",
-                        entry.sourceSuccessful(),
-                        entry.adjudicatedOrder().verdict,
-                        entry.adjudicatedOrder()
-                );
+                if (entry.coastAmbiguous()) {
+                    System.out.printf(
+                            "    %s[COAST AMBIGUOUS]%s "
+                                    + "SOURCE=%-5b JREFEREE=%-5b %s%n",
+                            Constants.ANSI_ORANGE,
+                            Constants.ANSI_RESET,
+                            entry.sourceSuccessful(),
+                            entry.adjudicatedOrder().verdict,
+                            entry.adjudicatedOrder()
+                    );
+                } else if (entry.ineffectiveSupport()) {
+                    System.out.printf(
+                            "    %s[INEFFECTIVE SUPPORT]%s "
+                                    + "SOURCE=%-5b JREFEREE=%-5b %s%n",
+                            Constants.ANSI_YELLOW,
+                            Constants.ANSI_RESET,
+                            entry.sourceSuccessful(),
+                            entry.adjudicatedOrder().verdict,
+                            entry.adjudicatedOrder()
+                    );
+                } else {
+                    System.out.printf(
+                            "    %s[MISMATCH]%s "
+                                    + "SOURCE=%-5b JREFEREE=%-5b %s%n",
+                            Constants.ANSI_RED,
+                            Constants.ANSI_RESET,
+                            entry.sourceSuccessful(),
+                            entry.adjudicatedOrder().verdict,
+                            entry.adjudicatedOrder()
+                    );
+                }
 
                 if (entry.sourceReason() != null)
                     System.out.printf(
@@ -175,11 +233,21 @@ public final class DiploBNAdjudicationComparator {
         System.out.println();
         System.out.println("----------------------------------------");
         System.out.printf(
-                "TOTAL MATCHES:    [%d/%d]%n",
+                "TOTAL MATCHES:              [%d/%d]%n",
                 matchingOrders,
                 comparedOrders);
         System.out.printf(
-                "TOTAL MISMATCHES: [%s%d%s]%n",
+                "TOTAL COAST AMBIGUITIES:    %s[%d]%s%n",
+                Constants.ANSI_ORANGE,
+                coastAmbiguousOrders,
+                Constants.ANSI_RESET);
+        System.out.printf(
+                "TOTAL INEFFECTIVE SUPPORTS: %s[%d]%s%n",
+                Constants.ANSI_YELLOW,
+                ineffectiveSupportOrders,
+                Constants.ANSI_RESET);
+        System.out.printf(
+                "TOTAL DEFINITE MISMATCHES:  %s[%d]%s%n",
                 Constants.ANSI_RED,
                 mismatchingOrders,
                 Constants.ANSI_RESET);
@@ -188,16 +256,19 @@ public final class DiploBNAdjudicationComparator {
     }
 
     /**
-     * Formats DiploBN's five-digit phase value as {@code year.turn}.
-     *
-     * <p>For example, {@code 19041} becomes {@code 1904.1}.</p>
+     * Formats DiploBN's five-digit phase value as a season plus year.
      */
     private static String formatSourcePhase(int sourcePhase) {
 
         int year = sourcePhase / 10;
         int turn = sourcePhase % 10;
 
-        return year + "." + turn;
+        return switch (turn) {
+            case 1 -> "S" + year;
+            case 2 -> "F" + year;
+            case 3 -> "W" + year;
+            default -> year + "." + turn;
+        };
 
     }
 
