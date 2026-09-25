@@ -229,14 +229,23 @@ public class DiploBNAdjudicationComparator {
     }
 
     /**
-     * Returns whether every available DiploBN result annotation agrees with
-     * JReferee's independently adjudicated verdict.
+     * Returns whether this phase has no unexplained adjudication disagreement.
      *
-     * <p>Compatibility differences cause this method to return false because
-     * they do not establish an exact source/result match.</p>
+     * <p>Known compatibility differences, including missing split-coast source
+     * information and DiploBN's ineffective-support result semantics, are
+     * accepted by this method. Only {@link Difference#DEFINITE_MISMATCH}
+     * produces a failing result.</p>
      */
     public boolean matchesCompletely() {
-        return matchingCount() == comparedCount();
+        return mismatchingCount() == 0;
+    }
+
+    /**
+     * Returns whether this phase contains an unexplained adjudication
+     * disagreement.
+     */
+    public boolean hasDefiniteMismatch() {
+        return mismatchingCount() > 0;
     }
 
 

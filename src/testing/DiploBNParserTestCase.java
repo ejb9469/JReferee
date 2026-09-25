@@ -187,14 +187,20 @@ public final class DiploBNParserTestCase implements TestCase {
 
             checks.expect(
                     "First source movement order type",
-                    OrderType.MOVE,
+                    OrderType.CONVOY,
                     firstSourceOrder.type()
             );
 
             checks.expect(
                     "First source movement order target",
-                    Province.ENG,
+                    Province.Lon,
                     firstSourceOrder.target()
+            );
+
+            checks.expect(
+                    "First source movement order auxiliary target",
+                    Province.Bre,
+                    firstSourceOrder.auxiliaryTarget()
             );
         }
 
