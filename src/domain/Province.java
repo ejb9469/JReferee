@@ -414,7 +414,7 @@ public enum Province {
         adjacencyMap.put(Province.NWG, new Province[]{Province.BAR, Province.Nwy, Province.NTH, Province.Edi, Province.Cly, Province.NAO});
         adjacencyMap.put(Province.SKA, new Province[]{Province.Nwy, Province.Swe, Province.Den, Province.NTH});
         adjacencyMap.put(Province.TYS, new Province[]{Province.Tus, Province.Rom, Province.Nap, Province.ION, Province.Tun, Province.WES, Province.LYO});
-        adjacencyMap.put(Province.WES, new Province[]{Province.LYO, Province.TYS, Province.Tun, Province.Naf, Province.Spa, Province.SpaSC});
+        adjacencyMap.put(Province.WES, new Province[]{Province.LYO, Province.TYS, Province.Tun, Province.Naf, Province.Spa, Province.SpaSC, Province.MAO});
         adjacencyMap.put(Province.StpNC, new Province[]{Province.BAR, Province.Nwy});
         adjacencyMap.put(Province.StpSC, new Province[]{Province.Fin, Province.Lvn, Province.BOT});
         adjacencyMap.put(Province.SpaNC, new Province[]{Province.MAO, Province.Gas, Province.Por});
