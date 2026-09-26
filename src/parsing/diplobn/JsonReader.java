@@ -12,7 +12,7 @@ import java.util.Map;
  * <p>Objects retain their source member order through {@link LinkedHashMap};
  * arrays retain their source order through {@link ArrayList}.</p>
  */
-final class JsonReader {
+public class JsonReader {
 
 
     private final String source;

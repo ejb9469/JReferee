@@ -13,10 +13,10 @@ import java.util.Scanner;
  * Downloads one DiploBN game and compares its recorded movement outcomes with
  * JReferee's independently adjudicated results.
  */
-public final class DiploBNChecker {
+public final class DBNChecker {
 
 
-    private DiploBNChecker() {
+    private DBNChecker() {
     }
 
 

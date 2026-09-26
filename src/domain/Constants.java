@@ -13,6 +13,7 @@ public final class Constants {
     // For more info on ANSI constants, see:
     // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
     public static final String ANSI_RESET           = "\u001B[0m";
+    public static final String ANSI_GREEN           = "\u001B[32m";
     public static final String ANSI_RED             = "\u001B[31m";
     public static final String ANSI_ORANGE          = "\u001B[33m";
     public static final String ANSI_YELLOW          = "\u001B[93m";

@@ -1,0 +1,18 @@
+{
+  "games": [
+    {
+      "url": "https://diplobn.com/game/?GameID=12990",
+      "tags": ["regression", "head-to-head"],
+      "notes": "Known historical comparison case."
+    },
+    {
+      "url": "https://diplobn.com/game/?GameID=13042",
+      "tags": ["convoy", "paradox"]
+    },
+    {
+      "url": "https://diplobn.com/game/?GameID=28403",
+      "notes": "coinflip game"
+
+    }
+  ]
+}

@@ -30,3 +30,8 @@ bin/
 
 
 misc/todo-old.txt
+
+/data/
+*sqlite
+*sqlite-shm
+*sqlite-wal

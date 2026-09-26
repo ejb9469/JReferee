@@ -30,10 +30,10 @@ import java.util.Set;
  * <p>Supply a DiploBN game URL as the first command-line argument, or run
  * without arguments to enter one interactively.</p>
  */
-public final class DiploBNGameImporter {
+public final class DBNGameImporter {
 
 
-    private DiploBNGameImporter() {
+    private DBNGameImporter() {
     }
 
 

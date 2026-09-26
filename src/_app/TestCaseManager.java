@@ -7,14 +7,10 @@ import domain.Province;
 import parsing.datc.DATCFileParser;
 import parsing.datc.DATCProcessorFileParser;
 import parsing.datc.FileTestCaseParser;
-import testing.DATCAdjTestCase;
-import testing.AdjudicatorTestCase;
-import testing.DiploBNParserTestCase;
+import testing.*;
 import domain.Constants;
 import adjudication.util.OrderComparator;
 import adjudication.util.Orders;
-import testing.ProcessorTestCase;
-import testing.TestCase;
 
 import java.util.*;
 
@@ -578,6 +574,9 @@ public class TestCaseManager {
 
         manager.addParserTestCase(
                 new DiploBNParserTestCase());
+
+        manager.addParserTestCase(
+                new CatalogTestCase());
 
         System.out.println("\n----------------------------------------\n");
 
