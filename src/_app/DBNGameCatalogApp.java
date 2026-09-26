@@ -413,8 +413,10 @@ public final class DBNGameCatalogApp {
         }
 
         System.out.printf(
-                "    Reason: %s%n",
-                failure.message());
+                "    Reason: %s%s%s%n",
+                Constants.ANSI_ORANGE,
+                failure.message(),
+                Constants.ANSI_RESET);
 
         System.out.println();
 

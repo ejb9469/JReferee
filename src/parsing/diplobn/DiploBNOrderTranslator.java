@@ -32,8 +32,11 @@ public final class DiploBNOrderTranslator
                     source.unit(),
                     source.target());
             case SUPPORT -> translateSupport(source);
-            case CONVOY -> Order.convoy(
+            case CONVOY -> new Order(
+                    // Preserve illegal historical submissions for adjudication.
+                    // The convenience factory rejects non-fleet issuers too early.
                     source.unit(),
+                    source.type(),
                     source.target(),
                     source.auxiliaryTarget());
             default -> throw new IllegalStateException(
