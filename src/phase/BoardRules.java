@@ -17,7 +17,7 @@ import java.util.Set;
  * validation is territory-based: two split coasts of the same province cannot
  * contain separate units.</p>
  */
-public final class BoardRules {
+public abstract class BoardRules {
 
 
     // private constructor

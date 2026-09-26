@@ -28,7 +28,7 @@ import java.util.Set;
  * effect. Keeping extra orders in one component is safe; incorrectly
  * separating dependent orders is not.</p>
  */
-public final class Dependencies {
+public abstract class Dependencies {
 
 
     // private constructor

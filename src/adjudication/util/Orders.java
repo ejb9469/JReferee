@@ -8,7 +8,7 @@ import java.util.*;
 /**
  * Static class of static utility functions re: Orders and Collections of Orders
  */
-public final class Orders {
+public abstract class Orders {
 
 
     // private constructor

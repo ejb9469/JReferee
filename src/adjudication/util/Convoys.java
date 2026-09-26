@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * Static class of static utility functions re: Convoy and Convoy pathing functionality
  */
-public final class Convoys /*extends Orders*/ {
+public abstract class Convoys /*extends Orders*/ {
 
 
     // private constructor

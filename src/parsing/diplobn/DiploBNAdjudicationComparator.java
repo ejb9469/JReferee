@@ -4,77 +4,45 @@ import adjudication.Order;
 import adjudication.util.Orders;
 import domain.*;
 import phase.UnitId;
+import phase.UnitLookup;
 
 import java.util.*;
 
 
 /**
- * Compares DiploBN's recorded movement-order results with verdicts produced by
- * JReferee after independently adjudicating the imported movement submissions.
+ * Compares recorded movement-order outcomes with independent adjudication.
  *
- * <p>This comparison concerns movement orders only. DiploBN retreat and winter
- * adjustment data require their respective JReferee phase processors and a
- * chronological replay context.</p>
- *
- * <p>Missing split-coast information and recognized support/convoy annotation
- * differences are reported separately from definite mismatches. Compatibility
- * differences do not count as exact matches and never change the underlying
- * adjudication verdicts.</p>
+ * <p>Compatibility differences retain both verdicts, do not count as exact
+ * matches, and never modify the underlying adjudication result.</p>
  */
 public class DiploBNAdjudicationComparator {
 
-
-    // Core state \\
 
     private final DiploBNPhase phase;
     private final List<Entry> entries;
 
 
-    // Constructors \\
-
-    private DiploBNAdjudicationComparator(
-            DiploBNPhase phase,
-            List<Entry> entries
-    ) {
+    private DiploBNAdjudicationComparator(DiploBNPhase phase, List<Entry> entries) {
 
         this.phase = Objects.requireNonNull(phase, "phase");
-
-        this.entries = List.copyOf(
-                Objects.requireNonNull(entries, "entries"));
+        this.entries = List.copyOf(Objects.requireNonNull(entries, "entries"));
 
     }
 
 
     // Comparison entry points \\
 
-    /**
-     * Independently adjudicates a DiploBN phase and compares each translated
-     * movement order against its historical result annotation.
-     *
-     * <p>Orders without a source result annotation remain in the comparison,
-     * but do not count as matches, compatibility differences, or mismatches.</p>
-     */
-    public static DiploBNAdjudicationComparator compare(
-            DiploBNPhase phase
-    ) {
+    public static DiploBNAdjudicationComparator compare(DiploBNPhase phase) {
 
         Objects.requireNonNull(phase, "phase");
 
-        DiploBNAdjudicator adjudicator =
-                new DiploBNAdjudicator(phase);
-
+        DiploBNAdjudicator adjudicator = new DiploBNAdjudicator(phase);
         adjudicator.judge();
 
-        return compare(
-                phase,
-                adjudicator.getOrders());
+        return compare(phase, adjudicator.getOrders());
 
     }
 
-    /**
-     * Compares already-adjudicated movement orders against the historical
-     * DiploBN result annotations held by one imported phase.
-     */
     public static DiploBNAdjudicationComparator compare(
             DiploBNPhase phase,
             Collection<Order> adjudicatedOrders
@@ -85,13 +53,7 @@ public class DiploBNAdjudicationComparator {
 
         List<Order> copiedOrders = List.copyOf(adjudicatedOrders);
 
-        /*
-         * Reconstruct the original submissions once for the convoy checks.
-         *
-         * A null result disables the ineffective-convoy exemption:
-         * incomplete, unresolved, or transformed results are not sufficient
-         * evidence for inferring a convoy fleet's survival.
-         */
+        // Null disables the conservative ineffective-convoy exemption.
         List<Order> submittedOrders =
                 completeUntransformedSubmissions(phase, copiedOrders);
 
@@ -102,39 +64,26 @@ public class DiploBNAdjudicationComparator {
             DiploBNOrderResolution sourceResolution =
                     locateResolution(order, phase.resolutions());
 
-            Boolean sourceSuccessful = sourceResolution == null
-                    ? null
-                    : sourceResolution.successful();
+            Boolean sourceSuccessful =
+                    sourceResolution == null ? null : sourceResolution.successful();
 
             Difference difference = differenceOf(
+                    order, sourceSuccessful, phase, copiedOrders, submittedOrders);
+
+            entries.add(new Entry(
                     order,
                     sourceSuccessful,
-                    phase,
-                    copiedOrders,
-                    submittedOrders
-            );
-
-            entries.add(
-                    new Entry(
-                            order,
-                            sourceSuccessful,
-                            sourceResolution == null
-                                    ? null
-                                    : sourceResolution.reason(),
-                            difference
-                    )
-            );
+                    sourceResolution == null ? null : sourceResolution.reason(),
+                    difference));
 
         }
 
-        return new DiploBNAdjudicationComparator(
-                phase,
-                entries);
+        return new DiploBNAdjudicationComparator(phase, entries);
 
     }
 
 
-    // Public accessors \\
+    // Accessors and counts \\
 
     public DiploBNPhase phase() {
         return phase;
@@ -144,33 +93,25 @@ public class DiploBNAdjudicationComparator {
         return entries;
     }
 
-    /**
-     * Number of orders with a DiploBN result annotation.
-     */
     public int comparedCount() {
 
         int count = 0;
 
-        for (Entry entry : entries) {
+        for (Entry entry : entries)
             if (entry.compared())
                 count++;
-        }
 
         return count;
 
     }
 
-    /**
-     * Number of annotated orders whose source and JReferee verdicts agree.
-     */
     public int matchingCount() {
 
         int count = 0;
 
-        for (Entry entry : entries) {
+        for (Entry entry : entries)
             if (entry.matches())
                 count++;
-        }
 
         return count;
 
@@ -180,10 +121,9 @@ public class DiploBNAdjudicationComparator {
 
         int count = 0;
 
-        for (Entry entry : entries) {
+        for (Entry entry : entries)
             if (entry.coastAmbiguous())
                 count++;
-        }
 
         return count;
 
@@ -193,10 +133,9 @@ public class DiploBNAdjudicationComparator {
 
         int count = 0;
 
-        for (Entry entry : entries) {
+        for (Entry entry : entries)
             if (entry.ineffectiveSupport())
                 count++;
-        }
 
         return count;
 
@@ -206,28 +145,21 @@ public class DiploBNAdjudicationComparator {
 
         int count = 0;
 
-        for (Entry entry : entries) {
+        for (Entry entry : entries)
             if (entry.ineffectiveConvoy())
                 count++;
-        }
 
         return count;
 
     }
 
-    /**
-     * Total number of recognized compatibility differences.
-     *
-     * <p>Compatibility differences remain separate from exact matches.</p>
-     */
     public int compatibilityDifferenceCount() {
 
         int count = 0;
 
-        for (Entry entry : entries) {
+        for (Entry entry : entries)
             if (entry.compatibilityDifference())
                 count++;
-        }
 
         return count;
 
@@ -237,20 +169,16 @@ public class DiploBNAdjudicationComparator {
 
         int count = 0;
 
-        for (Entry entry : entries) {
+        for (Entry entry : entries)
             if (entry.mismatches())
                 count++;
-        }
 
         return count;
 
     }
 
     /**
-     * Returns true when no definite mismatch remains.
-     *
-     * <p>This accepts recognized compatibility differences; it does not mean
-     * that every order is an exact match or has a source result annotation.</p>
+     * Accepts recognized compatibility differences, not just exact matches.
      */
     public boolean matchesCompletely() {
         return mismatchingCount() == 0;
@@ -271,19 +199,10 @@ public class DiploBNAdjudicationComparator {
             List<Order> submittedOrders
     ) {
 
-        if (sourceSuccessful == null)
+        if (sourceSuccessful == null || order.verdict == sourceSuccessful)
             return Difference.NONE;
 
-        if (order.verdict == sourceSuccessful)
-            return Difference.NONE;
-
-        /*
-         * An explicit sea destination is not missing coast information and
-         * is not the same as a valid but unused convoy.
-         *
-         * Keep this disagreement in the definite-mismatch total while
-         * identifying its specific cause.
-         */
+        // Accepted annotation difference under the current comparison policy.
         if (sourceAcceptedSeaDestinationConvoy(order, sourceSuccessful))
             return Difference.INVALID_CONVOY_DESTINATION;
 
@@ -293,11 +212,7 @@ public class DiploBNAdjudicationComparator {
         if (ineffectiveSupport(order, sourceSuccessful, adjudicatedOrders))
             return Difference.INEFFECTIVE_SUPPORT;
 
-        if (ineffectiveConvoy(
-                order,
-                sourceSuccessful,
-                adjudicatedOrders,
-                submittedOrders))
+        if (ineffectiveConvoy(order, sourceSuccessful, adjudicatedOrders, submittedOrders))
             return Difference.INEFFECTIVE_CONVOY;
 
         return Difference.DEFINITE_MISMATCH;
@@ -311,18 +226,11 @@ public class DiploBNAdjudicationComparator {
 
         for (DiploBNOrderResolution resolution : resolutions) {
 
-            if (resolution.retreatOrder())
+            if (resolution.retreatOrder() || resolution.nation() != order.owner)
                 continue;
 
-            if (resolution.nation() != order.owner)
-                continue;
-
-            if (!Province.equalsIgnoreCoast(
-                    resolution.issuingProvince(),
-                    order.pos0))
-                continue;
-
-            return resolution;
+            if (Province.equalsIgnoreCoast(resolution.issuingProvince(), order.pos0))
+                return resolution;
 
         }
 
@@ -331,7 +239,7 @@ public class DiploBNAdjudicationComparator {
     }
 
 
-    // Coast-ambiguity helpers \\
+    // Coast ambiguity \\
 
     private static boolean coastInformationMissing(
             Order order,
@@ -339,39 +247,30 @@ public class DiploBNAdjudicationComparator {
             Collection<Order> adjudicatedOrders
     ) {
 
-        if (order.unitType == UnitType.FLEET
-                && unspecifiedSplitCoast(order.pos0))
+        if (order.unitType == UnitType.FLEET && unspecifiedSplitCoast(order.pos0))
             return true;
 
         if (order.orderType == OrderType.MOVE) {
 
-            if (order.unitType == UnitType.FLEET
-                    && unspecifiedSplitCoast(order.pos1))
+            if (order.unitType == UnitType.FLEET && unspecifiedSplitCoast(order.pos1))
                 return true;
 
-            return supportedByCoastAmbiguousSupport(
-                    order,
-                    phase,
-                    adjudicatedOrders);
+            return supportedByCoastAmbiguousSupport(order, phase, adjudicatedOrders);
 
         }
 
         if (order.orderType != OrderType.SUPPORT)
             return false;
 
-        UnitId supportedUnit = unitAt(order.pos1, phase);
+        UnitId supportedUnit = UnitLookup.firstAt(phase.board().locations(), order.pos1);
 
-        if (supportedUnit == null)
-            return false;
-
-        if (supportedUnit.unitType() != UnitType.FLEET)
+        if (supportedUnit == null || supportedUnit.unitType() != UnitType.FLEET)
             return false;
 
         if (unspecifiedSplitCoast(order.pos1))
             return true;
 
-        return order.pos2 != null
-                && unspecifiedSplitCoast(order.pos2);
+        return order.pos2 != null && unspecifiedSplitCoast(order.pos2);
 
     }
 
@@ -383,26 +282,14 @@ public class DiploBNAdjudicationComparator {
 
         for (Order supportOrder : adjudicatedOrders) {
 
-            if (supportOrder.orderType != OrderType.SUPPORT)
+            if (supportOrder.orderType != OrderType.SUPPORT || supportOrder.pos2 == null)
                 continue;
 
-            if (supportOrder.pos2 == null)
+            if (!Province.equalsIgnoreCoast(supportOrder.pos1, moveOrder.pos0)
+                    || !Province.equalsIgnoreCoast(supportOrder.pos2, moveOrder.pos1))
                 continue;
 
-            if (!Province.equalsIgnoreCoast(
-                    supportOrder.pos1,
-                    moveOrder.pos0))
-                continue;
-
-            if (!Province.equalsIgnoreCoast(
-                    supportOrder.pos2,
-                    moveOrder.pos1))
-                continue;
-
-            if (coastInformationMissing(
-                    supportOrder,
-                    phase,
-                    List.of()))
+            if (coastInformationMissing(supportOrder, phase, List.of()))
                 return true;
 
         }
@@ -412,50 +299,30 @@ public class DiploBNAdjudicationComparator {
     }
 
     private static boolean unspecifiedSplitCoast(Province province) {
-
-        return province == Province.Stp
-                || province == Province.Spa
-                || province == Province.Bul;
-
+        return province == Province.Stp || province == Province.Spa || province == Province.Bul;
     }
 
 
-    // Ineffective-support helpers \\
+    // Ineffective support \\
 
-    /**
-     * Preserves the existing ineffective-support classification.
-     */
     private static boolean ineffectiveSupport(
             Order supportOrder,
             Boolean sourceSuccessful,
             Collection<Order> adjudicatedOrders
     ) {
 
-        if (!Boolean.TRUE.equals(sourceSuccessful))
+        if (!Boolean.TRUE.equals(sourceSuccessful)
+                || supportOrder.verdict
+                || supportOrder.orderType != OrderType.SUPPORT)
             return false;
 
-        if (supportOrder.verdict)
-            return false;
-
-        if (supportOrder.orderType != OrderType.SUPPORT)
-            return false;
-
-        return Orders.locateCorresponding(
-                supportOrder,
-                adjudicatedOrders) == null;
+        return Orders.locateCorresponding(supportOrder, adjudicatedOrders) == null;
 
     }
 
 
-    // Ineffective-convoy helpers \\
+    // Ineffective convoy \\
 
-    /**
-     * Recognizes a valid, non-dislodged convoy fleet whose specified army move
-     * was not submitted, but whose source annotation nevertheless says success.
-     *
-     * <p>This is an annotation classification only. The convoy's JReferee
-     * verdict remains false.</p>
-     */
     private static boolean ineffectiveConvoy(
             Order convoyOrder,
             Boolean sourceSuccessful,
@@ -464,88 +331,53 @@ public class DiploBNAdjudicationComparator {
     ) {
 
         if (!Boolean.TRUE.equals(sourceSuccessful)
-                || convoyOrder.verdict)
+                || convoyOrder.verdict
+                || convoyOrder.orderType != OrderType.CONVOY)
             return false;
 
-        if (convoyOrder.orderType != OrderType.CONVOY)
-            return false;
-
-        // No exemption without complete, resolved, untransformed evidence.
         if (submittedOrders == null)
             return false;
 
         Order submittedConvoy =
-                Orders.locateUnitAtPosition(
-                        convoyOrder.pos0,
-                        submittedOrders);
+                Orders.locateUnitAtPosition(convoyOrder.pos0, submittedOrders);
 
-        if (submittedConvoy == null
-                || !submittedConvoy.equals(convoyOrder))
+        if (submittedConvoy == null || !submittedConvoy.equals(convoyOrder))
             return false;
 
         if (!Orders.orderIsValid(submittedConvoy))
             return false;
 
-        /*
-         * Orders.orderIsValid(...) checks the fleet's type, its sea location,
-         * and distinct non-null endpoints. Be stricter for this exemption:
-         * the proposed army journey must also have coastal endpoints.
-         */
-        if (Province.canonical(submittedConvoy.pos1).geography
-                != Geography.COASTAL)
-            return false;
-
-        if (Province.canonical(submittedConvoy.pos2).geography
-                != Geography.COASTAL)
+        if (Province.canonical(submittedConvoy.pos1).geography != Geography.COASTAL
+                || Province.canonical(submittedConvoy.pos2).geography != Geography.COASTAL)
             return false;
 
         Order passenger =
-                Orders.locateUnitAtPosition(
-                        submittedConvoy.pos1,
-                        submittedOrders);
+                Orders.locateUnitAtPosition(submittedConvoy.pos1, submittedOrders);
 
-        if (passenger == null
-                || passenger.unitType != UnitType.ARMY)
+        if (passenger == null || passenger.unitType != UnitType.ARMY)
             return false;
 
-        /*
-         * Search original submissions rather than mutable adjudicated orders.
-         * Compare provinces ignoring coasts so a coast-notation discrepancy
-         * cannot masquerade as an absent corresponding move.
-         */
+        // Use original submissions, not potentially rewritten result orders.
         for (Order submitted : submittedOrders) {
 
             if (submitted.orderType != OrderType.MOVE)
                 continue;
 
-            if (Province.equalsIgnoreCoast(
-                    submitted.pos0,
-                    submittedConvoy.pos1)
-                    && Province.equalsIgnoreCoast(
-                    submitted.pos1,
-                    submittedConvoy.pos2))
+            if (Province.equalsIgnoreCoast(submitted.pos0, submittedConvoy.pos1)
+                    && Province.equalsIgnoreCoast(submitted.pos1, submittedConvoy.pos2))
                 return false;
 
         }
 
-        /*
-         * A convoy fleet remains stationary. A successful enemy move into its
-         * province indicates dislodgement, which must remain a mismatch.
-         *
-         * Resolution completeness was checked before entering this helper.
-         */
+        // A successful enemy move into the stationary fleet's province dislodges it.
         for (Order adjudicated : adjudicatedOrders) {
 
-            if (adjudicated.orderType != OrderType.MOVE)
-                continue;
-
-            if (adjudicated.owner == convoyOrder.owner)
+            if (adjudicated.orderType != OrderType.MOVE
+                    || adjudicated.owner == convoyOrder.owner)
                 continue;
 
             if (adjudicated.verdict
-                    && Province.equalsIgnoreCoast(
-                    adjudicated.pos1,
-                    convoyOrder.pos0))
+                    && Province.equalsIgnoreCoast(adjudicated.pos1, convoyOrder.pos0))
                 return false;
 
         }
@@ -555,15 +387,8 @@ public class DiploBNAdjudicationComparator {
     }
 
     /**
-     * Reconstructs original movement submissions using current board locations.
-     *
-     * <p>Returns null when the input is not sufficient for the conservative
-     * ineffective-convoy exemption. In particular, every board unit must have
-     * exactly one submitted order and one resolved, unchanged result.</p>
-     *
-     * <p>Any snapshot disables the exemption for this phase, even if the
-     * current fields happen to equal the original fields. This avoids treating
-     * a transformed convoy-paradox result as a simple annotation difference.</p>
+     * Returns original submissions only when results cover the complete board,
+     * are fully resolved, and contain neither transformations nor snapshots.
      */
     private static List<Order> completeUntransformedSubmissions(
             DiploBNPhase phase,
@@ -583,10 +408,7 @@ public class DiploBNAdjudicationComparator {
 
             Province currentLocation = locations.get(submitted.unit());
 
-            if (currentLocation == null)
-                return null;
-
-            if (!submittedUnits.add(submitted.unit()))
+            if (currentLocation == null || !submittedUnits.add(submitted.unit()))
                 return null;
 
             Order original = new Order(
@@ -595,8 +417,7 @@ public class DiploBNAdjudicationComparator {
                     currentLocation,
                     submitted.type(),
                     submitted.target(),
-                    submitted.auxiliaryTarget()
-            );
+                    submitted.auxiliaryTarget());
 
             Province position = Province.canonical(currentLocation);
 
@@ -614,10 +435,8 @@ public class DiploBNAdjudicationComparator {
 
             if (!adjudicated.resolved
                     || adjudicated.visited
-                    || adjudicated.getSnapshot() != null)
-                return null;
-
-            if (adjudicated.pos0 == null)
+                    || adjudicated.getSnapshot() != null
+                    || adjudicated.pos0 == null)
                 return null;
 
             Province position = Province.canonical(adjudicated.pos0);
@@ -627,13 +446,8 @@ public class DiploBNAdjudicationComparator {
 
             Order submitted = submittedByPosition.get(position);
 
-            /*
-             * Order.equals(...) compares all submitted-order fields while
-             * ignoring resolution metadata. Do not use originalOf(...) here:
-             * silently restoring a snapshot would hide a transformation.
-             */
-            if (submitted == null
-                    || !submitted.equals(adjudicated))
+            // Order.equals compares submitted fields, ignoring resolution metadata.
+            if (submitted == null || !submitted.equals(adjudicated))
                 return null;
 
         }
@@ -646,35 +460,11 @@ public class DiploBNAdjudicationComparator {
     }
 
 
-    // Board lookup helpers \\
-
-    private static UnitId unitAt(
-            Province province,
-            DiploBNPhase phase
-    ) {
-
-        for (Map.Entry<UnitId, Province> entry :
-                phase.board().locations().entrySet()) {
-
-            if (Province.equalsIgnoreCoast(
-                    entry.getValue(),
-                    province))
-                return entry.getKey();
-
-        }
-
-        return null;
-
-    }
-
+    // Invalid convoy destination annotation \\
 
     /**
-     * Identifies a source-success annotation for a failed convoy whose
-     * explicitly specified army destination is a sea province.
-     *
-     * <p>This remains a definite mismatch. The category explains the observed
-     * disagreement; it does not establish that the source's annotation is
-     * harmless or that the convoy fleet survived.</p>
+     * Accepted source-success annotation for a failed convoy into a sea province.
+     * Does not change legality or establish the fleet's survival.
      */
     private static boolean sourceAcceptedSeaDestinationConvoy(
             Order order,
@@ -682,25 +472,14 @@ public class DiploBNAdjudicationComparator {
     ) {
 
         if (!Boolean.TRUE.equals(sourceSuccessful)
-                || order.verdict)
+                || order.verdict
+                || order.orderType != OrderType.CONVOY)
             return false;
 
-        if (order.orderType != OrderType.CONVOY)
+        if (!order.resolved || order.visited || order.getSnapshot() != null)
             return false;
 
-        /*
-         * Do not diagnose an original submission from an unresolved or
-         * transformed work order.
-         */
-        if (!order.resolved
-                || order.visited
-                || order.getSnapshot() != null)
-            return false;
-
-        if (order.pos2 == null)
-            return false;
-
-        return order.pos2.geography == Geography.WATER;
+        return order.pos2 != null && order.pos2.geography == Geography.WATER;
 
     }
 
@@ -718,12 +497,6 @@ public class DiploBNAdjudicationComparator {
 
     }
 
-    /**
-     * Source and independently adjudicated outcome for one submitted order.
-     *
-     * <p>Compatibility differences preserve the differing verdicts but are
-     * accepted by the comparison policy. They do not count as exact matches.</p>
-     */
     public record Entry(
             Order adjudicatedOrder,
             Boolean sourceSuccessful,
@@ -732,10 +505,8 @@ public class DiploBNAdjudicationComparator {
     ) {
 
         public Entry {
-
             Objects.requireNonNull(adjudicatedOrder, "adjudicatedOrder");
             Objects.requireNonNull(difference, "difference");
-
         }
 
         public boolean compared() {
@@ -743,8 +514,7 @@ public class DiploBNAdjudicationComparator {
         }
 
         public boolean matches() {
-            return difference == Difference.NONE
-                    && compared();
+            return difference == Difference.NONE && compared();
         }
 
         public boolean coastAmbiguous() {
@@ -764,12 +534,10 @@ public class DiploBNAdjudicationComparator {
         }
 
         public boolean compatibilityDifference() {
-
             return coastAmbiguous()
                     || ineffectiveSupport()
                     || ineffectiveConvoy()
                     || invalidConvoyDestination();
-
         }
 
         public boolean mismatches() {

@@ -3,7 +3,7 @@ package domain;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
-public final class Constants {
+public abstract class Constants {
 
     // private constructor
     private Constants() {   }

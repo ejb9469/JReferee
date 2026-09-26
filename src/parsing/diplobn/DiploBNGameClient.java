@@ -9,183 +9,106 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
+
+import static io.json.JsonEscaper.appendString;
 
 
 /**
- * Downloads a DiploBN game through the same JSON request used by the DiploBN
- * game viewer, then parses it into JReferee game and phase architecture.
- *
- * <p>DiploBN game pages use a browser-facing URL such as
- * {@code https://diplobn.com/game/?GameID=12990}. The page itself is HTML;
- * this client extracts the GameID, posts a {@code GetGameJSON} request to
- * DiploBN's analytics hub endpoint, extracts the returned game JSON, and
- * delegates it to {@link DiploBNParser}.</p>
+ * Downloads canonical DiploBN game JSON through the analytics hub and
+ * delegates game decoding to DiploBNParser.
  */
 public class DiploBNGameClient {
 
 
-    private static final URI HUB_URI = URI.create(
-            "https://diplobn.com/wp-json/DBNAnalytics/v1/hubget/13");
+    // Constants \\
 
-    private static final Duration DEFAULT_CONNECT_TIMEOUT =
-            Duration.ofSeconds(10);
+    private static final URI HUB_URI =
+            URI.create("https://diplobn.com/wp-json/DBNAnalytics/v1/hubget/13");
 
-    private static final Duration DEFAULT_REQUEST_TIMEOUT =
-            Duration.ofSeconds(30);
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
+
+    // Core state \\
 
     private final HttpClient httpClient;
     private final DiploBNParser parser;
     private final Duration requestTimeout;
 
 
-    /**
-     * Creates a client with standard JDK HTTP behavior.
-     */
+    // Constructors \\
+
     public DiploBNGameClient() {
+
         this(
                 HttpClient.newBuilder()
                         .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
-                        .followRedirects(
-                                HttpClient.Redirect.NORMAL)
+                        .followRedirects(HttpClient.Redirect.NORMAL)
                         .build(),
                 new DiploBNParser(),
-                DEFAULT_REQUEST_TIMEOUT
-        );
+                DEFAULT_REQUEST_TIMEOUT);
+
     }
 
-    /**
-     * Creates a client with supplied HTTP and parsing dependencies.
-     *
-     * <p>This overload allows tests to use a local HTTP server or a controlled
-     * client configuration.</p>
-     */
     public DiploBNGameClient(
             HttpClient httpClient,
             DiploBNParser parser,
             Duration requestTimeout
     ) {
 
-        this.httpClient = Objects.requireNonNull(
-                httpClient,
-                "httpClient");
-
+        this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
         this.parser = Objects.requireNonNull(parser, "parser");
+        this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
 
-        this.requestTimeout = Objects.requireNonNull(
-                requestTimeout,
-                "requestTimeout");
-
-        if (requestTimeout.isNegative()
-                || requestTimeout.isZero())
-            throw new IllegalArgumentException(
-                    "requestTimeout must be positive");
+        if (requestTimeout.isNegative() || requestTimeout.isZero())
+            throw new IllegalArgumentException("requestTimeout must be positive");
 
     }
 
 
-    /**
-     * Downloads canonical DiploBN source JSON and parses it into a game.
-     *
-     * @throws IllegalArgumentException when {@code gameId} is not positive
-     * @throws IOException when DiploBN cannot be reached, returns a failing
-     *                     HTTP response, or returns unusable JSON
-     * @throws InterruptedException when the calling thread is interrupted
-     */
+    // Download entry points \\
+
     public DiploBNDownloadedGame downloadGame(long gameId)
             throws IOException, InterruptedException {
 
         if (gameId <= 0)
-            throw new IllegalArgumentException(
-                    "gameId must be positive");
+            throw new IllegalArgumentException("gameId must be positive");
 
-        String boundary = "----JReferee"
-                + UUID.randomUUID()
-                .toString()
-                .replace("-", "");
+        String boundary = "----JReferee" + UUID.randomUUID().toString().replace("-", "");
 
         String requests = "[{\"Key\":\"GetGameJSON\",\"Parameters\":{"
-                + "\"GameID\":"
-                + gameId
-                + ",\"RootKey\":null}}]";
+                + "\"GameID\":" + gameId + ",\"RootKey\":null}}]";
 
-        String requestBody = multipartBody(
-                boundary,
-                "requests",
-                requests);
+        String requestBody = multipartBody(boundary, "requests", requests);
 
         HttpRequest request = HttpRequest.newBuilder(HUB_URI)
-                .POST(
-                        HttpRequest.BodyPublishers.ofString(
-                                requestBody,
-                                StandardCharsets.UTF_8))
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        requestBody, StandardCharsets.UTF_8))
                 .timeout(requestTimeout)
-                .header(
-                        "Accept",
-                        "application/json, text/plain, */*")
-                .header(
-                        "Content-Type",
-                        "multipart/form-data; boundary="
-                                + boundary)
-                .header(
-                        "Origin",
-                        "https://diplobn.com")
-                .header(
-                        "Referer",
-                        gamePageUri(gameId).toString())
-                .header(
-                        "User-Agent",
-                        "JReferee-DiploBN-Importer/1.0")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .header("Origin", "https://diplobn.com")
+                .header("Referer", gamePageUri(gameId).toString())
+                .header("User-Agent", "JReferee-DiploBN-Importer/1.0")
                 .build();
 
         HttpResponse<String> response = httpClient.send(
-                request,
-                HttpResponse.BodyHandlers.ofString(
-                        StandardCharsets.UTF_8));
+                request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
-        if (response.statusCode() < 200
-                || response.statusCode() >= 300)
+        if (response.statusCode() < 200 || response.statusCode() >= 300)
             throw new IOException(
                     "DiploBN GetGameJSON request failed with HTTP "
-                            + response.statusCode()
-                            + " for GameID "
-                            + gameId);
+                            + response.statusCode() + " for GameID " + gameId);
 
-        return parseHubResponse(
-                response.body(),
-                gameId);
+        return parseHubResponse(response.body(), gameId);
 
     }
 
-    /**
-     * Downloads and parses a game identified by its numeric DiploBN GameID.
-     *
-     * @throws IllegalArgumentException when {@code gameId} is not positive
-     * @throws IOException when DiploBN cannot be reached, returns a failing
-     *                     HTTP response, or returns unusable JSON
-     * @throws InterruptedException when the calling thread is interrupted
-     */
-    public DiploBNGame loadGame(long gameId)
-            throws IOException, InterruptedException {
+    public DiploBNGame loadGame(long gameId) throws IOException, InterruptedException {
         return downloadGame(gameId).game();
     }
 
-    /**
-     * Extracts {@code GameID} from a DiploBN game-page URL, downloads the
-     * corresponding canonical source JSON, and parses it.
-     *
-     * @throws IllegalArgumentException when the URI is not a DiploBN game URL
-     *                                  containing a positive GameID parameter
-     * @throws IOException when DiploBN cannot be reached, returns a failing
-     *                     HTTP response, or returns unusable JSON
-     * @throws InterruptedException when the calling thread is interrupted
-     */
     public DiploBNDownloadedGame downloadGamePage(String pageUrl)
             throws IOException, InterruptedException {
 
@@ -197,64 +120,41 @@ public class DiploBNGameClient {
             pageUri = new URI(pageUrl);
         } catch (URISyntaxException exception) {
             throw new IllegalArgumentException(
-                    "Invalid DiploBN game page URL: "
-                            + pageUrl,
-                    exception);
+                    "Invalid DiploBN game page URL: " + pageUrl, exception);
         }
 
         return downloadGamePage(pageUri);
 
     }
 
-    /**
-     * Extracts {@code GameID} from a DiploBN game-page URI, downloads the
-     * corresponding canonical source JSON, and parses it.
-     */
     public DiploBNDownloadedGame downloadGamePage(URI pageUri)
             throws IOException, InterruptedException {
 
         Objects.requireNonNull(pageUri, "pageUri");
-
         validateGamePageUri(pageUri);
 
         return downloadGame(gameIdFrom(pageUri));
 
     }
 
-    /**
-     * Extracts {@code GameID} from a DiploBN game-page URL, downloads the
-     * corresponding game JSON, and parses it.
-     *
-     * @throws IllegalArgumentException when the URI is not a DiploBN game URL
-     *                                  containing a positive GameID parameter
-     * @throws IOException when DiploBN cannot be reached, returns a failing
-     *                     HTTP response, or returns unusable JSON
-     * @throws InterruptedException when the calling thread is interrupted
-     */
     public DiploBNGame loadGamePage(String pageUrl)
             throws IOException, InterruptedException {
         return downloadGamePage(pageUrl).game();
     }
 
-    /**
-     * Extracts {@code GameID} from a DiploBN game-page URI, downloads the
-     * corresponding game JSON, and parses it.
-     */
     public DiploBNGame loadGamePage(URI pageUri)
             throws IOException, InterruptedException {
         return downloadGamePage(pageUri).game();
     }
 
 
-    private DiploBNDownloadedGame parseHubResponse(
-            String responseBody,
-            long gameId
-    ) throws IOException {
+    // Response decoding \\
+
+    private DiploBNDownloadedGame parseHubResponse(String responseBody, long gameId)
+            throws IOException {
 
         if (responseBody == null || responseBody.isBlank())
-            throw new IOException(
-                    "DiploBN returned an empty response for GameID "
-                            + gameId);
+            throw new IOException("DiploBN returned an empty response for GameID " + gameId);
 
         Object parsedResponse;
 
@@ -262,18 +162,14 @@ public class DiploBNGameClient {
             parsedResponse = JsonReader.read(responseBody);
         } catch (ParseException exception) {
             throw new IOException(
-                    "DiploBN returned malformed JSON for GameID "
-                            + gameId,
-                    exception);
+                    "DiploBN returned malformed JSON for GameID " + gameId, exception);
         }
 
         Object gameObject = findGameObject(parsedResponse);
 
         if (gameObject == null)
             throw new IOException(
-                    "DiploBN response did not contain a GamePhases object"
-                            + " for GameID "
-                            + gameId);
+                    "DiploBN response did not contain a GamePhases object for GameID " + gameId);
 
         String sourceJson = toJson(gameObject);
 
@@ -281,8 +177,7 @@ public class DiploBNGameClient {
                 gameId,
                 gamePageUri(gameId).toString(),
                 sourceJson,
-                parser.parse(sourceJson)
-        );
+                parser.parse(sourceJson));
 
     }
 
@@ -301,9 +196,11 @@ public class DiploBNGameClient {
             }
 
             return null;
+
         }
 
         if (value instanceof List<?> array) {
+
             for (Object element : array) {
                 Object found = findGameObject(element);
 
@@ -312,14 +209,14 @@ public class DiploBNGameClient {
             }
 
             return null;
+
         }
 
         if (value instanceof String text) {
 
             String stripped = text.strip();
 
-            if (!stripped.startsWith("{")
-                    && !stripped.startsWith("["))
+            if (!stripped.startsWith("{") && !stripped.startsWith("["))
                 return null;
 
             try {
@@ -334,58 +231,43 @@ public class DiploBNGameClient {
 
     }
 
-    private static String multipartBody(
-            String boundary,
-            String fieldName,
-            String value
-    ) {
 
-        return "--"
-                + boundary
-                + "\r\n"
-                + "Content-Disposition: form-data; name=\""
-                + fieldName
-                + "\"\r\n"
-                + "\r\n"
-                + value
-                + "\r\n"
-                + "--"
-                + boundary
-                + "--\r\n";
+    // Request helpers \\
+
+    private static String multipartBody(String boundary, String fieldName, String value) {
+
+        return "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"" + fieldName + "\"\r\n"
+                + "\r\n" + value + "\r\n"
+                + "--" + boundary + "--\r\n";
 
     }
 
     private static URI gamePageUri(long gameId) {
-        return URI.create(
-                "https://diplobn.com/game/?GameID="
-                        + gameId);
+        return URI.create("https://diplobn.com/game/?GameID=" + gameId);
     }
 
     private static void validateGamePageUri(URI pageUri) {
 
         if (!pageUri.isAbsolute())
             throw new IllegalArgumentException(
-                    "DiploBN game page URL must be absolute: "
-                            + pageUri);
+                    "DiploBN game page URL must be absolute: " + pageUri);
 
         if (!"https".equalsIgnoreCase(pageUri.getScheme()))
             throw new IllegalArgumentException(
-                    "DiploBN game page URL must use HTTPS: "
-                            + pageUri);
+                    "DiploBN game page URL must use HTTPS: " + pageUri);
 
         String host = pageUri.getHost();
 
         if (host == null || !isDiploBNHost(host))
             throw new IllegalArgumentException(
-                    "Game page URL must use diplobn.com: "
-                            + pageUri);
+                    "Game page URL must use diplobn.com: " + pageUri);
 
         String path = pageUri.getPath();
 
         if (path == null || !path.equals("/game/"))
             throw new IllegalArgumentException(
-                    "Expected DiploBN game page path '/game/': "
-                            + pageUri);
+                    "Expected DiploBN game page path '/game/': " + pageUri);
 
     }
 
@@ -394,21 +276,13 @@ public class DiploBNGameClient {
         for (String parameter : queryParameters(pageUri)) {
 
             int separator = parameter.indexOf('=');
-
-            String key = separator < 0
-                    ? parameter
-                    : parameter.substring(0, separator);
+            String key = separator < 0 ? parameter : parameter.substring(0, separator);
 
             if (!key.equalsIgnoreCase("GameID"))
                 continue;
 
-            String rawValue = separator < 0
-                    ? ""
-                    : parameter.substring(separator + 1);
-
-            String value = URLDecoder.decode(
-                    rawValue,
-                    StandardCharsets.UTF_8);
+            String rawValue = separator < 0 ? "" : parameter.substring(separator + 1);
+            String value = URLDecoder.decode(rawValue, StandardCharsets.UTF_8);
 
             try {
                 long gameId = Long.parseLong(value);
@@ -424,8 +298,7 @@ public class DiploBNGameClient {
         }
 
         throw new IllegalArgumentException(
-                "DiploBN game page URL requires a positive GameID parameter: "
-                        + pageUri);
+                "DiploBN game page URL requires a positive GameID parameter: " + pageUri);
 
     }
 
@@ -438,10 +311,9 @@ public class DiploBNGameClient {
 
         List<String> parameters = new ArrayList<>();
 
-        for (String parameter : query.split("&")) {
+        for (String parameter : query.split("&"))
             if (!parameter.isBlank())
                 parameters.add(parameter);
-        }
 
         return parameters;
 
@@ -456,20 +328,19 @@ public class DiploBNGameClient {
 
     }
 
+
+    // Canonical source serialization \\
+
     private static String toJson(Object value) {
 
         StringBuilder output = new StringBuilder();
-
         appendJson(output, value);
 
         return output.toString();
 
     }
 
-    private static void appendJson(
-            StringBuilder output,
-            Object value
-    ) {
+    private static void appendJson(StringBuilder output, Object value) {
 
         if (value == null) {
             output.append("null");
@@ -477,7 +348,7 @@ public class DiploBNGameClient {
         }
 
         if (value instanceof String text) {
-            appendJsonString(output, text);
+            appendString(output, text);
             return;
         }
 
@@ -502,44 +373,36 @@ public class DiploBNGameClient {
         }
 
         throw new IllegalArgumentException(
-                "Unsupported JSON value type: "
-                        + value.getClass().getName());
+                "Unsupported JSON value type: " + value.getClass().getName());
 
     }
 
-    private static void appendJsonObject(
-            StringBuilder output,
-            Map<?, ?> object
-    ) {
+    private static void appendJsonObject(StringBuilder output, Map<?, ?> object) {
 
         output.append('{');
-
         boolean first = true;
 
         for (Map.Entry<?, ?> entry : object.entrySet()) {
 
             if (!(entry.getKey() instanceof String key))
-                throw new IllegalArgumentException(
-                        "JSON object key is not a string");
+                throw new IllegalArgumentException("JSON object key is not a string");
 
             if (!first)
                 output.append(',');
 
-            appendJsonString(output, key);
+            appendString(output, key);
             output.append(':');
             appendJson(output, entry.getValue());
 
             first = false;
+
         }
 
         output.append('}');
 
     }
 
-    private static void appendJsonArray(
-            StringBuilder output,
-            List<?> array
-    ) {
+    private static void appendJsonArray(StringBuilder output, List<?> array) {
 
         output.append('[');
 
@@ -549,51 +412,12 @@ public class DiploBNGameClient {
                 output.append(',');
 
             appendJson(output, array.get(index));
+
         }
 
         output.append(']');
 
     }
 
-    private static void appendJsonString(
-            StringBuilder output,
-            String value
-    ) {
-
-        output.append('"');
-
-        for (int index = 0; index < value.length(); index++) {
-
-            char character = value.charAt(index);
-
-            switch (character) {
-                case '"' -> output.append("\\\"");
-                case '\\' -> output.append("\\\\");
-                case '\b' -> output.append("\\b");
-                case '\f' -> output.append("\\f");
-                case '\n' -> output.append("\\n");
-                case '\r' -> output.append("\\r");
-                case '\t' -> output.append("\\t");
-                default -> {
-                    if (character < 0x20) {
-                        output.append("\\u");
-
-                        String hexadecimal = Integer.toHexString(
-                                character);
-
-                        output.append("0".repeat(4 - hexadecimal.length()));
-
-                        output.append(hexadecimal);
-                    } else {
-                        output.append(character);
-                    }
-                }
-            }
-
-        }
-
-        output.append('"');
-
-    }
 
 }

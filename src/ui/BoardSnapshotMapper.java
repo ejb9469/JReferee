@@ -2,30 +2,50 @@ package ui;
 
 import domain.Nation;
 import domain.Province;
+import game.BoardState;
 import game.Game;
+import game.GameMoment;
 import phase.UnitId;
 
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.TreeMap;
+import java.util.*;
+
 
 public final class BoardSnapshotMapper {
 
+
+    // the funny contract
     private static final Comparator<Map.Entry<UnitId, Province>> UNIT_ORDER =
-            Comparator.<Map.Entry<UnitId, Province>, String>comparing(entry -> entry.getValue().name())
+            Comparator.<Map.Entry<UnitId, Province>, String>comparing(
+                            entry -> entry.getValue().name())
                     .thenComparing(entry -> entry.getKey().owner().name())
                     .thenComparing(entry -> entry.getKey().unitType().name());
 
-    private BoardSnapshotMapper() {
-    }
+
+    private BoardSnapshotMapper() {  }
+
 
     public static BoardSnapshot from(Game game) {
+
         Objects.requireNonNull(game, "game");
 
-        List<BoardSnapshot.Unit> units = game.board().locations().entrySet().stream()
+        return from(game.year(), game.phase().name(), game.board());
+
+    }
+
+    public static BoardSnapshot from(GameMoment moment, BoardState board) {
+
+        Objects.requireNonNull(moment, "moment");
+
+        return from(moment.year(), moment.gamePhase().name(), board);
+
+    }
+
+    public static BoardSnapshot from(int year, String phase, BoardState board) {
+
+        Objects.requireNonNull(phase, "phase");
+        Objects.requireNonNull(board, "board");
+
+        List<BoardSnapshot.Unit> units = board.locations().entrySet().stream()
                 .sorted(UNIT_ORDER)
                 .map(entry -> new BoardSnapshot.Unit(
                         entry.getKey().owner().name(),
@@ -33,21 +53,20 @@ public final class BoardSnapshotMapper {
                         entry.getValue().name()))
                 .toList();
 
-        TreeMap<String, String> ownersByCanonicalName = new TreeMap<>();
-        for (Map.Entry<Province, Nation> entry : game.board().owners().entrySet()) {
-            ownersByCanonicalName.put(
+        TreeMap<String, String> sortedOwners = new TreeMap<>();
+
+        for (Map.Entry<Province, Nation> entry : board.owners().entrySet())
+            sortedOwners.put(
                     Province.canonical(entry.getKey()).name(),
                     entry.getValue().name());
-        }
-
-        Map<String, String> owners = new LinkedHashMap<>();
-        ownersByCanonicalName.forEach(owners::put);
 
         return new BoardSnapshot(
-                game.year(),
-                game.phase().name(),
+                year,
+                phase,
                 units,
-                owners);
+                new LinkedHashMap<>(sortedOwners));
+
     }
+
 
 }

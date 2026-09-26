@@ -6,21 +6,19 @@ import parsing.diplobn.DiploBNGame;
 import parsing.diplobn.DiploBNGameClient;
 
 import java.io.IOException;
-import java.util.Scanner;
+
+import static _app.DBNCliFormatting.*;
 
 
 /**
- * Downloads one DiploBN game and compares its recorded movement outcomes with
+ * Downloads one DiploBN game and compares recorded movement outcomes with
  * JReferee's independently adjudicated results.
  */
 public final class DBNChecker {
 
 
-    // private constructor
     private DBNChecker() {  }
 
-
-    // Entry point \\
 
     public static void main(String[] args) {
 
@@ -34,63 +32,20 @@ public final class DBNChecker {
             System.out.println("Downloading and comparing DiploBN game...");
             System.out.println();
 
-            DiploBNGame imported = new DiploBNGameClient()
-                    .loadGamePage(gamePageUrl);
+            DiploBNGame imported = new DiploBNGameClient().loadGamePage(gamePageUrl);
 
             printGameHeader(imported);
             compareMovementPhases(imported);
 
         } catch (IllegalArgumentException exception) {
-            System.err.println(
-                    "Unable to import or compare DiploBN game: "
-                            + exception.getMessage());
-
+            System.err.println("Unable to import or compare DiploBN game: " + exception.getMessage());
             exception.printStackTrace(System.err);
         } catch (IOException exception) {
-            System.err.println(
-                    "Unable to download DiploBN game: "
-                            + exception.getMessage());
+            System.err.println("Unable to download DiploBN game: " + exception.getMessage());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-
-            System.err.println(
-                    "DiploBN game download was interrupted");
+            System.err.println("DiploBN game download was interrupted");
         }
-
-    }
-
-
-    // Input helpers \\
-
-    private static String requestedGamePageUrl(String[] args) {
-
-        if (args.length > 0)
-            return args[0];
-
-        System.out.println(
-                "Enter DiploBN game URL "
-                        + "(for example: "
-                        + "https://diplobn.com/game/?GameID=12990):");
-
-        Scanner scanner = new Scanner(System.in);
-
-        if (!scanner.hasNextLine()) {
-            System.err.println(
-                    "No DiploBN game URL was supplied");
-
-            return null;
-        }
-
-        String gamePageUrl = scanner.nextLine().strip();
-
-        if (gamePageUrl.isBlank()) {
-            System.err.println(
-                    "No DiploBN game URL was supplied");
-
-            return null;
-        }
-
-        return gamePageUrl;
 
     }
 
@@ -106,25 +61,8 @@ public final class DBNChecker {
         printMetadata("Game label", imported.gameLabel());
         printMetadata("Source URL", imported.sourceUrl());
 
-        System.out.println(
-                "Source phases: "
-                        + imported.phases().size());
-
+        System.out.println("Source phases: " + imported.phases().size());
         System.out.println();
-
-    }
-
-    private static void printMetadata(
-            String label,
-            String value
-    ) {
-
-        System.out.printf(
-                "%-14s %s%n",
-                label + ":",
-                value == null
-                        ? "<not supplied>"
-                        : value);
 
     }
 
@@ -152,10 +90,9 @@ public final class DBNChecker {
 
             int phaseInvalidConvoyDestinations = 0;
 
-            for (var entry : comparison.entries()) {
+            for (var entry : comparison.entries())
                 if (entry.invalidConvoyDestination())
                     phaseInvalidConvoyDestinations++;
-            }
 
             comparedOrders += comparison.comparedCount();
             matchingOrders += comparison.matchingCount();
@@ -206,80 +143,34 @@ public final class DBNChecker {
                 continue;
             }
 
-            if (comparison.mismatchingCount() == 0) {
+            if (comparison.mismatchingCount() == 0)
                 System.out.printf(
                         "  %s[COMPATIBILITY DIFFERENCE]%s%n",
-                        Constants.ANSI_YELLOW,
-                        Constants.ANSI_RESET);
-            } else {
+                        Constants.ANSI_YELLOW, Constants.ANSI_RESET);
+            else
                 System.out.printf(
                         "  %s[MISMATCH]%s%n",
-                        Constants.ANSI_RED,
-                        Constants.ANSI_RESET);
-            }
+                        Constants.ANSI_RED, Constants.ANSI_RESET);
 
-            for (var entry : comparison.entries()) {
-
-                if (!entry.compatibilityDifference()
-                        && !entry.mismatches())
-                    continue;
-
-                printDifference(entry);
-
-            }
+            for (var entry : comparison.entries())
+                if (entry.compatibilityDifference() || entry.mismatches())
+                    printDifference(entry);
 
         }
 
         System.out.println();
         System.out.println("----------------------------------------");
 
-        System.out.printf(
-                "%-35s [%d/%d]%n",
-                "TOTAL MATCHES:",
-                matchingOrders,
-                comparedOrders);
+        System.out.printf("%-35s [%d/%d]%n", "TOTAL MATCHES:", matchingOrders, comparedOrders);
 
-        System.out.printf(
-                "%-35s %s[%d]%s%n",
-                "TOTAL COAST AMBIGUITIES:",
-                Constants.ANSI_ORANGE,
-                coastAmbiguousOrders,
-                Constants.ANSI_RESET);
-
-        System.out.printf(
-                "%-35s %s[%d]%s%n",
-                "TOTAL INEFFECTIVE SUPPORTS:",
-                Constants.ANSI_YELLOW,
-                ineffectiveSupportOrders,
-                Constants.ANSI_RESET);
-
-        System.out.printf(
-                "%-35s %s[%d]%s%n",
-                "TOTAL INEFFECTIVE CONVOYS:",
-                Constants.ANSI_YELLOW,
-                ineffectiveConvoyOrders,
-                Constants.ANSI_RESET);
-
-        System.out.printf(
-                "%-35s %s[%d]%s%n",
+        printTotal("TOTAL COAST AMBIGUITIES:", coastAmbiguousOrders, Constants.ANSI_ORANGE);
+        printTotal("TOTAL INEFFECTIVE SUPPORTS:", ineffectiveSupportOrders, Constants.ANSI_YELLOW);
+        printTotal("TOTAL INEFFECTIVE CONVOYS:", ineffectiveConvoyOrders, Constants.ANSI_YELLOW);
+        printTotal(
                 "TOTAL INVALID CONVOY DESTINATIONS:",
-                Constants.ANSI_YELLOW,
-                invalidConvoyDestinationOrders,
-                Constants.ANSI_RESET);
-
-        System.out.printf(
-                "%-35s %s[%d]%s%n",
-                "TOTAL COMPATIBILITY DIFFERENCES:",
-                Constants.ANSI_YELLOW,
-                compatibilityDifferences,
-                Constants.ANSI_RESET);
-
-        System.out.printf(
-                "%-35s %s[%d]%s%n",
-                "TOTAL DEFINITE MISMATCHES:",
-                Constants.ANSI_RED,
-                mismatchingOrders,
-                Constants.ANSI_RESET);
+                invalidConvoyDestinationOrders, Constants.ANSI_YELLOW);
+        printTotal("TOTAL COMPATIBILITY DIFFERENCES:", compatibilityDifferences, Constants.ANSI_YELLOW);
+        printTotal("TOTAL MISMATCHES:", mismatchingOrders, Constants.ANSI_RED);
 
         System.out.println("----------------------------------------");
 
@@ -288,9 +179,7 @@ public final class DBNChecker {
 
     // Difference output \\
 
-    private static void printDifference(
-            DiploBNAdjudicationComparator.Entry entry
-    ) {
+    private static void printDifference(DiploBNAdjudicationComparator.Entry entry) {
 
         String label;
         String color;
@@ -327,58 +216,36 @@ public final class DBNChecker {
             }
 
             default -> throw new IllegalStateException(
-                    "Unsupported comparison difference: "
-                            + entry.difference());
+                    "Unsupported comparison difference: " + entry.difference());
 
         }
 
         System.out.printf(
                 "    %s[%s]%s SOURCE=%-5b JREFEREE=%-5b %s%n",
-                color,
-                label,
-                Constants.ANSI_RESET,
+                color, label, Constants.ANSI_RESET,
                 entry.sourceSuccessful(),
                 entry.adjudicatedOrder().verdict,
                 entry.adjudicatedOrder());
 
         if (entry.sourceReason() != null)
-            System.out.printf(
-                    "      Source reason: %s%n",
-                    entry.sourceReason());
+            System.out.printf("      Source reason: %s%n", entry.sourceReason());
 
-        if (entry.ineffectiveConvoy()) {
+        if (entry.ineffectiveConvoy())
             System.out.println(
                     "      Compatibility reason: no corresponding army move "
                             + "was submitted; convoy fleet was not dislodged.");
-        } else if (entry.invalidConvoyDestination()) {
+        else if (entry.invalidConvoyDestination())
             System.out.printf(
                     "      Compatibility reason: source-success annotation "
                             + "for a convoy into sea province %s; accepted as "
                             + "an annotation difference, retaining JReferee's "
                             + "failed verdict.%n",
                     entry.adjudicatedOrder().pos2);
-        }
 
     }
 
-
-    // Formatting helpers \\
-
-    /**
-     * Formats DiploBN's five-digit phase value as a season plus year.
-     */
-    private static String formatSourcePhase(int sourcePhase) {
-
-        int year = sourcePhase / 10;
-        int turn = sourcePhase % 10;
-
-        return switch (turn) {
-            case 1 -> "S" + year;
-            case 2 -> "F" + year;
-            case 3 -> "W" + year;
-            default -> year + "." + turn;
-        };
-
+    private static void printTotal(String label, int count, String color) {
+        System.out.printf("%-35s %s[%d]%s%n", label, color, count, Constants.ANSI_RESET);
     }
 
 
