@@ -54,6 +54,14 @@ public final class Orders {
             }
 
             case SUPPORT -> {
+                Province supportedDestination =
+                        order.pos2 == null ? order.pos1
+                                            : order.pos2;
+                if (supportedDestination == null)
+                    return false;
+                if (order.unitType == UnitType.ARMY
+                        && supportedDestination.geography == Geography.WATER)
+                    return false;
                 // Moves from Pos1-->Pos1 are illegal,
                 // and support-holds are formatted with `pos2` == null
                 if (Province.equalsIgnoreCoast(order.pos1, order.pos2))

@@ -35,3 +35,5 @@ misc/todo-old.txt
 *sqlite
 *sqlite-shm
 *sqlite-wal
+
+src/resources/save_games/*

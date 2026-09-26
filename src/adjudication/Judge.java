@@ -491,6 +491,10 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         // Handle SUPPORT orders
         else if (order.orderType == OrderType.SUPPORT) {
 
+            // SUPPORTS WILL FAIL IF ORDER IS DEEMED INVALID
+            if (!Orders.orderIsValid(order))
+                return false;
+
             // SUPPORTS WILL FAIL WITHOUT A CORRESPONDING ORDER
             if (Orders.locateCorresponding(order, orders) == null)
                 return false;
@@ -500,15 +504,33 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                 if (order2.equals(order) || order2.orderType != OrderType.MOVE)
                     continue;
 
-                // .equalsIC() is used b/c supports can be cut from either coast
+                // Supports can be attacked from either coast.
                 if (!Province.equalsIgnoreCoast(order2.pos1, order.pos0))
                     continue;
 
+                /*
+                 * An attack from the province against which support is given
+                 * does not cut that support merely by attacking.
+                 *
+                 * Compare PROVINCES, not individual coast identifiers:
+                 * Bul and Bul/sc are the same province for this purpose.
+                 *
+                 * For support-holds, pos2 is null, so this exception does not
+                 * apply.
+                 */
+                boolean attacksFromSupportedDestination =
+                        order.pos2 != null
+                                && Province.equalsIgnoreCoast(
+                                order.pos2,
+                                order2.pos0);
+
                 if (pathSuccessful(order2, optimistic, orders, context)
                         && order2.owner != order.owner
-                        && order.pos2 != order2.pos0) {
+                        && !attacksFromSupportedDestination) {
                     return false;
                 } else if (resolve(order2, !optimistic, context)) {
+                    // The supporter was dislodged, including by an attack
+                    // from the province against which support was given.
                     return false;
                 }
 
