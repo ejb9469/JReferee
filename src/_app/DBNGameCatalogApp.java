@@ -3,48 +3,24 @@ package _app;
 import domain.Constants;
 import io.catalog.CatalogAnalysis;
 import io.catalog.CatalogGame;
-import io.catalog.CatalogGameId;
 import io.catalog.GameCatalog;
+import io.catalog.GameSource;
 import io.catalog.diplobn.DiploBNCatalogImporter;
 import io.catalog.diplobn.DiploBNGameCatalogFileImporter;
 import io.persistence.SQLiteCatalogStore;
+import parsing.diplobn.DiploBNAdjudicationComparator;
+import parsing.diplobn.DiploBNParser;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 
 
-/**
- * Console entry point for importing DiploBN games listed in a catalog manifest.
- *
- * <p>Without command-line arguments, this application reads:</p>
- *
- * <pre>
- * src/resources/save_games/diplobn-games.json
- * </pre>
- *
- * <p>and stores imported games in:</p>
- *
- * <pre>
- * data/diplobn-catalog.sqlite
- * </pre>
- *
- * <p>Supply one command-line argument to use another manifest file:</p>
- *
- * <pre>
- * DiploBNGameCatalogApp path/to/diplobn-games.json
- * </pre>
- *
- * <p>Use explicit options to control either location:</p>
- *
- * <pre>
- * DiploBNGameCatalogApp
- *     --database data/diplobn-catalog.sqlite
- *     --manifest src/resources/save_games/diplobn-games.json
- * </pre>
- */
 public final class DBNGameCatalogApp {
 
 
@@ -68,31 +44,49 @@ public final class DBNGameCatalogApp {
             return;
         }
 
+        Path databasePath = arguments.databasePath()
+                .toAbsolutePath()
+                .normalize();
+
         Constants.printTimestamp();
 
-        try (SQLiteCatalogStore store =
-                     new SQLiteCatalogStore(
-                             arguments.databasePath());
-             GameCatalog catalog = new GameCatalog(store))
-        {
-            DiploBNCatalogImporter gameImporter =
-                    new DiploBNCatalogImporter(catalog);
+        try {
 
-            DiploBNGameCatalogFileImporter fileImporter =
-                    new DiploBNGameCatalogFileImporter(
-                            arguments.manifestPath(),
-                            gameImporter);
+            if (arguments.manifestPath() == null
+                    && !Files.isRegularFile(databasePath))
+                throw new IllegalStateException(
+                        "Database not found: " + databasePath);
 
-            printHeader(
-                    arguments.manifestPath(),
-                    arguments.databasePath());
+            try (GameCatalog catalog = new GameCatalog(
+                    new SQLiteCatalogStore(databasePath)))
+            {
+                printHeader(
+                        arguments.manifestPath(),
+                        databasePath);
 
-            DiploBNGameCatalogFileImporter.ImportReport report =
-                    fileImporter.importGames();
+                DiploBNGameCatalogFileImporter.ImportReport report = null;
 
-            printReport(report, catalog);
+                if (arguments.manifestPath() != null) {
 
-            Constants.printTimestamp();
+                    DiploBNCatalogImporter gameImporter =
+                            new DiploBNCatalogImporter(catalog);
+
+                    DiploBNGameCatalogFileImporter fileImporter =
+                            new DiploBNGameCatalogFileImporter(
+                                    arguments.manifestPath(),
+                                    gameImporter);
+
+                    report = fileImporter.importGames();
+
+                }
+
+                if (Thread.currentThread().isInterrupted())
+                    return;
+
+                printReport(report, catalog);
+
+                Constants.printTimestamp();
+            }
 
         } catch (IllegalStateException exception) {
             System.err.println();
@@ -109,10 +103,7 @@ public final class DBNGameCatalogApp {
             String[] args
     ) {
 
-        Path manifestPath =
-                DiploBNGameCatalogFileImporter
-                        .DEFAULT_MANIFEST_PATH;
-
+        Path manifestPath = null;
         Path databasePath = DEFAULT_DATABASE_PATH;
 
         if (args.length == 0)
@@ -182,9 +173,9 @@ public final class DBNGameCatalogApp {
         return new IllegalArgumentException(
                 """
                 Usage:
-                  DiploBNGameCatalogApp [manifest-path]
+                  DBNGameCatalogApp [manifest-path]
 
-                  DiploBNGameCatalogApp
+                  DBNGameCatalogApp
                       [--manifest <manifest-path>]
                       [--database <database-path>]
                 """);
@@ -200,7 +191,9 @@ public final class DBNGameCatalogApp {
         System.out.println();
 
         System.out.println(
-                "Manifest: " + manifestPath);
+                "Manifest: " + (manifestPath == null
+                        ? "<not supplied>"
+                        : manifestPath));
 
         System.out.println(
                 "Database: " + databasePath);
@@ -215,75 +208,170 @@ public final class DBNGameCatalogApp {
     ) {
 
         List<ReportEntry> entries = new ArrayList<>();
+        Map<String, Integer> manifestIndexes = new HashMap<>();
 
-        for (DiploBNGameCatalogFileImporter.Success success
-                : report.successes()) {
+        int nextIndex = 0;
+
+        if (report != null) {
+
+            nextIndex = report.attemptedCount();
+
+            for (DiploBNGameCatalogFileImporter.Success success
+                    : report.successes()) {
+                manifestIndexes.putIfAbsent(
+                        success.importedGame().catalogId(),
+                        success.manifestIndex());
+            }
+
+            for (DiploBNGameCatalogFileImporter.Failure failure
+                    : report.failures()) {
+                entries.add(
+                        new ReportEntry(
+                                failure.manifestIndex(),
+                                null,
+                                failure
+                        )
+                );
+            }
+
+        }
+
+        for (CatalogGame game : catalog.all()) {
+
+            Integer index = manifestIndexes.get(
+                    game.id().value().toString());
+
+            if (index == null)
+                index = nextIndex++;
+
             entries.add(
                     new ReportEntry(
-                            success.manifestIndex(),
-                            success,
+                            index,
+                            game,
                             null
                     )
             );
-        }
 
-        for (DiploBNGameCatalogFileImporter.Failure failure
-                : report.failures()) {
-            entries.add(
-                    new ReportEntry(
-                            failure.manifestIndex(),
-                            null,
-                            failure
-                    )
-            );
         }
 
         entries.sort(
                 Comparator.comparing(ReportEntry::sortIndex)
         );
 
+        DiploBNParser parser = new DiploBNParser();
+
         for (ReportEntry entry : entries) {
-            if (entry.success() != null)
-                printSuccess(entry.success(), catalog);
-            else
+
+            if (Thread.currentThread().isInterrupted())
+                return;
+
+            if (entry.failure() != null) {
                 printFailure(entry.failure());
+                continue;
+            }
+
+            CatalogGame game = entry.game();
+
+            if (game.source().source() == GameSource.DIPLOBN) {
+
+                CatalogAnalysis analysis;
+
+                try {
+                    analysis = analyze(game, parser);
+                } catch (RuntimeException exception) {
+                    printFailure(
+                            new DiploBNGameCatalogFileImporter.Failure(
+                                    entry.index(),
+                                    game.source().canonicalUri().toString(),
+                                    describe(exception),
+                                    exception
+                            )
+                    );
+                    continue;
+                }
+
+                game = catalog.recordAnalysis(
+                        game.id(),
+                        analysis);
+
+            }
+
+            printSuccess(entry.index(), game);
+
         }
 
         printTotals(report, catalog);
 
     }
 
-    private static void printSuccess(
-            DiploBNGameCatalogFileImporter.Success success,
-            GameCatalog catalog
+    private static CatalogAnalysis analyze(
+            CatalogGame catalogGame,
+            DiploBNParser parser
     ) {
 
-        DiploBNGameCatalogFileImporter.ImportedGame imported =
-                success.importedGame();
+        var game = parser.parse(catalogGame.sourcePayload());
+
+        int comparedOrderCount = 0;
+        int matchingOrderCount = 0;
+        int compatibilityDifferenceCount = 0;
+        int definiteMismatchCount = 0;
+
+        for (var phase : game.phases()) {
+
+            if (phase.movementOrders().isEmpty())
+                continue;
+
+            DiploBNAdjudicationComparator comparison =
+                    DiploBNAdjudicationComparator.compare(phase);
+
+            comparedOrderCount += comparison.comparedCount();
+            matchingOrderCount += comparison.matchingCount();
+            compatibilityDifferenceCount +=
+                    comparison.compatibilityDifferenceCount();
+            definiteMismatchCount += comparison.mismatchingCount();
+
+        }
+
+        return new CatalogAnalysis(
+                "DiploBNAdjudicationComparator",
+                "JReferee-ineffective-convoy-v1",
+                Instant.now(),
+                comparedOrderCount,
+                matchingOrderCount,
+                compatibilityDifferenceCount,
+                definiteMismatchCount
+        );
+
+    }
+
+    private static void printSuccess(
+            int index,
+            CatalogGame catalogGame
+    ) {
 
         System.out.printf(
-                "[%d] %sIMPORTED%s GameID=%d%n",
-                success.manifestIndex(),
+                "[%d] %sIMPORTED%s GameID=%s%n",
+                index,
                 Constants.ANSI_GREEN,
                 Constants.ANSI_RESET,
-                imported.gameId());
+                catalogGame.source().externalKey());
 
         System.out.printf(
                 "    URL:         %s%n",
-                imported.canonicalUrl());
+                catalogGame.source().canonicalUri());
 
-        printManifestMetadata(success.entry());
+        if (!catalogGame.metadata().tags().isEmpty()) {
+            System.out.printf(
+                    "    Tags:        %s%n",
+                    String.join(
+                            ", ",
+                            catalogGame.metadata().tags()));
+        }
 
-        CatalogGame catalogGame = catalogGameOf(
-                imported,
-                catalog);
-
-        if (catalogGame == null) {
-            System.out.println(
-                    "    Catalog:     <not available>");
-
-            System.out.println();
-            return;
+        if (catalogGame.metadata().notes() != null) {
+            System.out.printf(
+                    "    Notes:       %s%n",
+                    catalogGame.metadata().notes());
         }
 
         System.out.printf(
@@ -307,47 +395,6 @@ public final class DBNGameCatalogApp {
         printAnalysis(catalogGame.latestAnalysis());
 
         System.out.println();
-
-    }
-
-    private static void printManifestMetadata(
-            DiploBNGameCatalogFileImporter.ManifestEntry entry
-    ) {
-
-        if (!entry.tags().isEmpty()) {
-            System.out.printf(
-                    "    Tags:        %s%n",
-                    String.join(
-                            ", ",
-                            entry.tags()));
-        }
-
-        if (entry.notes() != null) {
-            System.out.printf(
-                    "    Notes:       %s%n",
-                    entry.notes());
-        }
-
-    }
-
-    private static CatalogGame catalogGameOf(
-            DiploBNGameCatalogFileImporter.ImportedGame imported,
-            GameCatalog catalog
-    ) {
-
-        if (imported.catalogId() == null)
-            return null;
-
-        try {
-            CatalogGameId id = new CatalogGameId(
-                    UUID.fromString(
-                            imported.catalogId()));
-
-            return catalog.find(id).orElse(null);
-
-        } catch (IllegalArgumentException exception) {
-            return null;
-        }
 
     }
 
@@ -430,24 +477,36 @@ public final class DBNGameCatalogApp {
         List<CatalogGame> mismatchingGames =
                 catalog.withDefiniteMismatches();
 
+        int attempted = report == null
+                ? 0
+                : report.attemptedCount();
+
+        int successful = report == null
+                ? 0
+                : report.successes().size();
+
+        int failed = report == null
+                ? 0
+                : report.failures().size();
+
         System.out.println("----------------------------------------");
 
         System.out.printf(
                 "MANIFEST ENTRIES:          %d%n",
-                report.attemptedCount());
+                attempted);
 
         System.out.printf(
                 "SUCCESSFUL IMPORTS:        %s[%d]%s%n",
                 Constants.ANSI_GREEN,
-                report.successes().size(),
+                successful,
                 Constants.ANSI_RESET);
 
         System.out.printf(
                 "FAILED IMPORTS:            %s[%d]%s%n",
-                report.failures().isEmpty()
+                failed == 0
                         ? Constants.ANSI_GREEN
                         : Constants.ANSI_RED,
-                report.failures().size(),
+                failed,
                 Constants.ANSI_RESET);
 
         System.out.printf(
@@ -475,6 +534,15 @@ public final class DBNGameCatalogApp {
                 : value;
     }
 
+    private static String describe(
+            Exception exception
+    ) {
+        return exception.getClass().getSimpleName()
+                + (exception.getMessage() == null
+                ? ""
+                : ": " + exception.getMessage());
+    }
+
 
     private record Arguments(
             Path manifestPath,
@@ -483,15 +551,15 @@ public final class DBNGameCatalogApp {
     }
 
     private record ReportEntry(
-            Integer manifestIndex,
-            DiploBNGameCatalogFileImporter.Success success,
+            Integer index,
+            CatalogGame game,
             DiploBNGameCatalogFileImporter.Failure failure
     ) {
 
         private int sortIndex() {
-            return manifestIndex == null
+            return index == null
                     ? Integer.MAX_VALUE
-                    : manifestIndex;
+                    : index;
         }
 
     }
