@@ -54,7 +54,7 @@ public final class DiploBNAdjudicator
         this(
                 Objects.requireNonNull(phase, "phase").board(),
                 sourceOrdersOf(phase),
-                new DiploBNAdjudicationOrderTranslator());
+                new DiploBNAdjudicationOrderTranslator(true));
     }
 
     /**
@@ -68,7 +68,7 @@ public final class DiploBNAdjudicator
         this(
                 board,
                 sourceOrders,
-                new DiploBNAdjudicationOrderTranslator());
+                new DiploBNAdjudicationOrderTranslator(true));
     }
 
     /**

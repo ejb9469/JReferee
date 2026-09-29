@@ -1206,48 +1206,40 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             ResolutionContext context
     ) {
 
-        if (moveOrder.orderType != OrderType.MOVE) {
-            throw new IllegalArgumentException(String.format(
-                    "Non-Move Order supplied for `calculateAttackStrength(...)`: %s",
-                    moveOrder
-            ));
-        }
+        if (moveOrder.orderType != OrderType.MOVE)
+            throw new IllegalArgumentException(
+                    "Non-Move Order supplied for `calculateAttackStrength(...)`: "
+                            + moveOrder);
 
         if (!pathSuccessful(moveOrder, optimistic, orders, context))
             return 0;
 
-        Order destOrder = Orders.locateUnitAtPosition(moveOrder.pos1, orders);
+        Order occupant = Orders.locateUnitAtPosition(moveOrder.pos1, orders);
 
-        if (destOrder == null) {
+        if (occupant == null)
             return 1 + tallySuccessfulSupports(
-                    moveOrder,
-                    optimistic,
-                    orders,
-                    context
-            );
-        }
+                    moveOrder, optimistic, orders, context);
 
-        if (!headToHead && destOrder.orderType == OrderType.MOVE) {
-            if (resolve(destOrder, optimistic, context)) {
-                return 1 + tallySuccessfulSupports(
-                        moveOrder,
-                        optimistic,
-                        orders,
-                        context
-                );
+        // A successfully departing occupant leaves the destination available.
+        if (!headToHead
+                && occupant.orderType == OrderType.MOVE
+                && resolve(occupant, optimistic, context))
+            return 1 + tallySuccessfulSupports(
+                    moveOrder, optimistic, orders, context);
 
-            } else if (destOrder.owner == moveOrder.owner) {
-                return 0;
-            }
-        }
+        // A friendly occupant that is not leaving cannot be dislodged,
+        // regardless of which powers supplied support.
+        if (occupant.owner == moveOrder.owner)
+            return 0;
 
         return 1 + tallySuccessfulSupportsForeign(
                 moveOrder,
                 optimistic,
-                destOrder.owner,
+                occupant.owner,
                 orders,
                 context
         );
+
     }
 
 
