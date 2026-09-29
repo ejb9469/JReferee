@@ -1313,25 +1313,29 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             ResolutionContext context
     ) {
 
-        if (moveOrder.orderType != OrderType.MOVE) {
-            throw new IllegalArgumentException(String.format(
-                    "Non-Move Order supplied for `calculatePreventStrength(...)`: %s",
-                    moveOrder
-            ));
-        }
+        if (moveOrder.orderType != OrderType.MOVE)
+            throw new IllegalArgumentException(
+                    "Non-Move Order supplied for `calculatePreventStrength(...)`: "
+                            + moveOrder);
 
-        if (!pathSuccessful(moveOrder, optimistic, orders, context)
-                && !context.suppressesHeadToHead(moveOrder)) {
+        if (!pathSuccessful(moveOrder, optimistic, orders, context))
             return 0;
-        }
 
-        // Checking the `sH2HAdj` flags is a solution to the "2-units-in-1-area bug", re: convoy swaps & incorrect Prevent Str. calculation
-        // For more information, see the Test Case: ["6.G.16. THE TWO UNIT IN ONE AREA BUG, MOVING BY CONVOY"
-        Order headToHead = Orders.locateHeadToHead(moveOrder, orders);
+        Order opposite = Orders.locateHeadToHead(moveOrder, orders);
 
-        if (headToHead != null) {
-            if (resolve(headToHead, optimistic, context))
+        if (opposite != null
+                && !context.suppressesHeadToHead(moveOrder)
+                && !context.suppressesHeadToHead(opposite)) {
+
+            boolean convoySwap =
+                    hasSuccessfulConvoyRoute(
+                            moveOrder, optimistic, orders, context)
+                            || hasSuccessfulConvoyRoute(
+                            opposite, optimistic, orders, context);
+
+            if (!convoySwap && resolve(opposite, optimistic, context))
                 return 0;
+
         }
 
         return 1 + tallySuccessfulSupports(
@@ -1340,6 +1344,27 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                 orders,
                 context
         );
+
+    }
+
+    // private helper to simplify boolean logic
+    private boolean hasSuccessfulConvoyRoute(
+            Order moveOrder,
+            boolean optimistic,
+            Collection<Order> orders,
+            ResolutionContext context
+    ) {
+
+        if (moveOrder.unitType != UnitType.ARMY)
+            return false;
+
+        return convoyPathSuccessful(
+                moveOrder,
+                optimistic,
+                Orders.pruneForOrderType(OrderType.CONVOY, orders),
+                context
+        );
+
     }
 
 
