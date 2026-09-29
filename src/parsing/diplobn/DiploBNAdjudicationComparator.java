@@ -89,6 +89,9 @@ public class DiploBNAdjudicationComparator {
         if (supportForInvalidMove(order, sourceSuccessful, orders))
             return Difference.SUPPORT_FOR_INVALID_MOVE;
 
+        if (supportToOwnProvince(order, sourceSuccessful, phase, orders))
+            return Difference.SUPPORT_TO_OWN_PROVINCE;
+
         if (ineffectiveSupport(order, sourceSuccessful, orders))
             return Difference.INEFFECTIVE_SUPPORT;
 
@@ -143,6 +146,10 @@ public class DiploBNAdjudicationComparator {
 
     public int supportForInvalidMoveCount() {
         return count(Entry::supportForInvalidMove);
+    }
+
+    public int supportToOwnProvinceCount() {
+        return count(Entry::supportToOwnProvince);
     }
 
     public int ineffectiveSupportCount() {
@@ -286,6 +293,60 @@ public class DiploBNAdjudicationComparator {
             return false;
 
         return !Orders.orderIsValid(move);
+
+    }
+
+    private static boolean supportToOwnProvince(
+            Order support,
+            Boolean sourceSuccessful,
+            DiploBNPhase phase,
+            Collection<Order> orders
+    ) {
+
+        if (!Boolean.TRUE.equals(sourceSuccessful)
+                || support.verdict
+                || support.orderType != OrderType.SUPPORT
+                || support.pos0 == null
+                || support.pos1 == null
+                || support.pos2 == null)
+            return false;
+
+        if (!support.resolved || support.visited || support.getSnapshot() != null)
+            return false;
+
+        if (!Province.equalsIgnoreCoast(support.pos0, support.pos2))
+            return false;
+
+        Order move = Orders.locateCorresponding(support, orders);
+
+        if (move == null
+                || move.orderType != OrderType.MOVE
+                || move.pos0 == null
+                || move.pos1 == null
+                || !move.resolved
+                || move.visited
+                || move.verdict
+                || move.getSnapshot() != null)
+            return false;
+
+        DiploBNOrderResolution sourceMove =
+                locateResolution(move, phase.resolutions());
+
+        if (sourceMove == null || !Boolean.FALSE.equals(sourceMove.successful()))
+            return false;
+
+        for (Order incoming : orders) {
+
+            if (incoming.orderType == OrderType.MOVE
+                    && Province.equalsIgnoreCoast(incoming.pos1, support.pos0)
+                    && (!incoming.resolved
+                    || incoming.visited
+                    || incoming.getSnapshot() != null))
+                return false;
+
+        }
+
+        return !dislodgedByEnemy(support, orders);
 
     }
 
@@ -489,6 +550,7 @@ public class DiploBNAdjudicationComparator {
         NONE,
         COAST_AMBIGUOUS,
         SUPPORT_FOR_INVALID_MOVE,
+        SUPPORT_TO_OWN_PROVINCE,
         INEFFECTIVE_SUPPORT,
         INEFFECTIVE_CONVOY,
         INVALID_CONVOY_DESTINATION,
@@ -524,6 +586,10 @@ public class DiploBNAdjudicationComparator {
             return difference == Difference.SUPPORT_FOR_INVALID_MOVE;
         }
 
+        public boolean supportToOwnProvince() {
+            return difference == Difference.SUPPORT_TO_OWN_PROVINCE;
+        }
+
         public boolean ineffectiveSupport() {
             return difference == Difference.INEFFECTIVE_SUPPORT;
         }
@@ -539,6 +605,7 @@ public class DiploBNAdjudicationComparator {
         public boolean compatibilityDifference() {
             return coastAmbiguous()
                     || supportForInvalidMove()
+                    || supportToOwnProvince()
                     || ineffectiveSupport()
                     || ineffectiveConvoy()
                     || invalidConvoyDestination();

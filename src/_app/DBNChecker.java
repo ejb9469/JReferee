@@ -76,6 +76,7 @@ public final class DBNChecker {
         int matchingOrders = 0;
         int coastAmbiguousOrders = 0;
         int supportForInvalidMoveOrders = 0;
+        int supportToOwnProvinceOrders = 0;
         int ineffectiveSupportOrders = 0;
         int ineffectiveConvoyOrders = 0;
         int invalidConvoyDestinationOrders = 0;
@@ -100,6 +101,7 @@ public final class DBNChecker {
             matchingOrders += comparison.matchingCount();
             coastAmbiguousOrders += comparison.coastAmbiguousCount();
             supportForInvalidMoveOrders += comparison.supportForInvalidMoveCount();
+            supportToOwnProvinceOrders += comparison.supportToOwnProvinceCount();
             ineffectiveSupportOrders += comparison.ineffectiveSupportCount();
             ineffectiveConvoyOrders += comparison.ineffectiveConvoyCount();
             invalidConvoyDestinationOrders += phaseInvalidConvoyDestinations;
@@ -124,6 +126,13 @@ public final class DBNChecker {
                         "  %s[%d SUPPORT FOR INVALID MOVE]%s",
                         Constants.ANSI_YELLOW,
                         comparison.supportForInvalidMoveCount(),
+                        Constants.ANSI_RESET);
+
+            if (comparison.supportToOwnProvinceCount() > 0)
+                System.out.printf(
+                        "  %s[%d SUPPORT TO OWN PROVINCE]%s",
+                        Constants.ANSI_YELLOW,
+                        comparison.supportToOwnProvinceCount(),
                         Constants.ANSI_RESET);
 
             if (comparison.ineffectiveSupportCount() > 0)
@@ -177,6 +186,9 @@ public final class DBNChecker {
         printTotal(
                 "TOTAL SUPPORTS FOR INVALID MOVES:",
                 supportForInvalidMoveOrders, Constants.ANSI_YELLOW);
+        printTotal(
+                "TOTAL SUPPORTS TO OWN PROVINCE:",
+                supportToOwnProvinceOrders, Constants.ANSI_YELLOW);
         printTotal("TOTAL INEFFECTIVE SUPPORTS:", ineffectiveSupportOrders, Constants.ANSI_YELLOW);
         printTotal("TOTAL INEFFECTIVE CONVOYS:", ineffectiveConvoyOrders, Constants.ANSI_YELLOW);
         printTotal(
@@ -206,6 +218,11 @@ public final class DBNChecker {
 
             case SUPPORT_FOR_INVALID_MOVE -> {
                 label = "SUPPORT FOR INVALID MOVE";
+                color = Constants.ANSI_YELLOW;
+            }
+
+            case SUPPORT_TO_OWN_PROVINCE -> {
+                label = "SUPPORT TO OWN PROVINCE";
                 color = Constants.ANSI_YELLOW;
             }
 
@@ -253,6 +270,13 @@ public final class DBNChecker {
                     "      Compatibility reason: support targets a statically "
                             + "invalid corresponding move that resolved unsuccessfully; "
                             + "the support verdict differs without making that move legal.");
+        else if (entry.supportToOwnProvince())
+            System.out.println(
+                    "      Compatibility reason: source-success annotation "
+                            + "for support into the supporter's own province; "
+                            + "the corresponding move failed in both results and "
+                            + "the supporter was not dislodged by an enemy. "
+                            + "JReferee's invalid-support verdict is retained.");
         else if (entry.ineffectiveConvoy())
             System.out.println(
                     "      Compatibility reason: no corresponding army move "
