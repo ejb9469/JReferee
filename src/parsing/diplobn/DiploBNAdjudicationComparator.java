@@ -86,6 +86,9 @@ public class DiploBNAdjudicationComparator {
         if (coastInformationMissing(order, phase, orders))
             return Difference.COAST_AMBIGUOUS;
 
+        if (supportForInvalidMove(order, sourceSuccessful, orders))
+            return Difference.SUPPORT_FOR_INVALID_MOVE;
+
         if (ineffectiveSupport(order, sourceSuccessful, orders))
             return Difference.INEFFECTIVE_SUPPORT;
 
@@ -136,6 +139,10 @@ public class DiploBNAdjudicationComparator {
 
     public int coastAmbiguousCount() {
         return count(Entry::coastAmbiguous);
+    }
+
+    public int supportForInvalidMoveCount() {
+        return count(Entry::supportForInvalidMove);
     }
 
     public int ineffectiveSupportCount() {
@@ -245,6 +252,42 @@ public class DiploBNAdjudicationComparator {
 
 
     // Ineffective orders \\
+
+    private static boolean supportForInvalidMove(
+            Order support,
+            Boolean sourceSuccessful,
+            Collection<Order> orders
+    ) {
+
+        if (!Boolean.FALSE.equals(sourceSuccessful)
+                || !support.verdict
+                || support.orderType != OrderType.SUPPORT
+                || support.pos0 == null
+                || support.pos1 == null
+                || support.pos2 == null)
+            return false;
+
+        if (!support.resolved || support.visited || support.getSnapshot() != null)
+            return false;
+
+        if (!Orders.orderIsValid(support))
+            return false;
+
+        Order move = Orders.locateCorresponding(support, orders);
+
+        if (move == null
+                || move.orderType != OrderType.MOVE
+                || move.pos0 == null
+                || move.pos1 == null
+                || !move.resolved
+                || move.visited
+                || move.verdict
+                || move.getSnapshot() != null)
+            return false;
+
+        return !Orders.orderIsValid(move);
+
+    }
 
     private static boolean ineffectiveSupport(
             Order support,
@@ -445,6 +488,7 @@ public class DiploBNAdjudicationComparator {
 
         NONE,
         COAST_AMBIGUOUS,
+        SUPPORT_FOR_INVALID_MOVE,
         INEFFECTIVE_SUPPORT,
         INEFFECTIVE_CONVOY,
         INVALID_CONVOY_DESTINATION,
@@ -476,6 +520,10 @@ public class DiploBNAdjudicationComparator {
             return difference == Difference.COAST_AMBIGUOUS;
         }
 
+        public boolean supportForInvalidMove() {
+            return difference == Difference.SUPPORT_FOR_INVALID_MOVE;
+        }
+
         public boolean ineffectiveSupport() {
             return difference == Difference.INEFFECTIVE_SUPPORT;
         }
@@ -490,6 +538,7 @@ public class DiploBNAdjudicationComparator {
 
         public boolean compatibilityDifference() {
             return coastAmbiguous()
+                    || supportForInvalidMove()
                     || ineffectiveSupport()
                     || ineffectiveConvoy()
                     || invalidConvoyDestination();

@@ -75,6 +75,7 @@ public final class DBNChecker {
         int comparedOrders = 0;
         int matchingOrders = 0;
         int coastAmbiguousOrders = 0;
+        int supportForInvalidMoveOrders = 0;
         int ineffectiveSupportOrders = 0;
         int ineffectiveConvoyOrders = 0;
         int invalidConvoyDestinationOrders = 0;
@@ -98,6 +99,7 @@ public final class DBNChecker {
             comparedOrders += comparison.comparedCount();
             matchingOrders += comparison.matchingCount();
             coastAmbiguousOrders += comparison.coastAmbiguousCount();
+            supportForInvalidMoveOrders += comparison.supportForInvalidMoveCount();
             ineffectiveSupportOrders += comparison.ineffectiveSupportCount();
             ineffectiveConvoyOrders += comparison.ineffectiveConvoyCount();
             invalidConvoyDestinationOrders += phaseInvalidConvoyDestinations;
@@ -115,6 +117,13 @@ public final class DBNChecker {
                         "  %s[%d COAST AMBIGUOUS]%s",
                         Constants.ANSI_ORANGE,
                         comparison.coastAmbiguousCount(),
+                        Constants.ANSI_RESET);
+
+            if (comparison.supportForInvalidMoveCount() > 0)
+                System.out.printf(
+                        "  %s[%d SUPPORT FOR INVALID MOVE]%s",
+                        Constants.ANSI_YELLOW,
+                        comparison.supportForInvalidMoveCount(),
                         Constants.ANSI_RESET);
 
             if (comparison.ineffectiveSupportCount() > 0)
@@ -165,6 +174,9 @@ public final class DBNChecker {
         System.out.printf("%-35s [%d/%d]%n", "TOTAL MATCHES:", matchingOrders, comparedOrders);
 
         printTotal("TOTAL COAST AMBIGUITIES:", coastAmbiguousOrders, Constants.ANSI_ORANGE);
+        printTotal(
+                "TOTAL SUPPORTS FOR INVALID MOVES:",
+                supportForInvalidMoveOrders, Constants.ANSI_YELLOW);
         printTotal("TOTAL INEFFECTIVE SUPPORTS:", ineffectiveSupportOrders, Constants.ANSI_YELLOW);
         printTotal("TOTAL INEFFECTIVE CONVOYS:", ineffectiveConvoyOrders, Constants.ANSI_YELLOW);
         printTotal(
@@ -190,6 +202,11 @@ public final class DBNChecker {
             case COAST_AMBIGUOUS -> {
                 label = "COAST AMBIGUOUS";
                 color = Constants.ANSI_ORANGE;
+            }
+
+            case SUPPORT_FOR_INVALID_MOVE -> {
+                label = "SUPPORT FOR INVALID MOVE";
+                color = Constants.ANSI_YELLOW;
             }
 
             case INEFFECTIVE_SUPPORT -> {
@@ -231,7 +248,12 @@ public final class DBNChecker {
         if (entry.sourceReason() != null)
             System.out.printf("      Source reason: %s%n", entry.sourceReason());
 
-        if (entry.ineffectiveConvoy())
+        if (entry.supportForInvalidMove())
+            System.out.println(
+                    "      Compatibility reason: support targets a statically "
+                            + "invalid corresponding move that resolved unsuccessfully; "
+                            + "the support verdict differs without making that move legal.");
+        else if (entry.ineffectiveConvoy())
             System.out.println(
                     "      Compatibility reason: no corresponding army move "
                             + "was submitted; convoy fleet was not dislodged.");
