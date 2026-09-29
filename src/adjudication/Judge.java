@@ -1315,25 +1315,35 @@ public class Judge implements Adjudicator, ParadoxTransparent {
 
         if (moveOrder.orderType != OrderType.MOVE)
             throw new IllegalArgumentException(
-                    "Non-Move Order supplied for `calculatePreventStrength(...)`: "
-                            + moveOrder);
+                    "Non-Move Order supplied for `calculatePreventStrength(...)`: " + moveOrder);
 
         if (!pathSuccessful(moveOrder, optimistic, orders, context))
             return 0;
 
+        // failed mover block
         Order opposite = Orders.locateHeadToHead(moveOrder, orders);
 
-        if (opposite != null
-                && !context.suppressesHeadToHead(moveOrder)
-                && !context.suppressesHeadToHead(opposite)) {
+        if (opposite != null && opposite.owner != moveOrder.owner) {
 
-            boolean convoySwap =
-                    hasSuccessfulConvoyRoute(
-                            moveOrder, optimistic, orders, context)
-                            || hasSuccessfulConvoyRoute(
-                            opposite, optimistic, orders, context);
+            /*
+             * A failed mover has basic defense strength 1.
+             * The opposite mover therefore needs at least one eligible
+             * support to dislodge it. Supports from the potential victim's
+             * own power cannot contribute to that dislodgement.
+             *
+             * Evaluate the threatening supports with opposite polarity:
+             * their success reduces this move's prevent strength.
+             */
+            int dislodgingSupports = tallySuccessfulSupportsForeign(
+                    opposite,
+                    !optimistic,
+                    moveOrder.owner,
+                    orders,
+                    context);
 
-            if (!convoySwap && resolve(opposite, optimistic, context))
+            if (dislodgingSupports > 0
+                    && resolve(opposite, !optimistic, context)
+                    && !resolve(moveOrder, optimistic, context))
                 return 0;
 
         }
@@ -1342,31 +1352,9 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                 moveOrder,
                 optimistic,
                 orders,
-                context
-        );
+                context);
 
     }
-
-    // private helper to simplify boolean logic
-    private boolean hasSuccessfulConvoyRoute(
-            Order moveOrder,
-            boolean optimistic,
-            Collection<Order> orders,
-            ResolutionContext context
-    ) {
-
-        if (moveOrder.unitType != UnitType.ARMY)
-            return false;
-
-        return convoyPathSuccessful(
-                moveOrder,
-                optimistic,
-                Orders.pruneForOrderType(OrderType.CONVOY, orders),
-                context
-        );
-
-    }
-
 
     protected int calculateHoldStrength(
             Province pos,
