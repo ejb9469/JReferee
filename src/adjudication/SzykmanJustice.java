@@ -91,25 +91,44 @@ public class SzykmanJustice extends Justice {
 
         finalResolutionSelections.incrementAndGet();
 
-        /*
-         * `Justice.judge()` restores `this.orders` to the submitted order set before
-         * calling this hook. Preserve that state before the inherited selector
-         * potentially performs its tie-handling re-adjudication.
-         */
         Collection<Order> submittedOrders =
                 Orders.deepCopy(this.orders);
 
         Collection<Set<Order>> resolutions =
                 this.representativeCandidateResolutions();
 
-        /*
-         * Most positions are not multi-convoy paradox candidates. Avoid running
-         * the ordinary-resolution probe unless raw Justice candidates disagree
-         * about at least two convoy orders, which is the existing trigger for
-         * the broad simultaneous-HOLD Szykman policy.
-         */
         Map<String, Order> conflictingConvoys =
                 this.findConflictingConvoys(resolutions);
+
+        if (conflictingConvoys.size() >= 2)
+            multiConvoyCandidates.incrementAndGet();
+
+        if (!conflictingConvoys.isEmpty()) {
+
+            ordinaryResolutionProbeInvocations.incrementAndGet();
+
+            OrdinaryResolution ordinaryResolution =
+                    new Jury(submittedOrders).inquire();
+
+            if (ordinaryResolution.isComplete()) {
+
+                completeOrdinaryResolutionProbes.incrementAndGet();
+
+                Collection<Order> ordinaryCandidate =
+                        this.findProbeMatchingCandidate(ordinaryResolution);
+
+                if (ordinaryCandidate != null) {
+
+                    ordinaryCandidateSelections.incrementAndGet();
+
+                    return new LinkedHashSet<>(
+                            Orders.deepCopy(ordinaryCandidate));
+
+                }
+
+            }
+
+        }
 
         if (conflictingConvoys.size() < 2) {
 
@@ -123,46 +142,6 @@ public class SzykmanJustice extends Justice {
                     Orders.deepCopy(baseResolution));
 
             return this.applySingleConvoyParadoxRule(selectedResolution);
-
-        }
-
-        multiConvoyCandidates.incrementAndGet();
-
-        /*
-         * Multiple conflicting convoy outcomes can be either a genuine convoy
-         * paradox or an apparent recursive cycle with a complete ordinary
-         * resolution. For example, 6.F.29 has multiple raw convoy conflicts,
-         * but 'Por S MAO H' supplies a decisive non-circular strength
-         * constraint and the ordinary position resolves completely.
-         */
-        ordinaryResolutionProbeInvocations.incrementAndGet();
-
-        OrdinaryResolution ordinaryResolution =
-                new Jury(
-                        submittedOrders
-                ).inquire();
-
-        if (ordinaryResolution.isComplete())
-            completeOrdinaryResolutionProbes.incrementAndGet();
-
-        /*
-         * A complete probe means ordinary adjudication determines every submitted
-         * order without speculative cycle-breaking. Select the matching raw
-         * `Justice` candidate directly, before `Justice`'s inherited selection logic
-         * can produce a multi-convoy fallback result.
-         */
-        if (ordinaryResolution.isComplete()) {
-
-            Collection<Order> ordinaryCandidate =
-                    this.findProbeMatchingCandidate(
-                            ordinaryResolution);
-
-            if (ordinaryCandidate != null) {
-                ordinaryCandidateSelections.incrementAndGet();
-
-                return new LinkedHashSet<>(
-                        Orders.deepCopy(ordinaryCandidate));
-            }
 
         }
 
@@ -181,18 +160,35 @@ public class SzykmanJustice extends Justice {
      * Justice's inherited selection may synthesize a fallback result for a
      * multi-convoy ambiguity, so use the original raw candidate here.
      */
-    private Collection<Order> findProbeMatchingCandidate(
-            OrdinaryResolution ordinaryResolution
-    ) {
-        for (CandidateResolution candidate :
-                this.candidateResolutions.values())
-            if (this.matches(
+    private Collection<Order> findProbeMatchingCandidate(OrdinaryResolution ordinaryResolution) {
+
+        for (CandidateResolution candidate : this.candidateResolutions.values()) {
+
+            if (!this.matches(
                     ordinaryResolution,
                     candidate,
-                    this.orders
-            ))
-                return candidate.getRepresentativeResolution();
+                    this.orders))
+                continue;
+
+            Collection<Order> resolution =
+                    candidate.getRepresentativeResolution();
+
+            boolean transformed = false;
+
+            for (Order order : resolution) {
+                if (order.getSnapshot() != null) {
+                    transformed = true;
+                    break;
+                }
+            }
+
+            if (!transformed)
+                return resolution;
+
+        }
+
         return null;
+
     }
 
     private boolean matches(
@@ -272,8 +268,7 @@ public class SzykmanJustice extends Justice {
 
         Map<String, Order> conflictingConvoys =
                 this.findConflictingConvoys(
-                        this.representativeCandidateResolutions()
-                );
+                        this.representativeCandidateResolutions());
 
         if (conflictingConvoys.size() != 1)
             return selectedResolution;
@@ -285,17 +280,17 @@ public class SzykmanJustice extends Justice {
                 conflictingConvoy, selectedResolution);
 
         if (selectedConvoy == null
-                || selectedConvoy.verdict) {
+                || selectedConvoy.getSnapshot() != null
+                || selectedConvoy.orderType != OrderType.CONVOY
+                || selectedConvoy.verdict)
             return selectedResolution;
-        }
 
         Order correspondingMove = Orders.locateCorresponding(
                 conflictingConvoy, selectedResolution);
 
         if (correspondingMove == null
-                || correspondingMove.verdict) {
+                || correspondingMove.verdict)
             return selectedResolution;
-        }
 
         Set<Order> adjustedResolution = new LinkedHashSet<>(
                 Orders.deepCopy(selectedResolution));
@@ -305,26 +300,14 @@ public class SzykmanJustice extends Justice {
             if (order.orderType != OrderType.MOVE)
                 continue;
 
-            /*
-             * Only direct attacks on the paradoxical convoy fleet are in scope.
-             */
             if (!Province.equalsIgnoreCoast(
                     order.pos1,
-                    conflictingConvoy.pos0
-            )) { continue; }
+                    conflictingConvoy.pos0))
+                continue;
 
-            /*
-             * The convoyed army is not attacking the convoy fleet's province
-             * in the F17 shape, but exclude it explicitly for safety.
-             */
             if (Orders.sameKey(order, correspondingMove))
                 continue;
 
-            /*
-             * A normal direct attack remains untouched. Only one whose
-             * resolution bookkeeping differs across raw candidates belongs to
-             * the contradictory convoy dependency.
-             */
             if (!this.resolvedStateVariesAcrossCandidates(order))
                 continue;
 

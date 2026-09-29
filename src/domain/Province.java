@@ -305,6 +305,22 @@ public enum Province {
 
     }
 
+    public boolean hasCoast() {
+
+        Province base = canonical(this);
+
+        if (base.geography == Geography.COASTAL)
+            return true;
+
+        for (Province coast : values())
+            if (coast.parent == base
+                    && coast.geography == Geography.COASTAL)
+                return true;
+
+        return false;
+
+    }
+
     public static boolean equalsIgnoreCoast(Province pos0, Province pos1) {
 
         if (pos0 == pos1)

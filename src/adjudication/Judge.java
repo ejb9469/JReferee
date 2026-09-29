@@ -508,23 +508,13 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                 if (!Province.equalsIgnoreCoast(order2.pos1, order.pos0))
                     continue;
 
-                /*
-                 * An attack from the province against which support is given
-                 * does not cut that support merely by attacking.
-                 *
-                 * Compare PROVINCES, not individual coast identifiers:
-                 * Bul and Bul/sc are the same province for this purpose.
-                 *
-                 * For support-holds, pos2 is null, so this exception does not
-                 * apply.
-                 */
                 boolean attacksFromSupportedDestination =
                         order.pos2 != null
                                 && Province.equalsIgnoreCoast(
                                 order.pos2,
                                 order2.pos0);
 
-                if (pathSuccessful(order2, optimistic, orders, context)
+                if (pathSuccessful(order2, !optimistic, orders, context)  // be careful with `optimistic` polarity here
                         && order2.owner != order.owner
                         && !attacksFromSupportedDestination) {
                     return false;
@@ -902,15 +892,6 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         return pathSuccessful(moveOrder, optimistic, orders, this.rootContext);
     }
 
-    /**
-     * Adjudication subroutine which returns true if a given Move Order can successfully reach its destination.
-     *
-     * @param moveOrder Move Order whose path to test
-     * @param optimistic Whether to resolve (& adjudicate) for the best-case or worst-case of `moveOrder`
-     * @param orders Collection of all Orders to test against
-     * @param context Temporary, branch-local resolver context
-     * @return Whether `moveOrder`'s path is successful; `moveOrder` touches its destination
-     */
     protected boolean pathSuccessful(
             Order moveOrder,
             boolean optimistic,
@@ -918,89 +899,37 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             ResolutionContext context
     ) {
 
-        if (moveOrder.orderType != OrderType.MOVE) {
-            throw new IllegalArgumentException(String.format(
-                    "Non-Move Order supplied for `pathSuccessful(...)`: %s",
-                    moveOrder
-            ));
-        }
+        if (moveOrder.orderType != OrderType.MOVE)
+            throw new IllegalArgumentException(
+                    "Non-Move Order supplied for `pathSuccessful(...)`: "
+                            + moveOrder);
 
-        // Below will implicitly reject pos0->pos0 moves, among other invalid orders
         if (!Orders.orderIsValid(moveOrder))
             return false;
 
-        boolean isConvoyingArmy =
-                moveOrder.unitType == UnitType.ARMY
-                        && Orders.adjacentMatchingConvoyFleetExists(moveOrder, orders);
+        if (moveOrder.unitType == UnitType.ARMY) {
 
-        boolean isCoastCrawlingFleet =
-                moveOrder.unitType == UnitType.FLEET
-                        && moveOrder.pos0.geography == Geography.COASTAL
-                        && moveOrder.pos1.geography == Geography.COASTAL;
-
-        if (isConvoyingArmy) {
-
-            Collection<Order> convoyOrders =
-                    Orders.pruneForOrderType(OrderType.CONVOY, orders);
-
-            List<Order> convoyPath =
-                    Convoys.drawConvoyPath(moveOrder, convoyOrders);
-
-            List<Order> unsuccessfulConvoys = new ArrayList<>();
-
-            for (Order convoyOrder : convoyPath) {
-                if (!resolve(convoyOrder, optimistic, context))
-                    unsuccessfulConvoys.add(convoyOrder);
-            }
-
-            if (unsuccessfulConvoys.isEmpty()) {
+            if (moveOrder.pos0.isAdjacentTo(moveOrder.pos1))
                 return true;
 
-            } else {
+            return convoyPathSuccessful(
+                    moveOrder,
+                    optimistic,
+                    Orders.pruneForOrderType(OrderType.CONVOY, orders),
+                    context
+            );
 
-                convoyOrders.removeAll(unsuccessfulConvoys);
-                convoyPath = Convoys.drawConvoyPath(moveOrder, convoyOrders);
+        }
 
-                for (;
-                     !convoyPath.isEmpty()
-                             && !Convoys.convoyPathIsValid(moveOrder, convoyPath);
-                     convoyPath = Convoys.drawConvoyPath(moveOrder, convoyOrders)) {
+        if (!moveOrder.pos0.isAdjacentTo(moveOrder.pos1))
+            return false;
 
-                    unsuccessfulConvoys.clear();
-
-                    for (Order convoyOrder : convoyPath) {
-                        if (!resolve(convoyOrder, optimistic, context))
-                            unsuccessfulConvoys.add(convoyOrder);
-                    }
-
-                    if (unsuccessfulConvoys.isEmpty())
-                        return true;
-                    else
-                        convoyOrders.removeAll(unsuccessfulConvoys);
-                }
-
-                // No convoy path available -- only the land route
-                return moveOrder.pos0.isAdjacentTo(moveOrder.pos1);
-            }
-
-        } else if (isCoastCrawlingFleet) {
-
-            // Fleets cannot convoy, so they must be literally adjacent
-            if (!moveOrder.pos0.isAdjacentTo(moveOrder.pos1))
-                return false;
-
+        if (moveOrder.pos0.geography == Geography.COASTAL
+                && moveOrder.pos1.geography == Geography.COASTAL)
             return Province.adjacentBySea(moveOrder.pos0, moveOrder.pos1);
 
-        } else {
+        return true;
 
-            // Armies cannot traverse split coast Provinces
-            if (moveOrder.unitType == UnitType.ARMY
-                    && moveOrder.pos1.coastType == CoastType.SPLIT) {
-                return false;
-            }
-
-            return moveOrder.pos0.isAdjacentTo(moveOrder.pos1);
-        }
     }
 
 
@@ -1017,7 +946,6 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         );
     }
 
-    // TODO: JDocs
     protected boolean convoyPathSuccessful(
             Order moveOrder,
             boolean optimistic,
@@ -1025,48 +953,32 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             ResolutionContext context
     ) {
 
-        if (convoyOrders.isEmpty())
-            return false;
+        List<Order> available = new ArrayList<>(convoyOrders);
 
-        List<Order> convoyPath =
-                Convoys.drawConvoyPath(moveOrder, convoyOrders);
+        while (!available.isEmpty()) {
 
-        List<Order> unsuccessfulConvoys = new ArrayList<>();
+            List<Order> path =
+                    Convoys.drawConvoyPath(moveOrder, available);
 
-        for (Order convoyOrder : convoyPath) {
-            if (!resolve(convoyOrder, optimistic, context))
-                unsuccessfulConvoys.add(convoyOrder);
+            if (path.isEmpty()
+                    || !Convoys.convoyPathIsValid(moveOrder, path))
+                return false;
+
+            List<Order> unsuccessful = new ArrayList<>();
+
+            for (Order convoy : path)
+                if (!resolve(convoy, optimistic, context))
+                    unsuccessful.add(convoy);
+
+            if (unsuccessful.isEmpty())
+                return true;
+
+            available.removeAll(unsuccessful);
+
         }
 
-        if (unsuccessfulConvoys.isEmpty()) {
-            return true;
+        return false;
 
-        } else {
-
-            convoyOrders.removeAll(unsuccessfulConvoys);
-            convoyPath = Convoys.drawConvoyPath(moveOrder, convoyOrders);
-
-            for (;
-                 !convoyPath.isEmpty()
-                         && !Convoys.convoyPathIsValid(moveOrder, convoyPath);
-                 convoyPath = Convoys.drawConvoyPath(moveOrder, convoyOrders)) {
-
-                unsuccessfulConvoys.clear();
-
-                for (Order convoyOrder : convoyPath) {
-                    if (!resolve(convoyOrder, optimistic, context))
-                        unsuccessfulConvoys.add(convoyOrder);
-                }
-
-                if (unsuccessfulConvoys.isEmpty())
-                    return true;
-                else
-                    convoyOrders.removeAll(unsuccessfulConvoys);
-            }
-
-            // No convoy path available
-            return false;
-        }
     }
 
 
@@ -1468,10 +1380,11 @@ public class Judge implements Adjudicator, ParadoxTransparent {
 
         return 1 + tallySuccessfulSupports(
                 occupant,
-                optimistic,
+                !optimistic,  // be careful with the polarity! should be `!optimistic`
                 orders,
                 context
         );
+
     }
 
 
