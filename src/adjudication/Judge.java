@@ -368,13 +368,21 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                             disguisedHeadToHeadAttackStrength
                                     - currentHeadToHeadAttackStrength;
 
+                    int swapAttackStrength = calculateAttackStrength(
+                            order,
+                            optimistic,
+                            false,
+                            orders,
+                            context
+                    );
+
                     boolean swapSuccess =
                             (otherMoveSuccessful
                                     || headToHeadAttackStrengthDiscrepancy > 0)
                                     && (convoyPath1Successful || convoyPath2Successful)
                                     && champion(
                                     order,
-                                    attackStrength,
+                                    swapAttackStrength,
                                     optimistic,
                                     otherOpponents,
                                     context
