@@ -28,6 +28,7 @@ public final class DBNChecker {
             return;
 
         try {
+
             System.out.println();
             System.out.println("Downloading and comparing DiploBN game...");
             System.out.println();
@@ -237,7 +238,7 @@ public final class DBNChecker {
         else if (entry.invalidConvoyDestination())
             System.out.printf(
                     "      Compatibility reason: source-success annotation "
-                            + "for a convoy into sea province %s; accepted as "
+                            + "for a convoy into noncoastal province %s; accepted as "
                             + "an annotation difference, retaining JReferee's "
                             + "failed verdict.%n",
                     entry.adjudicatedOrder().pos2);

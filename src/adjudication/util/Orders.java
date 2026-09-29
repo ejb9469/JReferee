@@ -54,28 +54,29 @@ public abstract class Orders {
             }
 
             case SUPPORT -> {
+
                 Province supportedDestination =
-                        order.pos2 == null ? order.pos1
-                                            : order.pos2;
+                        order.pos2 == null ? order.pos1 : order.pos2;
+
                 if (supportedDestination == null)
                     return false;
+
                 if (order.unitType == UnitType.ARMY
                         && supportedDestination.geography == Geography.WATER)
                     return false;
-                // Moves from Pos1-->Pos1 are illegal,
-                // and support-holds are formatted with `pos2` == null
+
+                if (order.unitType == UnitType.FLEET
+                        && supportedDestination.geography == Geography.INLAND
+                        && !supportedDestination.hasCoast())  // cannot use `coastType == SPLIT` (!)
+                    return false;
+
                 if (Province.equalsIgnoreCoast(order.pos1, order.pos2))
                     return false;
-                // !! Support orders must be adjacent to their dest. location !!
-                // Fleets issuing supports can break split-coast adjacency rules, so use the appropriate helper method
-                // Fleets must also be "adjacent by sea" when coast-crawling
-                // ... [`.isAdjacentToIgnoreSplitCoast(...)`]
-                if (order.pos2 == null)  // Handle support holds...
-                    return (order.pos0.isAdjacentToIgnoreSplitCoast(order.pos1) &&
-                            (order.unitType != UnitType.FLEET || Province.adjacentBySea(order.pos0, order.pos1)));
-                else  // ...Handle support-moves
-                    return (order.pos0.isAdjacentToIgnoreSplitCoast(order.pos2) &&
-                            (order.unitType != UnitType.FLEET || Province.adjacentBySea(order.pos0, order.pos2)));
+
+                return order.pos0.isAdjacentToIgnoreSplitCoast(supportedDestination)
+                        && (order.unitType != UnitType.FLEET
+                        || Province.adjacentBySea(order.pos0, supportedDestination));
+
             }
 
             case CONVOY -> {
