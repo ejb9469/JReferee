@@ -233,6 +233,15 @@ public class Jury implements Resolver {
      */
     protected ResolutionState evaluateMove(Order move) {
 
+        // A non-adjacent army move cannot succeed without any submitted
+        // convoy route, even if every submitted convoy were to survive.
+        if (move.unitType == domain.UnitType.ARMY
+                && !move.pos0.isAdjacentTo(move.pos1)
+                && adjudication.util.Convoys.drawConvoyPath(
+                move,
+                this.orders).isEmpty())
+            return ResolutionState.FAILURE;
+
         if (!isOrdinaryPathKnown(move))
             return ResolutionState.UNKNOWN;
 
