@@ -259,7 +259,10 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         // Handle MOVE orders
         if (order.orderType == OrderType.MOVE) {
 
-            int attackStrength;
+            if (!Orders.orderIsValid(order))  // always reject invalid moves - this is the appropriate place for this
+                return false;
+
+            int attackStrength;  // tbd
 
             Order headToHead = Orders.locateHeadToHead(order, this.orders);
 
