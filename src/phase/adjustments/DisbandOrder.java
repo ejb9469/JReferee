@@ -50,8 +50,8 @@ public record DisbandOrder(
     }
 
     @Override
-    public Province target() {
-        return this.origin();           // ibid, see `BuildOrder`
+    public @Nullable Province target() {
+        return null;
     }
 
     @Override

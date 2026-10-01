@@ -48,9 +48,9 @@ public record BuildOrder(
     }
 
     @Override
-    public Province target() {
-        return this.location;   // probably should return null, but to be safe, since this use case is small, ...
-    }                               // ... ret `this.location` for BuildOrders
+    public @Nullable Province target() {
+        return null;
+    }
 
     @Override
     public @Nullable Province auxiliaryTarget() {
