@@ -9,6 +9,7 @@ import java.util.List;
  *
  * @param <E> one source-specific manifest-entry type
  */
+// somewhat useless atm [ @ 10-26-26 ], but could have future use so we'll keep it
 public interface Reader<E> {
 
 

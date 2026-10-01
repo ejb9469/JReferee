@@ -54,4 +54,21 @@ public abstract class AbstractDiploBNConsoleApp {
 
     }
 
+    protected static String formatSeasonalSourcePhase(int sourcePhase) {
+
+        int year = sourcePhase / 10;
+
+        return switch (sourcePhase % 10) {
+            case 1 -> "S" + year;
+            case 2 -> "F" + year;
+            case 3 -> "W" + year;
+            default -> formatNumericSourcePhase(sourcePhase);
+        };
+
+    }
+
+    protected static String formatNumericSourcePhase(int sourcePhase) {
+        return sourcePhase / 10 + "." + sourcePhase % 10;
+    }
+
 }

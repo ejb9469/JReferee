@@ -259,7 +259,10 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         // Handle MOVE orders
         if (order.orderType == OrderType.MOVE) {
 
-            int attackStrength;
+            if (!Orders.orderIsValid(order))  // always reject invalid moves - this is the appropriate place for this
+                return false;
+
+            int attackStrength;  // tbd
 
             Order headToHead = Orders.locateHeadToHead(order, this.orders);
 
@@ -368,13 +371,21 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                             disguisedHeadToHeadAttackStrength
                                     - currentHeadToHeadAttackStrength;
 
+                    int swapAttackStrength = calculateAttackStrength(
+                            order,
+                            optimistic,
+                            false,
+                            orders,
+                            context
+                    );
+
                     boolean swapSuccess =
                             (otherMoveSuccessful
                                     || headToHeadAttackStrengthDiscrepancy > 0)
                                     && (convoyPath1Successful || convoyPath2Successful)
                                     && champion(
                                     order,
-                                    attackStrength,
+                                    swapAttackStrength,
                                     optimistic,
                                     otherOpponents,
                                     context
@@ -491,6 +502,10 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         // Handle SUPPORT orders
         else if (order.orderType == OrderType.SUPPORT) {
 
+            // SUPPORTS WILL FAIL IF ORDER IS DEEMED INVALID
+            if (!Orders.orderIsValid(order))
+                return false;
+
             // SUPPORTS WILL FAIL WITHOUT A CORRESPONDING ORDER
             if (Orders.locateCorresponding(order, orders) == null)
                 return false;
@@ -500,15 +515,23 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                 if (order2.equals(order) || order2.orderType != OrderType.MOVE)
                     continue;
 
-                // .equalsIC() is used b/c supports can be cut from either coast
+                // Supports can be attacked from either coast.
                 if (!Province.equalsIgnoreCoast(order2.pos1, order.pos0))
                     continue;
 
-                if (pathSuccessful(order2, optimistic, orders, context)
+                boolean attacksFromSupportedDestination =
+                        order.pos2 != null
+                                && Province.equalsIgnoreCoast(
+                                order.pos2,
+                                order2.pos0);
+
+                if (pathSuccessful(order2, !optimistic, orders, context)  // be careful with `optimistic` polarity here
                         && order2.owner != order.owner
-                        && order.pos2 != order2.pos0) {
+                        && !attacksFromSupportedDestination) {
                     return false;
                 } else if (resolve(order2, !optimistic, context)) {
+                    // The supporter was dislodged, including by an attack
+                    // from the province against which support was given.
                     return false;
                 }
 
@@ -880,15 +903,6 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         return pathSuccessful(moveOrder, optimistic, orders, this.rootContext);
     }
 
-    /**
-     * Adjudication subroutine which returns true if a given Move Order can successfully reach its destination.
-     *
-     * @param moveOrder Move Order whose path to test
-     * @param optimistic Whether to resolve (& adjudicate) for the best-case or worst-case of `moveOrder`
-     * @param orders Collection of all Orders to test against
-     * @param context Temporary, branch-local resolver context
-     * @return Whether `moveOrder`'s path is successful; `moveOrder` touches its destination
-     */
     protected boolean pathSuccessful(
             Order moveOrder,
             boolean optimistic,
@@ -896,89 +910,37 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             ResolutionContext context
     ) {
 
-        if (moveOrder.orderType != OrderType.MOVE) {
-            throw new IllegalArgumentException(String.format(
-                    "Non-Move Order supplied for `pathSuccessful(...)`: %s",
-                    moveOrder
-            ));
-        }
+        if (moveOrder.orderType != OrderType.MOVE)
+            throw new IllegalArgumentException(
+                    "Non-Move Order supplied for `pathSuccessful(...)`: "
+                            + moveOrder);
 
-        // Below will implicitly reject pos0->pos0 moves, among other invalid orders
         if (!Orders.orderIsValid(moveOrder))
             return false;
 
-        boolean isConvoyingArmy =
-                moveOrder.unitType == UnitType.ARMY
-                        && Orders.adjacentMatchingConvoyFleetExists(moveOrder, orders);
+        if (moveOrder.unitType == UnitType.ARMY) {
 
-        boolean isCoastCrawlingFleet =
-                moveOrder.unitType == UnitType.FLEET
-                        && moveOrder.pos0.geography == Geography.COASTAL
-                        && moveOrder.pos1.geography == Geography.COASTAL;
-
-        if (isConvoyingArmy) {
-
-            Collection<Order> convoyOrders =
-                    Orders.pruneForOrderType(OrderType.CONVOY, orders);
-
-            List<Order> convoyPath =
-                    Convoys.drawConvoyPath(moveOrder, convoyOrders);
-
-            List<Order> unsuccessfulConvoys = new ArrayList<>();
-
-            for (Order convoyOrder : convoyPath) {
-                if (!resolve(convoyOrder, optimistic, context))
-                    unsuccessfulConvoys.add(convoyOrder);
-            }
-
-            if (unsuccessfulConvoys.isEmpty()) {
+            if (moveOrder.pos0.isAdjacentTo(moveOrder.pos1))
                 return true;
 
-            } else {
+            return convoyPathSuccessful(
+                    moveOrder,
+                    optimistic,
+                    Orders.pruneForOrderType(OrderType.CONVOY, orders),
+                    context
+            );
 
-                convoyOrders.removeAll(unsuccessfulConvoys);
-                convoyPath = Convoys.drawConvoyPath(moveOrder, convoyOrders);
+        }
 
-                for (;
-                     !convoyPath.isEmpty()
-                             && !Convoys.convoyPathIsValid(moveOrder, convoyPath);
-                     convoyPath = Convoys.drawConvoyPath(moveOrder, convoyOrders)) {
+        if (!moveOrder.pos0.isAdjacentTo(moveOrder.pos1))
+            return false;
 
-                    unsuccessfulConvoys.clear();
-
-                    for (Order convoyOrder : convoyPath) {
-                        if (!resolve(convoyOrder, optimistic, context))
-                            unsuccessfulConvoys.add(convoyOrder);
-                    }
-
-                    if (unsuccessfulConvoys.isEmpty())
-                        return true;
-                    else
-                        convoyOrders.removeAll(unsuccessfulConvoys);
-                }
-
-                // No convoy path available -- only the land route
-                return moveOrder.pos0.isAdjacentTo(moveOrder.pos1);
-            }
-
-        } else if (isCoastCrawlingFleet) {
-
-            // Fleets cannot convoy, so they must be literally adjacent
-            if (!moveOrder.pos0.isAdjacentTo(moveOrder.pos1))
-                return false;
-
+        if (moveOrder.pos0.geography == Geography.COASTAL
+                && moveOrder.pos1.geography == Geography.COASTAL)
             return Province.adjacentBySea(moveOrder.pos0, moveOrder.pos1);
 
-        } else {
+        return true;
 
-            // Armies cannot traverse split coast Provinces
-            if (moveOrder.unitType == UnitType.ARMY
-                    && moveOrder.pos1.coastType == CoastType.SPLIT) {
-                return false;
-            }
-
-            return moveOrder.pos0.isAdjacentTo(moveOrder.pos1);
-        }
     }
 
 
@@ -995,7 +957,6 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         );
     }
 
-    // TODO: JDocs
     protected boolean convoyPathSuccessful(
             Order moveOrder,
             boolean optimistic,
@@ -1003,48 +964,32 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             ResolutionContext context
     ) {
 
-        if (convoyOrders.isEmpty())
-            return false;
+        List<Order> available = new ArrayList<>(convoyOrders);
 
-        List<Order> convoyPath =
-                Convoys.drawConvoyPath(moveOrder, convoyOrders);
+        while (!available.isEmpty()) {
 
-        List<Order> unsuccessfulConvoys = new ArrayList<>();
+            List<Order> path =
+                    Convoys.drawConvoyPath(moveOrder, available);
 
-        for (Order convoyOrder : convoyPath) {
-            if (!resolve(convoyOrder, optimistic, context))
-                unsuccessfulConvoys.add(convoyOrder);
+            if (path.isEmpty()
+                    || !Convoys.convoyPathIsValid(moveOrder, path))
+                return false;
+
+            List<Order> unsuccessful = new ArrayList<>();
+
+            for (Order convoy : path)
+                if (!resolve(convoy, optimistic, context))
+                    unsuccessful.add(convoy);
+
+            if (unsuccessful.isEmpty())
+                return true;
+
+            available.removeAll(unsuccessful);
+
         }
 
-        if (unsuccessfulConvoys.isEmpty()) {
-            return true;
+        return false;
 
-        } else {
-
-            convoyOrders.removeAll(unsuccessfulConvoys);
-            convoyPath = Convoys.drawConvoyPath(moveOrder, convoyOrders);
-
-            for (;
-                 !convoyPath.isEmpty()
-                         && !Convoys.convoyPathIsValid(moveOrder, convoyPath);
-                 convoyPath = Convoys.drawConvoyPath(moveOrder, convoyOrders)) {
-
-                unsuccessfulConvoys.clear();
-
-                for (Order convoyOrder : convoyPath) {
-                    if (!resolve(convoyOrder, optimistic, context))
-                        unsuccessfulConvoys.add(convoyOrder);
-                }
-
-                if (unsuccessfulConvoys.isEmpty())
-                    return true;
-                else
-                    convoyOrders.removeAll(unsuccessfulConvoys);
-            }
-
-            // No convoy path available
-            return false;
-        }
     }
 
 
@@ -1272,48 +1217,40 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             ResolutionContext context
     ) {
 
-        if (moveOrder.orderType != OrderType.MOVE) {
-            throw new IllegalArgumentException(String.format(
-                    "Non-Move Order supplied for `calculateAttackStrength(...)`: %s",
-                    moveOrder
-            ));
-        }
+        if (moveOrder.orderType != OrderType.MOVE)
+            throw new IllegalArgumentException(
+                    "Non-Move Order supplied for `calculateAttackStrength(...)`: "
+                            + moveOrder);
 
         if (!pathSuccessful(moveOrder, optimistic, orders, context))
             return 0;
 
-        Order destOrder = Orders.locateUnitAtPosition(moveOrder.pos1, orders);
+        Order occupant = Orders.locateUnitAtPosition(moveOrder.pos1, orders);
 
-        if (destOrder == null) {
+        if (occupant == null)
             return 1 + tallySuccessfulSupports(
-                    moveOrder,
-                    optimistic,
-                    orders,
-                    context
-            );
-        }
+                    moveOrder, optimistic, orders, context);
 
-        if (!headToHead && destOrder.orderType == OrderType.MOVE) {
-            if (resolve(destOrder, optimistic, context)) {
-                return 1 + tallySuccessfulSupports(
-                        moveOrder,
-                        optimistic,
-                        orders,
-                        context
-                );
+        // A successfully departing occupant leaves the destination available.
+        if (!headToHead
+                && occupant.orderType == OrderType.MOVE
+                && resolve(occupant, optimistic, context))
+            return 1 + tallySuccessfulSupports(
+                    moveOrder, optimistic, orders, context);
 
-            } else if (destOrder.owner == moveOrder.owner) {
-                return 0;
-            }
-        }
+        // A friendly occupant that is not leaving cannot be dislodged,
+        // regardless of which powers supplied support.
+        if (occupant.owner == moveOrder.owner)
+            return 0;
 
         return 1 + tallySuccessfulSupportsForeign(
                 moveOrder,
                 optimistic,
-                destOrder.owner,
+                occupant.owner,
                 orders,
                 context
         );
+
     }
 
 
@@ -1379,35 +1316,48 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             ResolutionContext context
     ) {
 
-        if (moveOrder.orderType != OrderType.MOVE) {
-            throw new IllegalArgumentException(String.format(
-                    "Non-Move Order supplied for `calculatePreventStrength(...)`: %s",
-                    moveOrder
-            ));
-        }
+        if (moveOrder.orderType != OrderType.MOVE)
+            throw new IllegalArgumentException(
+                    "Non-Move Order supplied for `calculatePreventStrength(...)`: " + moveOrder);
 
-        if (!pathSuccessful(moveOrder, optimistic, orders, context)
-                && !context.suppressesHeadToHead(moveOrder)) {
+        if (!pathSuccessful(moveOrder, optimistic, orders, context))
             return 0;
-        }
 
-        // Checking the `sH2HAdj` flags is a solution to the "2-units-in-1-area bug", re: convoy swaps & incorrect Prevent Str. calculation
-        // For more information, see the Test Case: ["6.G.16. THE TWO UNIT IN ONE AREA BUG, MOVING BY CONVOY"
-        Order headToHead = Orders.locateHeadToHead(moveOrder, orders);
+        // failed mover block
+        Order opposite = Orders.locateHeadToHead(moveOrder, orders);
 
-        if (headToHead != null) {
-            if (resolve(headToHead, optimistic, context))
+        if (opposite != null && opposite.owner != moveOrder.owner) {
+
+            /*
+             * A failed mover has basic defense strength 1.
+             * The opposite mover therefore needs at least one eligible
+             * support to dislodge it. Supports from the potential victim's
+             * own power cannot contribute to that dislodgement.
+             *
+             * Evaluate the threatening supports with opposite polarity:
+             * their success reduces this move's prevent strength.
+             */
+            int dislodgingSupports = tallySuccessfulSupportsForeign(
+                    opposite,
+                    !optimistic,
+                    moveOrder.owner,
+                    orders,
+                    context);
+
+            if (dislodgingSupports > 0
+                    && resolve(opposite, !optimistic, context)
+                    && !resolve(moveOrder, optimistic, context))
                 return 0;
+
         }
 
         return 1 + tallySuccessfulSupports(
                 moveOrder,
                 optimistic,
                 orders,
-                context
-        );
-    }
+                context);
 
+    }
 
     protected int calculateHoldStrength(
             Province pos,
@@ -1446,10 +1396,11 @@ public class Judge implements Adjudicator, ParadoxTransparent {
 
         return 1 + tallySuccessfulSupports(
                 occupant,
-                optimistic,
+                !optimistic,  // be careful with the polarity! should be `!optimistic`
                 orders,
                 context
         );
+
     }
 
 

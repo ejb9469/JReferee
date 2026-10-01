@@ -1,4 +1,4 @@
-# JReferee v1.3
+# JReferee v1.4
 
 A DATC-compliant* Diplomacy adjudicator, written in base Java (natively: OpenJDK 25).
 
@@ -38,6 +38,8 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 - ### `src._app.*`
   - `TestCaseManager.java` *(Entry Point)* — loads and runs DATC test cases
   - `BoardViewerApp.java` *(ibid)* — entry point for WIP graphics interface
+  - `PerformanceTestCaseManager.java` *(Entry Point)* — performance harness for adjudication and parser workloads
+  - `DBNGameScraper.java` *(Entry Point)* — populates the games database with games scraped from diplobn
 
 - ### `src.parsing.diplobn.app.*`
   - `DBNChecker.java` *(Entry Point)* — compares game(s) hosted on <u>[diplobn.com](https://diplobn.com/)</u> to local adjudication results

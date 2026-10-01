@@ -2,11 +2,6 @@
     ~ This is simply not how orders are parsed-through in `JReferee`.
 
 
-6.A.10. SUPPORT ON UNREACHABLE DESTINATION NOT POSSIBLE ::
-    ~ Technically, the support order should fail due to its invalidity, but the program calls it successful.
-    ~ It still does not count the support, so I will leave the interpretation of this Test Case up to a higher level (ATM)
-
-
 6.B.02. MOVING WITH UNSPECIFIED COAST WHEN COAST IS NOT NECESSARY ::
     ~ The DATC indicates this as a matter of preference, and this adjudicator works better by ruling the other way; simply pretending squares like...
         ... Spa, Bul, and Stp are inland provinces, with 2+ coast tentacles attached. It's spaghetti... but sometimes you shouldn't question the pasta

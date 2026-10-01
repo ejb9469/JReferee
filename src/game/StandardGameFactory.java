@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * Creates standard Diplomacy games using the Spring 1901 starting position.
  */
-public final class StandardGameFactory {
+public abstract class StandardGameFactory {
 
 
     private StandardGameFactory() {     }

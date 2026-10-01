@@ -22,35 +22,41 @@ import java.util.Objects;
 
 
 /**
- * Imports one DiploBN game into a {@link GameCatalog}.
+ * Imports one DiploBN game into a GameCatalog.
  *
- * <p>The importer preserves canonical source JSON, updates catalog metadata
- * from the manifest, compares imported movement phases with local adjudication,
+ * <p>Preserves canonical source JSON, updates catalog metadata from the
+ * manifest, compares imported movement phases with local adjudication,
  * and records the resulting analysis.</p>
  */
 public final class DiploBNCatalogImporter
         implements DiploBNGameImporter {
 
 
+    // Constants \\
+
     private static final String ANALYZER =
             "DiploBNAdjudicationComparator";
 
     private static final String ANALYZER_REVISION =
-            "JReferee";
+            "JReferee-ineffective-convoy-v1";
 
+
+    // Core state \\
 
     private final GameCatalog catalog;
     private final DiploBNGameClient gameClient;
     private final Clock clock;
 
 
-    public DiploBNCatalogImporter(
-            GameCatalog catalog
-    ) {
+    // Constructors \\
+
+    public DiploBNCatalogImporter(GameCatalog catalog) {
+
         this(
                 catalog,
                 new DiploBNGameClient(),
                 Clock.systemUTC());
+
     }
 
     public DiploBNCatalogImporter(
@@ -58,19 +64,15 @@ public final class DiploBNCatalogImporter
             DiploBNGameClient gameClient,
             Clock clock
     ) {
-        this.catalog = Objects.requireNonNull(
-                catalog,
-                "catalog");
 
-        this.gameClient = Objects.requireNonNull(
-                gameClient,
-                "gameClient");
+        this.catalog = Objects.requireNonNull(catalog, "catalog");
+        this.gameClient = Objects.requireNonNull(gameClient, "gameClient");
+        this.clock = Objects.requireNonNull(clock, "clock");
 
-        this.clock = Objects.requireNonNull(
-                clock,
-                "clock");
     }
 
+
+    // Import entry point \\
 
     @Override
     public DiploBNGameCatalogFileImporter.ImportedGame importGame(
@@ -84,13 +86,12 @@ public final class DiploBNCatalogImporter
 
         DiploBNGame game = downloaded.game();
 
-        GameSourceReference source =
-                new GameSourceReference(
-                        GameSource.DIPLOBN,
-                        Long.toString(downloaded.gameId()),
-                        URI.create(downloaded.canonicalUrl()),
-                        URI.create(entry.url())
-                );
+        GameSourceReference source = new GameSourceReference(
+                GameSource.DIPLOBN,
+                Long.toString(downloaded.gameId()),
+                URI.create(downloaded.canonicalUrl()),
+                URI.create(entry.url())
+        );
 
         CatalogGame catalogGame = catalog.catalog(
                 source,
@@ -132,14 +133,13 @@ public final class DiploBNCatalogImporter
     }
 
 
-    private static ComparisonSummary compare(
-            DiploBNGame game
-    ) {
+    // Comparison helpers \\
+
+    private static ComparisonSummary compare(DiploBNGame game) {
 
         int comparedOrderCount = 0;
         int matchingOrderCount = 0;
-        int coastAmbiguousCount = 0;
-        int ineffectiveSupportCount = 0;
+        int compatibilityDifferenceCount = 0;
         int definiteMismatchCount = 0;
 
         for (DiploBNPhase phase : game.phases()) {
@@ -152,9 +152,8 @@ public final class DiploBNCatalogImporter
 
             comparedOrderCount += comparison.comparedCount();
             matchingOrderCount += comparison.matchingCount();
-            coastAmbiguousCount += comparison.coastAmbiguousCount();
-            ineffectiveSupportCount +=
-                    comparison.ineffectiveSupportCount();
+            compatibilityDifferenceCount +=
+                    comparison.compatibilityDifferenceCount();
             definiteMismatchCount += comparison.mismatchingCount();
 
         }
@@ -162,16 +161,16 @@ public final class DiploBNCatalogImporter
         return new ComparisonSummary(
                 comparedOrderCount,
                 matchingOrderCount,
-                coastAmbiguousCount,
-                ineffectiveSupportCount,
+                compatibilityDifferenceCount,
                 definiteMismatchCount
         );
 
     }
 
-    private static String sha256Of(
-            String source
-    ) {
+
+    // Source fingerprint helpers \\
+
+    private static String sha256Of(String source) {
 
         Objects.requireNonNull(source, "source");
 
@@ -181,9 +180,9 @@ public final class DiploBNCatalogImporter
 
             return HexFormat.of().formatHex(
                     digest.digest(
-                            source.getBytes(
-                                    StandardCharsets.UTF_8))
+                            source.getBytes(StandardCharsets.UTF_8))
             );
+
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException(
                     "SHA-256 is unavailable",
@@ -193,19 +192,14 @@ public final class DiploBNCatalogImporter
     }
 
 
+    // Result types \\
+
     private record ComparisonSummary(
             int comparedOrderCount,
             int matchingOrderCount,
-            int coastAmbiguousCount,
-            int ineffectiveSupportCount,
+            int compatibilityDifferenceCount,
             int definiteMismatchCount
-    ) {
+    ) {  }
 
-        private int compatibilityDifferenceCount() {
-            return coastAmbiguousCount
-                    + ineffectiveSupportCount;
-        }
-
-    }
 
 }
