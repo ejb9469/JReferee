@@ -10,16 +10,8 @@ import game.BoardState;
 import java.util.Objects;
 
 
-/**
- * Translates one decoded DiploBN movement order into JReferee's mutable
- * adjudication work-order representation.
- *
- * <p>Every translated order is a new mutable object suitable for use in one
- * isolated adjudication run.</p>
- */
 public final class DiploBNAdjudicationOrderTranslator
         implements OrderTranslator<DiploBNOrder, adjudication.Order> {
-
 
     private final boolean inferUniqueFleetDestinationCoast;
 
@@ -28,24 +20,13 @@ public final class DiploBNAdjudicationOrderTranslator
         this(false);
     }
 
-    /**
-     * @param inferUniqueFleetDestinationCoast Whether to interpret an
-     * unspecified fleet destination coast when exactly one coast is legally
-     * reachable. Explicit coasts and source orders are left unchanged.
-     */
-    public DiploBNAdjudicationOrderTranslator(
-            boolean inferUniqueFleetDestinationCoast
-    ) {
-        this.inferUniqueFleetDestinationCoast =
-                inferUniqueFleetDestinationCoast;
+    public DiploBNAdjudicationOrderTranslator(boolean inferUniqueFleetDestinationCoast) {
+        this.inferUniqueFleetDestinationCoast = inferUniqueFleetDestinationCoast;
     }
 
 
     @Override
-    public adjudication.Order translate(
-            DiploBNOrder source,
-            BoardState board
-    ) {
+    public adjudication.Order translate(DiploBNOrder source, BoardState board) {
 
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(board, "board");
@@ -54,16 +35,9 @@ public final class DiploBNAdjudicationOrderTranslator
 
         if (currentLocation == null)
             throw new IllegalArgumentException(
-                    "DiploBN order names a unit absent from source board: "
-                            + source.unit());
+                    "DiploBN order names a unit absent from source board: " + source.unit());
 
-        adjudication.Order translated = new adjudication.Order(
-                source.unit().owner(),
-                source.unit().unitType(),
-                currentLocation,
-                source.orderType(),
-                source.target(),
-                source.auxiliaryTarget());
+        adjudication.Order translated = new adjudication.Order(source, currentLocation);
 
         if (inferUniqueFleetDestinationCoast)
             inferDestinationCoast(translated);
@@ -72,18 +46,15 @@ public final class DiploBNAdjudicationOrderTranslator
 
     }
 
-    private static void inferDestinationCoast(
-            adjudication.Order order
-    ) {
+    private static void inferDestinationCoast(adjudication.Order order) {
 
-        if (order.orderType != OrderType.MOVE
-                || order.unitType != UnitType.FLEET
-                || order.pos1 == null
-                || order.pos1.parent != null) {
+        if (order.orderType() != OrderType.MOVE
+                || order.unitType() != UnitType.FLEET
+                || order.target() == null
+                || order.target().parent != null)
             return;
-        }
 
-        Province destination = order.pos1;
+        Province destination = order.target();
         Province uniqueCoast = null;
 
         for (Province coast : Province.values()) {
@@ -95,10 +66,9 @@ public final class DiploBNAdjudicationOrderTranslator
             candidate.pos1 = coast;
 
             if (!Orders.orderIsValid(candidate)
-                    || !candidate.pos0.isAdjacentTo(coast)
-                    || !Province.adjacentBySea(candidate.pos0, coast)) {
+                    || !candidate.origin().isAdjacentTo(coast)
+                    || !Province.adjacentBySea(candidate.origin(), coast))
                 continue;
-            }
 
             // Multiple reachable coasts: do not guess.
             if (uniqueCoast != null)

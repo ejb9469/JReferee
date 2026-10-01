@@ -2,6 +2,7 @@ package ui;
 
 import adjudication.Order;
 import analysis.openings.Catalog;
+import contracts.OrderForm;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import domain.Nation;
@@ -89,7 +90,6 @@ public final class BoardViewerServer implements AutoCloseable {
         if (!Files.isDirectory(this.staticRoot))
             throw new IllegalArgumentException("Static root must be a directory");
 
-        // Build once. HTTP requests never touch the database.
         this.openingPayload = catalog == null ? null
                 : openingsJson(catalog).getBytes(StandardCharsets.UTF_8);
 
@@ -196,7 +196,6 @@ public final class BoardViewerServer implements AutoCloseable {
             return;
         }
 
-        // Also prevent a symlink from escaping the asset directory.
         Path file = candidate.toRealPath();
 
         if (!file.startsWith(staticRoot)) {
@@ -297,18 +296,7 @@ public final class BoardViewerServer implements AutoCloseable {
                     out.append(',');
 
                 Order order = orders.get(index);
-
-                out.append("{\"text\":");
-                appendString(out, order.toString());
-                out.append(",\"type\":");
-                appendString(out, order.orderType.name());
-                out.append(",\"origin\":");
-                appendString(out, order.pos0.name());
-                out.append(",\"target\":");
-                appendProvince(out, order.pos1);
-                out.append(",\"auxiliaryTarget\":");
-                appendProvince(out, order.pos2);
-                out.append('}');
+                appendOrder(out, order, order.origin());
 
             }
 
@@ -318,6 +306,27 @@ public final class BoardViewerServer implements AutoCloseable {
         }
 
         return out.append("]}").toString();
+
+    }
+
+    private static void appendOrder(StringBuilder out, OrderForm order, Province location) {
+
+        out.append("{\"text\":");
+        appendString(out, OrderForm.format(order, location));
+        out.append(",\"type\":");
+
+        if (order.orderType() == null)
+            out.append("null");
+        else
+            appendString(out, order.orderType().name());
+
+        out.append(",\"origin\":");
+        appendProvince(out, location);
+        out.append(",\"target\":");
+        appendProvince(out, order.target());
+        out.append(",\"auxiliaryTarget\":");
+        appendProvince(out, order.auxiliaryTarget());
+        out.append('}');
 
     }
 

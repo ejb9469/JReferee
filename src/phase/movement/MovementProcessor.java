@@ -3,6 +3,7 @@ package phase.movement;
 import adjudication.Judge;
 import adjudication.Justice;
 import adjudication.SzykmanJustice;
+import contracts.OrderForm;
 import domain.OrderType;
 import domain.Province;
 import phase.Order;
@@ -16,10 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Converts immutable movement submissions into private mutable work orders,
- * adjudicates them, and exposes an immutable movement result.
- */
+
 public final class MovementProcessor
         implements Processor<MovementInput, MovementResult> {
 
@@ -27,17 +25,17 @@ public final class MovementProcessor
     private final int trialCount;
     private final long shuffleSeed;
 
-    public MovementProcessor(
-            Policy policy,
-            int trialCount,
-            long shuffleSeed
-    ) {
+
+    public MovementProcessor(Policy policy, int trialCount, long shuffleSeed) {
+
         this.policy = Objects.requireNonNull(policy, "policy");
+
         if (trialCount < 1)
-            throw new IllegalArgumentException(
-                    "trialCount must be at least 1");
+            throw new IllegalArgumentException("trialCount must be at least 1");
+
         this.trialCount = trialCount;
         this.shuffleSeed = shuffleSeed;
+
     }
 
     public MovementProcessor() {
@@ -47,50 +45,32 @@ public final class MovementProcessor
                 Justice.SHUFFLE_SEED_DEFAULT);
     }
 
+
     @Override
     public MovementResult process(MovementInput input) {
+
         Objects.requireNonNull(input, "input");
 
-        Map<UnitId, Province> startingLocations =
-                input.startingLocations();
-
+        Map<UnitId, Province> startingLocations = input.startingLocations();
         List<NormalizedOrder> normalizedOrders =
                 normalize(startingLocations, input.submittedOrders());
 
         List<adjudication.Order> workOrders = new ArrayList<>(normalizedOrders.size());
 
         for (NormalizedOrder normalized : normalizedOrders) {
-            Province currentLocation = startingLocations.get(
-                    normalized.unit());
-            workOrders.add(
-                    toWorkOrder(
-                            normalized.order(),
-                            currentLocation));
+            Province currentLocation = startingLocations.get(normalized.unit());
+            workOrders.add(new adjudication.Order(normalized, currentLocation));
         }
 
         Judge producer = createJudge(workOrders);
         producer.judge();
 
-        return MovementResult.from(
-                startingLocations,
-                normalizedOrders,
-                producer);
+        return MovementResult.from(startingLocations, normalizedOrders, producer);
 
     }
 
-    /**
-     * Produces exactly one order for every unit on the starting board:
-     *
-     * <ul>
-     *     <li>unknown order issuers cause processing to fail;</li>
-     *     <li>duplicate orders for one unit cause processing to fail;</li>
-     *     <li>missing orders become synthesized HOLD orders.</li>
-     * </ul>
-     */
     private List<NormalizedOrder> normalize(
-            Map<UnitId, Province> startingLocations,
-            Collection<Order> submittedOrders
-    ) {
+            Map<UnitId, Province> startingLocations, Collection<Order> submittedOrders) {
 
         Map<UnitId, Order> ordersByUnit = new LinkedHashMap<>();
         List<String> errors = new ArrayList<>();
@@ -107,33 +87,25 @@ public final class MovementProcessor
             }
 
             if (ordersByUnit.putIfAbsent(unit, submitted) != null)
-                errors.add(
-                        "Multiple orders submitted for unit: " + unit);
+                errors.add("Multiple orders submitted for unit: " + unit);
 
         }
 
         if (!errors.isEmpty())
-            throw new IllegalArgumentException(
-                    String.join(System.lineSeparator(), errors));
+            throw new IllegalArgumentException(String.join(System.lineSeparator(), errors));
 
         List<NormalizedOrder> normalized = new ArrayList<>(startingLocations.size());
 
         for (UnitId activeUnit : startingLocations.keySet()) {
+
             Order submitted = ordersByUnit.get(activeUnit);
 
-            if (submitted == null) {
-                normalized.add(
-                        new NormalizedOrder(
-                                activeUnit,
-                                Order.hold(activeUnit),
-                                false));
-            } else {
-                normalized.add(
-                        new NormalizedOrder(
-                                activeUnit,
-                                submitted,
-                                true));
-            }
+            // Missing submissions remain distinguishable from explicit holds.
+            normalized.add(new NormalizedOrder(
+                    activeUnit,
+                    submitted == null ? Order.hold(activeUnit) : submitted,
+                    submitted != null));
+
         }
 
         return normalized;
@@ -142,41 +114,24 @@ public final class MovementProcessor
 
     private Judge createJudge(Collection<adjudication.Order> workOrders) {
         return switch (policy) {
-            case JUSTICE -> new Justice(
-                    workOrders,
-                    trialCount,
-                    shuffleSeed);
-            case SZYKMAN_JUSTICE -> new SzykmanJustice(
-                    workOrders,
-                    trialCount,
-                    shuffleSeed);
+            case JUSTICE -> new Justice(workOrders, trialCount, shuffleSeed);
+            case SZYKMAN_JUSTICE -> new SzykmanJustice(workOrders, trialCount, shuffleSeed);
         };
     }
 
-    /**
-     * Creates a private mutable work order for the adjudication engine.
-     */
-    private adjudication.Order toWorkOrder(
-            Order order,
-            Province currentLocation
-    ) {
-        return new adjudication.Order(
-                order.owner(),
-                order.unitType(),
-                currentLocation,
-                order.orderType(),
-                order.target(),
-                order.auxiliaryTarget());
-    }
+    private void requireMovementOrder(OrderForm order) {
 
-    private void requireMovementOrder(Order order) {
+        Objects.requireNonNull(order, "order");
+
         if (order.orderType() != OrderType.MOVE
                 && order.orderType() != OrderType.HOLD
                 && order.orderType() != OrderType.SUPPORT
                 && order.orderType() != OrderType.CONVOY)
             throw new IllegalArgumentException(
                     "MovementProcessor cannot process " + order.orderType() + ": " + order);
+
     }
+
 
     public enum Policy {
         JUSTICE,
