@@ -26,7 +26,7 @@ public final class DiploBNOrderTranslator
 
         requireUnitOnBoard(source, board);
 
-        return switch (source.type()) {
+        return switch (source.orderType()) {
             case HOLD -> Order.hold(source.unit());
             case MOVE -> Order.move(
                     source.unit(),
@@ -36,12 +36,12 @@ public final class DiploBNOrderTranslator
                     // Preserve illegal historical submissions for adjudication.
                     // The convenience factory rejects non-fleet issuers too early.
                     source.unit(),
-                    source.type(),
+                    source.orderType(),
                     source.target(),
                     source.auxiliaryTarget());
             default -> throw new IllegalStateException(
                     "Unsupported DiploBN movement type: "
-                            + source.type());
+                            + source.orderType());
         };
 
     }

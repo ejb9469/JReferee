@@ -11,6 +11,4 @@ import domain.Nation;
  */
 public interface AdjustmentOrder extends OrderForm {
 
-    Nation nation();
-
 }

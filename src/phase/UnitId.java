@@ -1,12 +1,16 @@
 package phase;
 
+import contracts.OrderForm;
 import domain.Nation;
+import domain.OrderType;
 import domain.Province;
 import domain.UnitType;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.UUID;
+
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Stable identity for a unit across phases and turns.
@@ -19,7 +23,7 @@ public record UnitId(
         Nation owner,
         UnitType unitType,
         Province origin
-) {
+) implements OrderForm {
 
     /**
      * "Real" (non-deprecated) constructor. Includes UUID.
@@ -30,6 +34,38 @@ public record UnitId(
         Objects.requireNonNull(unitType, "unitType");
         Objects.requireNonNull(origin, "origin");
     }
+
+
+    @Override
+    public Nation owner() {
+        return this.owner;
+    }
+
+    @Override
+    public Province origin() {
+        return this.origin;
+    }
+
+    @Override
+    public UnitType unitType() {
+        return this.unitType;
+    }
+
+    @Override
+    public @Nullable OrderType orderType() {
+        return null;
+    }
+
+    @Override
+    public @Nullable Province target() {
+        return null;
+    }
+
+    @Override
+    public @Nullable Province auxiliaryTarget() {
+        return null;
+    }
+
 
     /**
      * Compatibility constructor, DEPRECATED.

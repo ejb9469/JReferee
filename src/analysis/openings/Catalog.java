@@ -1,13 +1,12 @@
 package analysis.openings;
 
 import domain.Nation;
+import domain.Province;
 import game.BoardState;
 import game.GameMoment;
 import game.GamePhase;
 import io.catalog.GameSource;
-import parsing.diplobn.DiploBNAdjudicationOrderTranslator;
 import parsing.diplobn.DiploBNGame;
-import parsing.diplobn.DiploBNOrder;
 import parsing.diplobn.DiploBNParser;
 import parsing.diplobn.DiploBNPhase;
 import phase.Order;
@@ -25,8 +24,9 @@ public class Catalog {
     private final int scanned;
     private final int represented;
 
+
     private Catalog(List<Entry> entries, List<String> diagnostics,
-                           int scanned, int represented) {
+                    int scanned, int represented) {
 
         this.entries = List.copyOf(entries);
         this.diagnostics = List.copyOf(diagnostics);
@@ -161,7 +161,7 @@ public class Catalog {
     }
 
 
-    // Extraction shared with the console app \\
+    // Opening selection \\
 
     public static Map<Nation, String> openings(DiploBNGame game) {
         return openings(openingPhase(game));
@@ -198,8 +198,7 @@ public class Catalog {
         Classifier classifier = new Classifier(
                 new GameMoment(1901, GamePhase.SPRING_MOVEMENT),
                 opening.board(),
-                opening.movementOrders()
-        );
+                opening.movementOrders());
 
         Map<Nation, String> result = new EnumMap<>(Nation.class);
 
@@ -241,6 +240,7 @@ public class Catalog {
                         BoardState board, List<Order> orders) {
 
         public Entry {
+
             Objects.requireNonNull(nation, "nation");
             Objects.requireNonNull(signature, "signature");
             Objects.requireNonNull(board, "board");
@@ -248,21 +248,28 @@ public class Catalog {
 
             if (count < 1)
                 throw new IllegalArgumentException("Opening count must be positive");
+
         }
 
         public List<adjudication.Order> displayOrders() {
 
-            DiploBNAdjudicationOrderTranslator translator =
-                    new DiploBNAdjudicationOrderTranslator();
-
             List<adjudication.Order> result = new ArrayList<>();
 
-            for (Order order : orders)
-                result.add(translator.translate(DiploBNOrder.from(order), board));
+            for (Order order : orders) {
+
+                Province location = board.locationOf(order.unit());
+
+                if (location == null)
+                    throw new IllegalArgumentException(
+                            "Opening order issuer is absent from the board: " + order.unit());
+
+                result.add(new adjudication.Order(order, location));
+
+            }
 
             Collections.sort(result);
 
-            // Fresh work orders; callers cannot mutate the stored submissions.
+            // No provider conversion, and no shared mutable work orders.
             return List.copyOf(result);
 
         }

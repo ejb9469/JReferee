@@ -1,6 +1,5 @@
 package parsing.diplobn;
 
-import contracts.OrderForm;
 import domain.OrderType;
 import domain.Province;
 import phase.UnitId;
@@ -15,7 +14,8 @@ import java.util.Objects;
  * order and mutable adjudication work-order representations. Translators can
  * convert it to either representation through {@link contracts.OrderTranslator}.</p>
  */
-public class DiploBNOrder extends phase.Order {
+public class DiploBNOrder
+            extends phase.Order {
 
     public DiploBNOrder(UnitId unit, OrderType type, Province target, Province auxiliaryTarget) {
 
@@ -45,7 +45,7 @@ public class DiploBNOrder extends phase.Order {
 
         return new DiploBNOrder(
                 order.unit(),
-                order.type(),
+                order.orderType(),
                 order.target(),
                 order.auxiliaryTarget());
 

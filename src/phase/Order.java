@@ -184,8 +184,12 @@ public class Order
         return unit.unitType();
     }
 
-    public OrderType type() {
+    public OrderType orderType() {
         return type;
+    }
+
+    public Province origin() {
+        return this.unit.origin();
     }
 
     public Province target() {

@@ -2,8 +2,8 @@ package contracts;
 
 public interface Snapshot {
 
-    Snapshot getSnapshot();
-    void takeSnapshot();
-    void restoreFromSnapshot();
+    Snapshot        getSnapshot();
+    void            takeSnapshot();
+    void            restoreFromSnapshot();
 
 }

@@ -1,6 +1,7 @@
 package _app;
 
 import _app.util.AbstractDiploBNConsoleApp;
+import contracts.OrderForm;
 import domain.*;
 import parsing.diplobn.DiploBNGame;
 import parsing.diplobn.DiploBNGameClient;
@@ -16,16 +17,11 @@ import java.io.IOException;
 import java.util.*;
 
 
-/**
- * Console entry point for importing and displaying one DiploBN game.
- */
 public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
-
 
     public static void main(String[] args) {
         new DBNGameImporter().run(args);
     }
-
 
     private void run(String[] args) {
 
@@ -76,8 +72,7 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
     private static void printPhase(int number, DiploBNPhase phase) {
 
-        System.out.printf(
-                "[%d] %s %s%n",
+        System.out.printf("[%d] %s %s%n",
                 number, formatNumericSourcePhase(phase.sourcePhase()), phase.gamePhase());
 
         System.out.printf("    Status:              %s%n", phase.sourceStatus());
@@ -91,7 +86,6 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
         printForces(phase);
         printCommands(phase);
-
         System.out.println();
 
     }
@@ -107,7 +101,11 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
         for (Nation nation : nationsIn(phase)) {
 
-            List<Map.Entry<UnitId, Province>> forces = forcesOf(nation, phase);
+            List<Map.Entry<UnitId, Province>> forces = new ArrayList<>();
+
+            for (Map.Entry<UnitId, Province> entry : phase.board().locations().entrySet())
+                if (entry.getKey().owner() == nation)
+                    forces.add(entry);
 
             if (forces.isEmpty())
                 continue;
@@ -115,9 +113,7 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
             System.out.println("      " + fullNationName(nation) + ":");
 
             for (Map.Entry<UnitId, Province> entry : forces)
-                System.out.printf(
-                        "        %s %s%n",
-                        unitMarker(entry.getKey().unitType()), entry.getValue());
+                System.out.println("        " + OrderForm.format(entry.getKey(), entry.getValue()));
 
         }
 
@@ -152,21 +148,6 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
     // Command collection \\
 
-    private static List<Map.Entry<UnitId, Province>> forcesOf(
-            Nation nation,
-            DiploBNPhase phase
-    ) {
-
-        List<Map.Entry<UnitId, Province>> forces = new ArrayList<>();
-
-        for (Map.Entry<UnitId, Province> entry : phase.board().locations().entrySet())
-            if (entry.getKey().owner() == nation)
-                forces.add(entry);
-
-        return forces;
-
-    }
-
     private static List<String> commandsOf(Nation nation, DiploBNPhase phase) {
 
         List<String> commands = new ArrayList<>();
@@ -176,40 +157,38 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
             if (order.owner() != nation)
                 continue;
 
-            Province issuingProvince = locationOf(order.unit(), phase);
+            Province location = phase.board().locationOf(order.unit());
 
-            commands.add(
-                    formatMovementOrder(order) + " "
-                            + markerFor(phase.resolutions(), nation, issuingProvince, false));
+            commands.add(OrderForm.format(order, location) + " "
+                    + markerFor(phase.resolutions(), nation, location, false));
 
         }
 
         for (RetreatOrder order : phase.retreatOrders()) {
 
-            if (order.unit().owner() != nation)
+            if (order.owner() != nation)
                 continue;
 
-            Province issuingProvince = locationOf(order.unit(), phase);
+            Province location = phase.board().locationOf(order.unit());
 
-            commands.add(
-                    unitMarker(order.unit().unitType()) + " " + issuingProvince
-                            + " R " + order.destination() + " "
-                            + markerFor(phase.retreatResolutions(), nation, issuingProvince, true));
+            commands.add(OrderForm.format(order, location) + " "
+                    + markerFor(phase.retreatResolutions(), nation, location, true));
 
         }
 
         for (AdjustmentOrder order : phase.adjustmentOrders()) {
 
-            if (order.nation() != nation)
+            if (order.owner() != nation)
                 continue;
 
-            commands.add(
-                    formatAdjustmentOrder(order, phase) + " "
-                            + markerFor(
-                            phase.resolutions(), nation, issuingProvinceOf(order, phase), false));
+            Province location = issuingProvinceOf(order, phase);
+
+            commands.add(OrderForm.format(order, location) + " "
+                    + markerFor(phase.resolutions(), nation, location, false));
 
         }
 
+        // Retreat disbands may exist only as source resolutions.
         for (DiploBNOrderResolution resolution : phase.retreatResolutions()) {
 
             if (resolution.nation() != nation)
@@ -227,81 +206,15 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
     }
 
     private static boolean hasRetreatOrderAt(
-            Nation nation,
-            Province province,
-            DiploBNPhase phase
-    ) {
+            Nation nation, Province province, DiploBNPhase phase) {
 
         for (RetreatOrder order : phase.retreatOrders()) {
-
-            if (order.unit().owner() != nation)
-                continue;
-
-            if (Province.equalsIgnoreCoast(locationOf(order.unit(), phase), province))
+            if (order.owner() == nation
+                    && Province.equalsIgnoreCoast(phase.board().locationOf(order.unit()), province))
                 return true;
-
         }
 
         return false;
-
-    }
-
-
-    // Order formatting \\
-
-    private static String formatMovementOrder(Order order) {
-
-        String unit = unitMarker(order.unitType()) + " " + order.unit().origin();
-
-        return switch (order.type()) {
-            case HOLD -> unit + " H";
-            case MOVE -> unit + " - " + order.target();
-            case SUPPORT -> formatSupportOrder(unit, order);
-            case CONVOY -> unit + " C " + order.target() + " - " + order.auxiliaryTarget();
-            default -> throw new IllegalStateException(
-                    "Unexpected movement order type: " + order.type());
-        };
-
-    }
-
-    private static String formatSupportOrder(String unit, Order order) {
-
-        if (order.auxiliaryTarget() == null)
-            return unit + " S " + order.target();
-
-        return unit + " S " + order.target() + " - " + order.auxiliaryTarget();
-
-    }
-
-    private static String formatAdjustmentOrder(AdjustmentOrder order, DiploBNPhase phase) {
-
-        if (order instanceof BuildOrder build)
-            return unitMarker(build.unitType()) + " " + build.location() + " B";
-
-        if (order instanceof DisbandOrder disband)
-            return unitMarker(disband.unit().unitType())
-                    + " " + locationOf(disband.unit(), phase) + " D";
-
-        if (order instanceof WaiveOrder)
-            return "WAIVE";
-
-        throw new IllegalStateException(
-                "Unsupported adjustment order type: " + order.getClass().getName());
-
-    }
-
-    private static String formatRetreatDisband(
-            DiploBNOrderResolution resolution,
-            DiploBNPhase phase
-    ) {
-
-        UnitId unit = UnitLookup.firstAt(
-                phase.board().locations(), resolution.issuingProvince(), resolution.nation());
-
-        if (unit == null)
-            return "? " + resolution.issuingProvince() + " D";
-
-        return unitMarker(unit.unitType()) + " " + resolution.issuingProvince() + " D";
 
     }
 
@@ -311,7 +224,7 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
             return build.location();
 
         if (order instanceof DisbandOrder disband)
-            return locationOf(disband.unit(), phase);
+            return phase.board().locationOf(disband.unit());
 
         if (order instanceof WaiveOrder)
             return null;
@@ -321,12 +234,28 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
     }
 
+    private static String formatRetreatDisband(
+            DiploBNOrderResolution resolution, DiploBNPhase phase) {
+
+        UnitId unit = UnitLookup.firstAt(
+                phase.board().locations(), resolution.issuingProvince(), resolution.nation());
+
+        adjudication.Order disband = new adjudication.Order(
+                resolution.nation(),
+                unit == null ? null : unit.unitType(),
+                resolution.issuingProvince(),
+                OrderType.RETREAT);
+
+        return disband.toString();
+
+    }
+
+
+    // Result markers remain separate from notation. \\
+
     private static String markerFor(
-            List<DiploBNOrderResolution> resolutions,
-            Nation nation,
-            Province issuingProvince,
-            boolean retreatOrder
-    ) {
+            List<DiploBNOrderResolution> resolutions, Nation nation,
+            Province issuingProvince, boolean retreatOrder) {
 
         if (issuingProvince == null)
             return "[--]";
@@ -349,17 +278,6 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
         return resolution.successful() ? "[OK]" : "[FAIL]";
     }
 
-
-    // Display lookup helpers \\
-
-    private static Province locationOf(UnitId unit, DiploBNPhase phase) {
-
-        Province location = phase.board().locationOf(unit);
-
-        return location == null ? unit.origin() : location;
-
-    }
-
     private static Set<Nation> nationsIn(DiploBNPhase phase) {
 
         Set<Nation> nations = EnumSet.noneOf(Nation.class);
@@ -371,10 +289,10 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
             nations.add(order.owner());
 
         for (RetreatOrder order : phase.retreatOrders())
-            nations.add(order.unit().owner());
+            nations.add(order.owner());
 
         for (AdjustmentOrder order : phase.adjustmentOrders())
-            nations.add(order.nation());
+            nations.add(order.owner());
 
         for (DiploBNOrderResolution resolution : phase.resolutions())
             nations.add(resolution.nation());
@@ -388,20 +306,9 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
     private static String fullNationName(Nation nation) {
 
-        String name = nation.name().toLowerCase();
-
+        String name = nation.name().toLowerCase(Locale.ROOT);
         return Character.toUpperCase(name.charAt(0)) + name.substring(1);
 
     }
-
-    private static String unitMarker(UnitType unitType) {
-
-        return switch (unitType) {
-            case ARMY -> "A";
-            case FLEET -> "F";
-        };
-
-    }
-
 
 }

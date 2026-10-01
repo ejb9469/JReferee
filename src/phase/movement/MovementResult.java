@@ -432,7 +432,7 @@ public final class MovementResult implements PhaseResult {
         }
 
         public boolean successfulMove() {
-            return submittedOrder.type() == OrderType.MOVE
+            return submittedOrder.orderType() == OrderType.MOVE
                     && effectiveType == OrderType.MOVE
                     && succeeded;
         }

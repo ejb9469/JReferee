@@ -1,8 +1,13 @@
 package phase.adjustments;
 
 import domain.Nation;
+import domain.OrderType;
+import domain.Province;
+import domain.UnitType;
 
 import java.util.Objects;
+
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Voluntarily leaves one available build unused.
@@ -14,5 +19,36 @@ public record WaiveOrder(Nation nation) implements AdjustmentOrder {
     public WaiveOrder {
         Objects.requireNonNull(nation, "nation");
     }
+
+    @Override
+    public Nation owner() {
+        return this.nation;
+    }
+
+    @Override
+    public @Nullable UnitType unitType() {
+        return null;
+    }
+
+    @Override
+    public @Nullable Province origin() {
+        return null;
+    }
+
+    @Override
+    public OrderType orderType() {
+        return OrderType.WAIVE;
+    }
+
+    @Override
+    public @Nullable Province target() {
+        return null;
+    }
+
+    @Override
+    public @Nullable Province auxiliaryTarget() {
+        return null;
+    }
+
 
 }

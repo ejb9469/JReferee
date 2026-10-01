@@ -188,7 +188,7 @@ public final class DiploBNParserTestCase implements TestCase {
             checks.expect(
                     "First source movement order type",
                     OrderType.CONVOY,
-                    firstSourceOrder.type()
+                    firstSourceOrder.orderType()
             );
 
             checks.expect(
@@ -222,8 +222,8 @@ public final class DiploBNParserTestCase implements TestCase {
 
             checks.expect(
                     "Movement order " + index + " type alignment",
-                    sourceOrder.type(),
-                    translatedOrder.type()
+                    sourceOrder.orderType(),
+                    translatedOrder.orderType()
             );
 
             checks.expect(

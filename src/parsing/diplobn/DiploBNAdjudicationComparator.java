@@ -901,7 +901,7 @@ public class DiploBNAdjudicationComparator {
                     submitted.owner(),
                     submitted.unitType(),
                     location,
-                    submitted.type(),
+                    submitted.orderType(),
                     submitted.target(),
                     submitted.auxiliaryTarget());
 
