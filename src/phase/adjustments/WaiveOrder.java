@@ -31,8 +31,8 @@ public record WaiveOrder(Nation nation) implements AdjustmentOrder {
     }
 
     @Override
-    public Province origin() {
-        return Province.Swi;  // lol
+    public @Nullable Province origin() {
+        return null;
     }
 
     @Override
