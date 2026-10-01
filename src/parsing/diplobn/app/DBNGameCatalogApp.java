@@ -1,4 +1,4 @@
-package _app;
+package parsing.diplobn.app;
 
 import domain.Constants;
 import io.catalog.CatalogAnalysis;

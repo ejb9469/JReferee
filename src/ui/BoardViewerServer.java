@@ -278,17 +278,41 @@ public final class BoardViewerServer implements AutoCloseable {
 
         List<HistoryEntry> entries = new ArrayList<>();
 
-        entries.add(new HistoryEntry(
-                "Start of " + displayPhase(record.initialMoment().gamePhase().name())
-                        + " " + record.initialMoment().year(),
-                BoardSnapshotMapper.from(record.initialMoment(), record.initialBoard())));
+        entries.add(
+                new HistoryEntry(
+                        "Start of "
+                                + displayPhase(
+                                record.initialMoment().gamePhase().name()
+                        )
+                                + " "
+                                + record.initialMoment().year(),
+                        BoardSnapshotMapper.from(
+                                record.initialMoment(),
+                                record.initialBoard()
+                        )
+                )
+        );
 
-        for (ResolvedPhaseRecord resolvedPhase : record.resolvedPhases())
-            entries.add(new HistoryEntry(
-                    "After " + displayPhase(resolvedPhase.gameMoment().gamePhase().name())
-                            + " " + resolvedPhase.gameMoment().year(),
-                    BoardSnapshotMapper.from(
-                            resolvedPhase.gameMoment(), resolvedPhase.boardAfter())));
+        for (ResolvedPhaseRecord resolvedPhase
+                : record.resolvedPhases()) {
+
+            entries.add(
+                    new HistoryEntry(
+                            "After "
+                                    + displayPhase(
+                                    resolvedPhase.gameMoment()
+                                            .gamePhase()
+                                            .name()
+                            )
+                                    + " "
+                                    + resolvedPhase.gameMoment().year(),
+                            BoardSnapshotMapper.from(
+                                    resolvedPhase.gameMoment(),
+                                    resolvedPhase.boardAfter()
+                            )
+                    )
+            );
+        }
 
         return List.copyOf(entries);
 

@@ -40,6 +40,14 @@ public final class BoardSnapshotMapper {
 
     }
 
+    public static BoardSnapshot from(SnapshotSource source) {
+
+        Objects.requireNonNull(source, "source");
+
+        return from(source.year(), source.phaseName(), source.board());
+
+    }
+
     public static BoardSnapshot from(int year, String phase, BoardState board) {
 
         Objects.requireNonNull(phase, "phase");

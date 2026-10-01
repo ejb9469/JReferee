@@ -1,4 +1,4 @@
-package _app;
+package parsing.diplobn.app;
 
 import domain.*;
 import parsing.diplobn.DiploBNGame;
@@ -14,19 +14,19 @@ import phase.retreats.RetreatOrder;
 import java.io.IOException;
 import java.util.*;
 
-import static _app.DBNCliFormatting.*;
-
 
 /**
  * Console entry point for importing and displaying one DiploBN game.
  */
-public final class DBNGameImporter {
-
-
-    private DBNGameImporter() {  }
+public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
 
     public static void main(String[] args) {
+        new DBNGameImporter().run(args);
+    }
+
+
+    private void run(String[] args) {
 
         String gamePageUrl = requestedGamePageUrl(args);
 
@@ -56,7 +56,7 @@ public final class DBNGameImporter {
 
     // Summary output \\
 
-    private static void printSummary(DiploBNGame imported) {
+    private void printSummary(DiploBNGame imported) {
 
         System.out.println("DIPLOBN IMPORT SUMMARY:");
         System.out.println();

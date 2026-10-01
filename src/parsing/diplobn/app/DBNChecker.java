@@ -1,4 +1,4 @@
-package _app;
+package parsing.diplobn.app;
 
 import domain.Constants;
 import parsing.diplobn.DiploBNAdjudicationComparator;
@@ -7,20 +7,20 @@ import parsing.diplobn.DiploBNGameClient;
 
 import java.io.IOException;
 
-import static _app.DBNCliFormatting.*;
-
 
 /**
  * Downloads one DiploBN game and compares recorded movement outcomes with
  * JReferee's independently adjudicated results.
  */
-public final class DBNChecker {
-
-
-    private DBNChecker() {  }
+public final class DBNChecker extends AbstractDiploBNConsoleApp {
 
 
     public static void main(String[] args) {
+        new DBNChecker().run(args);
+    }
+
+
+    private void run(String[] args) {
 
         String gamePageUrl = requestedGamePageUrl(args);
 
@@ -53,7 +53,7 @@ public final class DBNChecker {
 
     // Header output \\
 
-    private static void printGameHeader(DiploBNGame imported) {
+    private void printGameHeader(DiploBNGame imported) {
 
         System.out.println("DIPLOBN ADJUDICATION COMPARISON:");
         System.out.println();
@@ -70,7 +70,7 @@ public final class DBNChecker {
 
     // Movement comparison \\
 
-    private static void compareMovementPhases(DiploBNGame imported) {
+    private void compareMovementPhases(DiploBNGame imported) {
 
         int comparedOrders = 0;
         int matchingOrders = 0;
@@ -116,7 +116,7 @@ public final class DBNChecker {
 
             System.out.printf(
                     "%s  [%d/%d match]",
-                    formatSourcePhase(phase.sourcePhase()),
+                    formatSeasonalSourcePhase(phase.sourcePhase()),
                     comparison.matchingCount(),
                     comparison.comparedCount());
 
