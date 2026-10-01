@@ -2,6 +2,8 @@ package ui;
 
 import adjudication.Order;
 import analysis.openings.Catalog;
+import analysis.openings.Opening;
+import analysis.openings.OpeningCombination;
 import contracts.OrderForm;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -90,6 +92,7 @@ public final class BoardViewerServer implements AutoCloseable {
         if (!Files.isDirectory(this.staticRoot))
             throw new IllegalArgumentException("Static root must be a directory");
 
+        // Serialize once; requests do not read or modify the catalog.
         this.openingPayload = catalog == null ? null
                 : openingsJson(catalog).getBytes(StandardCharsets.UTF_8);
 
@@ -196,6 +199,7 @@ public final class BoardViewerServer implements AutoCloseable {
             return;
         }
 
+        // Resolve symlinks before allowing access.
         Path file = candidate.toRealPath();
 
         if (!file.startsWith(staticRoot)) {
@@ -247,6 +251,7 @@ public final class BoardViewerServer implements AutoCloseable {
         out.append(",\"represented\":").append(catalog.represented());
         out.append(",\"skipped\":").append(catalog.skipped());
         out.append(",\"nationalOpenings\":").append(catalog.nationalOpenings());
+        out.append(",\"completeGames\":").append(catalog.completeGames());
         out.append(",\"board\":")
                 .append(BoardSnapshotJsonWriter.toJson(BoardSnapshotMapper.from(game)));
         out.append(",\"colors\":{");
@@ -273,34 +278,29 @@ public final class BoardViewerServer implements AutoCloseable {
             appendString(out, catalog.diagnostics().get(index));
         }
 
+        // Keep national openings separate for the existing frontend.
         out.append("],\"openings\":[");
         first = true;
 
-        for (Catalog.Entry entry : catalog.entries()) {
+        for (Opening opening : catalog.entries()) {
 
             if (!first)
                 out.append(',');
 
-            out.append("{\"nation\":");
-            appendString(out, entry.nation().name());
-            out.append(",\"signature\":");
-            appendString(out, entry.signature());
-            out.append(",\"count\":").append(entry.count());
-            out.append(",\"orders\":[");
+            appendOpening(out, opening, catalog.count(opening));
+            first = false;
 
-            List<Order> orders = entry.displayOrders();
+        }
 
-            for (int index = 0; index < orders.size(); index++) {
+        out.append("],\"combinations\":[");
+        first = true;
 
-                if (index > 0)
-                    out.append(',');
+        for (OpeningCombination combination : catalog.combinations()) {
 
-                Order order = orders.get(index);
-                appendOrder(out, order, order.origin());
+            if (!first)
+                out.append(',');
 
-            }
-
-            out.append("]}");
+            appendOpening(out, combination, catalog.count(combination));
             first = false;
 
         }
@@ -309,10 +309,64 @@ public final class BoardViewerServer implements AutoCloseable {
 
     }
 
+    private static void appendOpening(StringBuilder out, Opening opening, int count) {
+
+        out.append("{\"id\":");
+        appendString(out, opening.id());
+        out.append(",\"signature\":");
+        appendString(out, opening.signature());
+        out.append(",\"count\":").append(count);
+
+        if (opening instanceof OpeningCombination combination) {
+
+            // A combination has no single nation.
+            out.append(",\"openingIds\":{");
+
+            boolean first = true;
+
+            for (Map.Entry<Nation, String> entry : combination.openingIds().entrySet()) {
+
+                if (!first)
+                    out.append(',');
+
+                appendString(out, entry.getKey().name());
+                out.append(':');
+                appendString(out, entry.getValue());
+                first = false;
+
+            }
+
+            out.append('}');
+
+        } else {
+            out.append(",\"nation\":");
+            appendString(out, opening.nation().name());
+        }
+
+        out.append(",\"orders\":[");
+
+        List<Order> orders = opening.displayOrders();
+
+        for (int index = 0; index < orders.size(); index++) {
+
+            if (index > 0)
+                out.append(',');
+
+            Order order = orders.get(index);
+            appendOrder(out, order, order.origin());
+
+        }
+
+        out.append("]}");
+
+    }
+
     private static void appendOrder(StringBuilder out, OrderForm order, Province location) {
 
         out.append("{\"text\":");
         appendString(out, OrderForm.format(order, location));
+        out.append(",\"nation\":");
+        appendString(out, order.owner().name());
         out.append(",\"type\":");
 
         if (order.orderType() == null)

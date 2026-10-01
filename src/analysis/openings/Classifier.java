@@ -13,10 +13,11 @@ import java.util.*;
 
 
 /**
- * Categorizes submitted orders from the standard Spring 1901 position.<br><br>
+ * Categorizes submitted orders from the standard Spring 1901 position.<br>
+ * Validation and matching engine behind `Opening`.<br><br>
  *
  * Matching preserves exact coast specifications and ignores unit UUIDs.
- * Orders are not adjudicated, and missing orders are not replaced with holds.
+ * Orders are not adjudicated (and missing orders are not replaced with holds).
  */
 public class Classifier {
 

@@ -1,8 +1,6 @@
 package analysis.openings;
 
 import domain.Nation;
-import domain.Province;
-import game.BoardState;
 import game.GameMoment;
 import game.GamePhase;
 import io.catalog.GameSource;
@@ -19,19 +17,51 @@ import java.util.*;
 
 public class Catalog {
 
-    private final List<Entry> entries;
+    private static final GameMoment OPENING_MOMENT =
+            new GameMoment(1901, GamePhase.SPRING_MOVEMENT);
+
+    private final List<Opening> entries;
+    private final List<OpeningCombination> combinations;
+    private final Map<String, Opening> byId;
+    private final Map<String, Integer> counts;
     private final List<String> diagnostics;
+
     private final int scanned;
     private final int represented;
 
 
-    private Catalog(List<Entry> entries, List<String> diagnostics,
-                    int scanned, int represented) {
+    private Catalog(Map<String, Opening> openings, Map<String, Integer> counts,
+                    List<String> diagnostics, int scanned, int represented) {
 
-        this.entries = List.copyOf(entries);
+        this.byId = Map.copyOf(openings);
+        this.counts = Map.copyOf(counts);
         this.diagnostics = List.copyOf(diagnostics);
         this.scanned = scanned;
         this.represented = represented;
+
+        List<Opening> national = new ArrayList<>();
+        List<OpeningCombination> combined = new ArrayList<>();
+
+        for (Opening opening : openings.values()) {
+            if (opening instanceof OpeningCombination combination)
+                combined.add(combination);
+            else
+                national.add(opening);
+        }
+
+        Comparator<Opening> frequency = Comparator
+                .comparingInt((Opening opening) -> this.counts.get(opening.id()))
+                .reversed()
+                .thenComparing(Opening::signature);
+
+        national.sort(
+                Comparator.comparing(Opening::nation)
+                        .thenComparing(frequency));
+
+        combined.sort(frequency);
+
+        this.entries = List.copyOf(national);
+        this.combinations = List.copyOf(combined);
 
     }
 
@@ -61,9 +91,10 @@ public class Catalog {
 
         Objects.requireNonNull(connection, "connection");
 
-        Map<Nation, Map<String, Integer>> counts = new EnumMap<>(Nation.class);
-        Map<String, DiploBNPhase> representatives = new HashMap<>();
+        Map<String, Opening> openings = new HashMap<>();
+        Map<String, Integer> counts = new HashMap<>();
         List<String> diagnostics = new ArrayList<>();
+
         DiploBNParser parser = new DiploBNParser();
 
         int scanned = 0;
@@ -90,81 +121,125 @@ public class Catalog {
                     continue;
                 }
 
-                DiploBNPhase opening;
-                Map<Nation, String> extracted;
+                DiploBNPhase phase;
+                Map<Nation, Opening> national;
+                OpeningCombination combination;
 
                 try {
-                    opening = openingPhase(parser.parse(rows.getString("source_payload")));
-                    extracted = openings(opening);
+
+                    phase = openingPhase(parser.parse(rows.getString("source_payload")));
+                    national = extract(phase);
+
+                    combination = national.size() == Nation.values().length
+                            ? new OpeningCombination(
+                            OPENING_MOMENT, phase.board(), phase.movementOrders())
+                            : null;
+
                 } catch (IllegalArgumentException exception) {
                     diagnostics.add("SKIP " + reference + ": " + exception.getMessage());
                     continue;
                 }
 
-                if (extracted.isEmpty()) {
+                if (national.isEmpty()) {
                     diagnostics.add("SKIP " + reference + ": no complete national openings");
                     continue;
                 }
 
                 Set<Nation> missing = EnumSet.allOf(Nation.class);
-                missing.removeAll(extracted.keySet());
+                missing.removeAll(national.keySet());
 
                 if (!missing.isEmpty())
                     diagnostics.add("INCOMPLETE " + reference + ": " + missing);
 
                 represented++;
 
-                for (Map.Entry<Nation, String> entry : extracted.entrySet()) {
+                for (Opening opening : national.values())
+                    record(openings, counts, opening);
 
-                    counts.computeIfAbsent(entry.getKey(), ignored -> new TreeMap<>())
-                            .merge(entry.getValue(), 1, Integer::sum);
-
-                    representatives.putIfAbsent(entry.getValue(), opening);
-
-                }
+                // Only observed, complete, same-game combinations are counted.
+                if (combination != null)
+                    record(openings, counts, combination);
 
             }
 
         }
 
-        List<Entry> entries = new ArrayList<>();
+        return new Catalog(openings, counts, diagnostics, scanned, represented);
 
-        for (Nation nation : Nation.values()) {
+    }
 
-            Map<String, Integer> nationalCounts = counts.getOrDefault(nation, Map.of());
-            List<Entry> nationalEntries = new ArrayList<>();
+    private static void record(Map<String, Opening> openings,
+                               Map<String, Integer> counts, Opening candidate) {
 
-            for (Map.Entry<String, Integer> count : nationalCounts.entrySet()) {
+        Opening existing = openings.putIfAbsent(candidate.id(), candidate);
 
-                DiploBNPhase opening = representatives.get(count.getKey());
-                List<Order> orders = new ArrayList<>();
+        if (existing != null && !existing.equals(candidate))
+            throw new IllegalStateException(
+                    "Opening identifier collision: " + candidate.id());
 
-                for (Order order : opening.movementOrders())
-                    if (order.owner() == nation)
-                        orders.add(order);
-
-                nationalEntries.add(new Entry(
-                        nation, count.getKey(), count.getValue(), opening.board(), orders));
-
-            }
-
-            nationalEntries.sort(
-                    Comparator.comparingInt(Entry::count).reversed()
-                            .thenComparing(Entry::signature));
-
-            entries.addAll(nationalEntries);
-
-        }
-
-        return new Catalog(entries, diagnostics, scanned, represented);
+        counts.merge(candidate.id(), 1, Math::addExact);
 
     }
 
 
-    // Opening selection \\
+    // Extraction \\
+
+    public static Map<Nation, Opening> extract(DiploBNGame game) {
+        return extract(openingPhase(game));
+    }
+
+    private static Map<Nation, Opening> extract(DiploBNPhase phase) {
+
+        Classifier classifier = new Classifier(
+                OPENING_MOMENT, phase.board(), phase.movementOrders());
+
+        Map<Nation, Opening> result = new EnumMap<>(Nation.class);
+
+        for (Nation nation : Nation.values()) {
+
+            if (!classifier.isComplete(nation))
+                continue;
+
+            List<Order> orders = new ArrayList<>();
+
+            for (Order order : phase.movementOrders())
+                if (order.owner() == nation)
+                    orders.add(order);
+
+            result.put(nation, new Opening(
+                    nation, OPENING_MOMENT, phase.board(), orders));
+
+        }
+
+        return Collections.unmodifiableMap(result);
+
+    }
+
+    public static Optional<OpeningCombination> combination(DiploBNGame game) {
+
+        DiploBNPhase phase = openingPhase(game);
+
+        Classifier classifier = new Classifier(
+                OPENING_MOMENT, phase.board(), phase.movementOrders());
+
+        if (!classifier.isComplete())
+            return Optional.empty();
+
+        return Optional.of(new OpeningCombination(
+                OPENING_MOMENT, phase.board(), phase.movementOrders()));
+
+    }
 
     public static Map<Nation, String> openings(DiploBNGame game) {
-        return openings(openingPhase(game));
+
+        // Preserve the old signature-returning API for existing callers.
+        Map<Nation, String> result = new EnumMap<>(Nation.class);
+
+        for (Map.Entry<Nation, Opening> entry : extract(game).entrySet())
+            result.put(entry.getKey(), entry.getValue().signature());
+
+        return Collections.unmodifiableMap(result);
+
     }
 
     private static DiploBNPhase openingPhase(DiploBNGame game) {
@@ -193,26 +268,57 @@ public class Catalog {
 
     }
 
-    private static Map<Nation, String> openings(DiploBNPhase opening) {
 
-        Classifier classifier = new Classifier(
-                new GameMoment(1901, GamePhase.SPRING_MOVEMENT),
-                opening.board(),
-                opening.movementOrders());
+    // Queries \\
 
-        Map<Nation, String> result = new EnumMap<>(Nation.class);
+    public List<Opening> entries() {
+        return entries;
+    }
 
-        for (Nation nation : Nation.values())
-            if (classifier.isComplete(nation))
-                result.put(nation, classifier.signature(nation));
+    public List<Opening> openings(Nation nation) {
 
-        return Collections.unmodifiableMap(result);
+        Objects.requireNonNull(nation, "nation");
+
+        return entries.stream()
+                .filter(opening -> opening.nation() == nation)
+                .toList();
 
     }
 
+    public List<OpeningCombination> combinations() {
+        return combinations;
+    }
 
-    public List<Entry> entries() {
-        return entries;
+    public List<OpeningCombination> combinationsContaining(String openingId) {
+
+        Objects.requireNonNull(openingId, "openingId");
+
+        return combinations.stream()
+                .filter(combination -> combination.openingIds().containsValue(openingId))
+                .toList();
+
+    }
+
+    public Optional<Opening> find(String id) {
+        return Optional.ofNullable(byId.get(Objects.requireNonNull(id, "id")));
+    }
+
+    public int count(String id) {
+        return counts.getOrDefault(Objects.requireNonNull(id, "id"), 0);
+    }
+
+    public int count(Opening opening) {
+
+        Objects.requireNonNull(opening, "opening");
+
+        Opening existing = byId.get(opening.id());
+
+        if (existing != null && !existing.equals(opening))
+            throw new IllegalArgumentException(
+                    "Opening identifier refers to different content: " + opening.id());
+
+        return count(opening.id());
+
     }
 
     public List<String> diagnostics() {
@@ -232,47 +338,24 @@ public class Catalog {
     }
 
     public int nationalOpenings() {
-        return entries.stream().mapToInt(Entry::count).sum();
+
+        int total = 0;
+
+        for (Opening opening : entries)
+            total = Math.addExact(total, count(opening));
+
+        return total;
+
     }
 
+    public int completeGames() {
 
-    public record Entry(Nation nation, String signature, int count,
-                        BoardState board, List<Order> orders) {
+        int total = 0;
 
-        public Entry {
+        for (OpeningCombination combination : combinations)
+            total = Math.addExact(total, count(combination));
 
-            Objects.requireNonNull(nation, "nation");
-            Objects.requireNonNull(signature, "signature");
-            Objects.requireNonNull(board, "board");
-            orders = List.copyOf(orders);
-
-            if (count < 1)
-                throw new IllegalArgumentException("Opening count must be positive");
-
-        }
-
-        public List<adjudication.Order> displayOrders() {
-
-            List<adjudication.Order> result = new ArrayList<>();
-
-            for (Order order : orders) {
-
-                Province location = board.locationOf(order.unit());
-
-                if (location == null)
-                    throw new IllegalArgumentException(
-                            "Opening order issuer is absent from the board: " + order.unit());
-
-                result.add(new adjudication.Order(order, location));
-
-            }
-
-            Collections.sort(result);
-
-            // No provider conversion, and no shared mutable work orders.
-            return List.copyOf(result);
-
-        }
+        return total;
 
     }
 
