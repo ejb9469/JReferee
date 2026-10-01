@@ -19,6 +19,34 @@ public abstract class Constants {
     public static final String ANSI_YELLOW          = "\u001B[93m";
     public static final String ANSI_BRIGHTWHITE     = "\u001B[97m";
 
+    public static final String ANSI_BOLD            = "\u001B[1m";
+    public static final String ANSI_DIM             = "\u001B[2m";
+    public static final String ANSI_CYAN            = "\u001B[36m";
+    public static final String ANSI_BG_LIGHT        = "\u001B[48;2;245;245;245m";
+
+    // Backstabbr palette recorded by Backstabbr Helper.
+    // True-color escapes keep these independent of the terminal's basic palette.
+    public static final String ANSI_AUSTRIA         = "\u001B[38;2;204;0;0m";      // #cc0000
+    public static final String ANSI_ENGLAND         = "\u001B[38;2;0;0;170m";      // #0000aa
+    public static final String ANSI_FRANCE          = "\u001B[38;2;153;153;255m";  // #9999ff
+    public static final String ANSI_GERMANY         = "\u001B[38;2;0;0;0m";        // #000000
+    public static final String ANSI_ITALY           = "\u001B[38;2;0;170;0m";      // #00aa00
+    public static final String ANSI_RUSSIA          = "\u001B[38;2;187;0;187m";    // #bb00bb
+    public static final String ANSI_TURKEY          = "\u001B[38;2;187;187;0m";    // #bbbb00
+
+
+    public static String nationColor(Nation nation) {
+        return switch (nation) {
+            case AUSTRIA -> ANSI_AUSTRIA;
+            case ENGLAND -> ANSI_ENGLAND;
+            case FRANCE -> ANSI_FRANCE;
+            case GERMANY -> ANSI_GERMANY;
+            case ITALY -> ANSI_ITALY;
+            case RUSSIA -> ANSI_RUSSIA;
+            case TURKEY -> ANSI_TURKEY;
+        };
+    }
+
 
     // used in old, inefficient implementation of `Justice`
     /*public static int factorial(int n) {
