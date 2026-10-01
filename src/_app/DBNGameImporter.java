@@ -200,7 +200,7 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
         for (AdjustmentOrder order : phase.adjustmentOrders()) {
 
-            if (order.nation() != nation)
+            if (order.owner() != nation)
                 continue;
 
             commands.add(
@@ -253,13 +253,13 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
         String unit = unitMarker(order.unitType()) + " " + order.unit().origin();
 
-        return switch (order.type()) {
+        return switch (order.orderType()) {
             case HOLD -> unit + " H";
             case MOVE -> unit + " - " + order.target();
             case SUPPORT -> formatSupportOrder(unit, order);
             case CONVOY -> unit + " C " + order.target() + " - " + order.auxiliaryTarget();
             default -> throw new IllegalStateException(
-                    "Unexpected movement order type: " + order.type());
+                    "Unexpected movement order type: " + order.orderType());
         };
 
     }
@@ -374,7 +374,7 @@ public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
             nations.add(order.unit().owner());
 
         for (AdjustmentOrder order : phase.adjustmentOrders())
-            nations.add(order.nation());
+            nations.add(order.owner());
 
         for (DiploBNOrderResolution resolution : phase.resolutions())
             nations.add(resolution.nation());

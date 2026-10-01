@@ -61,7 +61,7 @@ public final class DiploBNAdjudicationOrderTranslator
                 source.unit().owner(),
                 source.unit().unitType(),
                 currentLocation,
-                source.type(),
+                source.orderType(),
                 source.target(),
                 source.auxiliaryTarget());
 

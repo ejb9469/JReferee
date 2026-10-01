@@ -12,11 +12,9 @@ import phase.UnitId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Converts immutable movement submissions into private mutable work orders,
@@ -166,18 +164,18 @@ public final class MovementProcessor
                 order.owner(),
                 order.unitType(),
                 currentLocation,
-                order.type(),
+                order.orderType(),
                 order.target(),
                 order.auxiliaryTarget());
     }
 
     private void requireMovementOrder(Order order) {
-        if (order.type() != OrderType.MOVE
-                && order.type() != OrderType.HOLD
-                && order.type() != OrderType.SUPPORT
-                && order.type() != OrderType.CONVOY)
+        if (order.orderType() != OrderType.MOVE
+                && order.orderType() != OrderType.HOLD
+                && order.orderType() != OrderType.SUPPORT
+                && order.orderType() != OrderType.CONVOY)
             throw new IllegalArgumentException(
-                    "MovementProcessor cannot process " + order.type() + ": " + order);
+                    "MovementProcessor cannot process " + order.orderType() + ": " + order);
     }
 
     public enum Policy {

@@ -81,6 +81,36 @@ public class Order
 
 
     @Override
+    public Nation owner() {
+        return this.owner;
+    }
+
+    @Override
+    public UnitType unitType() {
+        return this.unitType;
+    }
+
+    @Override
+    public OrderType orderType() {
+        return this.orderType;
+    }
+
+    @Override
+    public Province origin() {
+        return this.pos0;
+    }
+
+    @Override
+    public Province target() {
+        return this.pos1;
+    }
+
+    @Override
+    public Province auxiliaryTarget() {
+        return this.pos2;
+    }
+
+    @Override
     public Order getSnapshot() {
         return this.originalOrder;
     }
