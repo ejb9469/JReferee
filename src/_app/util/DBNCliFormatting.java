@@ -1,4 +1,4 @@
-package _app;
+package _app.util;
 
 import java.io.PrintStream;
 import java.util.Objects;

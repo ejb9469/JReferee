@@ -180,7 +180,7 @@ public class Classifier {
                     order.owner().name() + "|"
                             + order.unitType().name() + "|"
                             + location.name() + "|"
-                            + order.type().name() + "|"
+                            + order.orderType().name() + "|"
                             + provinceKey(order.target()) + "|"
                             + provinceKey(order.auxiliaryTarget())
             );
@@ -200,7 +200,7 @@ public class Classifier {
      */
     private static void requireMovementOrder(Order order) {
 
-        boolean valid = switch (order.type()) {
+        boolean valid = switch (order.orderType()) {
             case HOLD -> order.target() == null && order.auxiliaryTarget() == null;
             case MOVE -> order.target() != null && order.auxiliaryTarget() == null;
             case SUPPORT -> order.target() != null;

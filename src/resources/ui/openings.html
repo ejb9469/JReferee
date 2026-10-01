@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JReferee Openings</title>
+    <link rel="stylesheet" href="/ui/openings.css">
+    <script defer src="/ui/openings.js"></script>
+</head>
+
+<body>
+<header class="toolbar">
+    <h1>JReferee Openings</h1>
+
+    <label>
+        Country
+        <select id="nation" disabled></select>
+    </label>
+
+    <label class="search">
+        Search orders
+        <input id="search" type="search" placeholder="En F Lon - NTH" disabled>
+    </label>
+</header>
+
+<p id="summary" class="summary" role="status">Loading opening catalog…</p>
+
+<main class="browser-layout">
+    <aside class="opening-panel" aria-label="Opening selection">
+        <h2 id="list-title">Openings</h2>
+        <p id="list-summary"></p>
+
+        <nav class="navigation" aria-label="Opening navigation">
+            <button id="previous" type="button" disabled>Previous</button>
+            <output id="position" aria-live="polite">0 / 0</output>
+            <button id="next" type="button" disabled>Next</button>
+        </nav>
+
+        <div id="opening-list"></div>
+    </aside>
+
+    <section class="map-panel" aria-label="Opening map">
+        <h2 id="selection-title">Submitted orders — Spring 1901</h2>
+        <p class="muted">
+            Units remain at their starting positions. Lines show submissions,
+            not adjudicated results.
+        </p>
+
+        <div id="map-host"></div>
+
+        <p class="legend">
+            Solid arrow: move · Ring: hold · Dashed line: support ·
+            Dotted line: convoy
+        </p>
+
+        <p id="map-warning" role="status"></p>
+        <p id="province-details" aria-live="polite">Select a province to inspect it.</p>
+    </section>
+</main>
+
+<details class="diagnostics">
+    <summary id="diagnostic-summary">Import diagnostics</summary>
+    <ul id="diagnostic-list"></ul>
+</details>
+</body>
+</html>

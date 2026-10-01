@@ -24,16 +24,39 @@ public abstract class Constants {
     public static final String ANSI_CYAN            = "\u001B[36m";
     public static final String ANSI_BG_LIGHT        = "\u001B[48;2;245;245;245m";
 
-    // Backstabbr palette recorded by Backstabbr Helper.
-    // True-color escapes keep these independent of the terminal's basic palette.
-    public static final String ANSI_AUSTRIA         = "\u001B[38;2;204;0;0m";      // #cc0000
-    public static final String ANSI_ENGLAND         = "\u001B[38;2;0;0;170m";      // #0000aa
-    public static final String ANSI_FRANCE          = "\u001B[38;2;153;153;255m";  // #9999ff
-    public static final String ANSI_GERMANY         = "\u001B[38;2;0;0;0m";        // #000000
-    public static final String ANSI_ITALY           = "\u001B[38;2;0;170;0m";      // #00aa00
-    public static final String ANSI_RUSSIA          = "\u001B[38;2;187;0;187m";    // #bb00bb
-    public static final String ANSI_TURKEY          = "\u001B[38;2;187;187;0m";    // #bbbb00
+    // One country palette for both terminal and browser output.
+    public static final int RGB_AUSTRIA             = 0xcc0000;
+    public static final int RGB_ENGLAND             = 0x0000aa;
+    public static final int RGB_FRANCE              = 0x9999ff;
+    public static final int RGB_GERMANY             = 0x000000;
+    public static final int RGB_ITALY               = 0x00aa00;
+    public static final int RGB_RUSSIA              = 0xbb00bb;
+    public static final int RGB_TURKEY              = 0xbbbb00;
 
+    public static final String ANSI_AUSTRIA         = ansiColor(RGB_AUSTRIA);
+    public static final String ANSI_ENGLAND         = ansiColor(RGB_ENGLAND);
+    public static final String ANSI_FRANCE          = ansiColor(RGB_FRANCE);
+    public static final String ANSI_GERMANY         = ansiColor(RGB_GERMANY);
+    public static final String ANSI_ITALY           = ansiColor(RGB_ITALY);
+    public static final String ANSI_RUSSIA          = ansiColor(RGB_RUSSIA);
+    public static final String ANSI_TURKEY          = ansiColor(RGB_TURKEY);
+
+
+    public static int nationRgb(Nation nation) {
+        return switch (nation) {
+            case AUSTRIA -> RGB_AUSTRIA;
+            case ENGLAND -> RGB_ENGLAND;
+            case FRANCE -> RGB_FRANCE;
+            case GERMANY -> RGB_GERMANY;
+            case ITALY -> RGB_ITALY;
+            case RUSSIA -> RGB_RUSSIA;
+            case TURKEY -> RGB_TURKEY;
+        };
+    }
+
+    public static String nationHex(Nation nation) {
+        return String.format("#%06x", nationRgb(nation));
+    }
 
     public static String nationColor(Nation nation) {
         return switch (nation) {
@@ -45,6 +68,13 @@ public abstract class Constants {
             case RUSSIA -> ANSI_RUSSIA;
             case TURKEY -> ANSI_TURKEY;
         };
+    }
+
+    private static String ansiColor(int rgb) {
+        return "\u001B[38;2;"
+                + ((rgb >> 16) & 255) + ";"
+                + ((rgb >> 8) & 255) + ";"
+                + (rgb & 255) + "m";
     }
 
 
