@@ -1,4 +1,4 @@
-package parsing.diplobn.app;
+package _app.util;
 
 import java.util.Scanner;
 

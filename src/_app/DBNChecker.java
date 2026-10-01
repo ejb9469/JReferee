@@ -1,5 +1,6 @@
-package parsing.diplobn.app;
+package _app;
 
+import _app.util.AbstractDiploBNConsoleApp;
 import domain.Constants;
 import parsing.diplobn.DiploBNAdjudicationComparator;
 import parsing.diplobn.DiploBNGame;
