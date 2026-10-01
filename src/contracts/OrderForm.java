@@ -4,18 +4,20 @@ import domain.Nation;
 import domain.OrderType;
 import domain.Province;
 import domain.UnitType;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
+
+import org.jetbrains.annotations.Nullable;
 
 
 /**
  * Read-only properties shared by order and unit representations.
  *
- * origin() is representation-native: for persistent units it is their creation
- * province, not their current position. Positional consumers must use the board.
+ * <p>`origin()` is representation-native: for persistent units it is their creation
+ * province, not their current position. <br>Positional consumers must use the board.</p>
  */
 public interface OrderForm {
+
 
     Nation          owner();                // En(glish)
 
@@ -85,5 +87,6 @@ public interface OrderForm {
     private static String provinceText(@Nullable Province province) {
         return province == null ? "?" : province.toString();
     }
+
 
 }
