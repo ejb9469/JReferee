@@ -79,7 +79,10 @@ public final class DBNChecker {
         int supportToOwnProvinceOrders = 0;
         int ineffectiveSupportOrders = 0;
         int ineffectiveConvoyOrders = 0;
+        int convoyForFailedMoveOrders = 0;
         int invalidConvoyDestinationOrders = 0;
+        int invalidMoveHoldSupportOrders = 0;
+        int rulesPolicyDifferences = 0;
         int compatibilityDifferences = 0;
         int mismatchingOrders = 0;
 
@@ -104,7 +107,10 @@ public final class DBNChecker {
             supportToOwnProvinceOrders += comparison.supportToOwnProvinceCount();
             ineffectiveSupportOrders += comparison.ineffectiveSupportCount();
             ineffectiveConvoyOrders += comparison.ineffectiveConvoyCount();
+            convoyForFailedMoveOrders += comparison.convoyForFailedMoveCount();
             invalidConvoyDestinationOrders += phaseInvalidConvoyDestinations;
+            invalidMoveHoldSupportOrders += comparison.invalidMoveHoldSupportCount();
+            rulesPolicyDifferences += comparison.rulesPolicyDifferenceCount();
             compatibilityDifferences += comparison.compatibilityDifferenceCount();
             mismatchingOrders += comparison.mismatchingCount();
 
@@ -124,36 +130,50 @@ public final class DBNChecker {
             if (comparison.supportForInvalidMoveCount() > 0)
                 System.out.printf(
                         "  %s[%d SUPPORT FOR INVALID MOVE]%s",
-                        Constants.ANSI_YELLOW,
+                        Constants.ANSI_ORANGE,
                         comparison.supportForInvalidMoveCount(),
                         Constants.ANSI_RESET);
 
             if (comparison.supportToOwnProvinceCount() > 0)
                 System.out.printf(
                         "  %s[%d SUPPORT TO OWN PROVINCE]%s",
-                        Constants.ANSI_YELLOW,
+                        Constants.ANSI_ORANGE,
                         comparison.supportToOwnProvinceCount(),
                         Constants.ANSI_RESET);
 
             if (comparison.ineffectiveSupportCount() > 0)
                 System.out.printf(
                         "  %s[%d INEFFECTIVE SUPPORT]%s",
-                        Constants.ANSI_YELLOW,
+                        Constants.ANSI_ORANGE,
                         comparison.ineffectiveSupportCount(),
                         Constants.ANSI_RESET);
 
             if (comparison.ineffectiveConvoyCount() > 0)
                 System.out.printf(
                         "  %s[%d INEFFECTIVE CONVOY]%s",
-                        Constants.ANSI_YELLOW,
+                        Constants.ANSI_ORANGE,
                         comparison.ineffectiveConvoyCount(),
+                        Constants.ANSI_RESET);
+
+            if (comparison.convoyForFailedMoveCount() > 0)
+                System.out.printf(
+                        "  %s[%d CONVOY FOR FAILED MOVE]%s",
+                        Constants.ANSI_ORANGE,
+                        comparison.convoyForFailedMoveCount(),
                         Constants.ANSI_RESET);
 
             if (phaseInvalidConvoyDestinations > 0)
                 System.out.printf(
                         "  %s[%d INVALID CONVOY DESTINATION]%s",
-                        Constants.ANSI_YELLOW,
+                        Constants.ANSI_ORANGE,
                         phaseInvalidConvoyDestinations,
+                        Constants.ANSI_RESET);
+
+            if (comparison.invalidMoveHoldSupportCount() > 0)
+                System.out.printf(
+                        "  %s[%d INVALID MOVE HOLD SUPPORT]%s",
+                        Constants.ANSI_ORANGE,
+                        comparison.invalidMoveHoldSupportCount(),
                         Constants.ANSI_RESET);
 
             if (comparison.mismatchingCount() == 0
@@ -162,7 +182,12 @@ public final class DBNChecker {
                 continue;
             }
 
-            if (comparison.mismatchingCount() == 0)
+            if (comparison.mismatchingCount() == 0
+                    && comparison.rulesPolicyDifferenceCount() > 0)
+                System.out.printf(
+                        "  %s[RULES POLICY DIFFERENCE]%s%n",
+                        Constants.ANSI_ORANGE, Constants.ANSI_RESET);
+            else if (comparison.mismatchingCount() == 0)
                 System.out.printf(
                         "  %s[COMPATIBILITY DIFFERENCE]%s%n",
                         Constants.ANSI_YELLOW, Constants.ANSI_RESET);
@@ -185,16 +210,23 @@ public final class DBNChecker {
         printTotal("TOTAL COAST AMBIGUITIES:", coastAmbiguousOrders, Constants.ANSI_ORANGE);
         printTotal(
                 "TOTAL SUPPORTS FOR INVALID MOVES:",
-                supportForInvalidMoveOrders, Constants.ANSI_YELLOW);
+                supportForInvalidMoveOrders, Constants.ANSI_ORANGE);
         printTotal(
                 "TOTAL SUPPORTS TO OWN PROVINCE:",
-                supportToOwnProvinceOrders, Constants.ANSI_YELLOW);
-        printTotal("TOTAL INEFFECTIVE SUPPORTS:", ineffectiveSupportOrders, Constants.ANSI_YELLOW);
-        printTotal("TOTAL INEFFECTIVE CONVOYS:", ineffectiveConvoyOrders, Constants.ANSI_YELLOW);
+                supportToOwnProvinceOrders, Constants.ANSI_ORANGE);
+        printTotal("TOTAL INEFFECTIVE SUPPORTS:", ineffectiveSupportOrders, Constants.ANSI_ORANGE);
+        printTotal("TOTAL INEFFECTIVE CONVOYS:", ineffectiveConvoyOrders, Constants.ANSI_ORANGE);
+        printTotal(
+                "TOTAL CONVOYS FOR FAILED MOVES:",
+                convoyForFailedMoveOrders, Constants.ANSI_ORANGE);
         printTotal(
                 "TOTAL INVALID CONVOY DESTINATIONS:",
-                invalidConvoyDestinationOrders, Constants.ANSI_YELLOW);
+                invalidConvoyDestinationOrders, Constants.ANSI_ORANGE);
+        printTotal(
+                "TOTAL INVALID MOVE HOLD SUPPORT:",
+                invalidMoveHoldSupportOrders, Constants.ANSI_ORANGE);
         printTotal("TOTAL COMPATIBILITY DIFFERENCES:", compatibilityDifferences, Constants.ANSI_YELLOW);
+        printTotal("\tOF WHICH RULES POLICY DIFFERENCES:", rulesPolicyDifferences, Constants.ANSI_YELLOW);
         printTotal("TOTAL MISMATCHES:", mismatchingOrders, Constants.ANSI_RED);
 
         System.out.println("----------------------------------------");
@@ -236,9 +268,19 @@ public final class DBNChecker {
                 color = Constants.ANSI_YELLOW;
             }
 
+            case CONVOY_FOR_FAILED_MOVE -> {
+                label = "CONVOY FOR FAILED MOVE";
+                color = Constants.ANSI_YELLOW;
+            }
+
             case INVALID_CONVOY_DESTINATION -> {
                 label = "INVALID CONVOY DESTINATION";
                 color = Constants.ANSI_YELLOW;
+            }
+
+            case INVALID_MOVE_HOLD_SUPPORT -> {
+                label = "INVALID MOVE HOLD SUPPORT";
+                color = Constants.ANSI_ORANGE;
             }
 
             case DEFINITE_MISMATCH -> {
@@ -281,6 +323,12 @@ public final class DBNChecker {
             System.out.println(
                     "      Compatibility reason: no corresponding army move "
                             + "was submitted; convoy fleet was not dislodged.");
+        else if (entry.convoyForFailedMove())
+            System.out.println(
+                    "      Compatibility reason: the corresponding army move "
+                            + "failed in both results, but a valid convoy route "
+                            + "through this fleet remained intact. "
+                            + "JReferee's successful-convoy verdict is retained.");
         else if (entry.invalidConvoyDestination())
             System.out.printf(
                     "      Compatibility reason: source-success annotation "
@@ -288,6 +336,13 @@ public final class DBNChecker {
                             + "an annotation difference, retaining JReferee's "
                             + "failed verdict.%n",
                     entry.adjudicatedOrder().pos2);
+        else if (entry.invalidMoveHoldSupport())
+            System.out.println(
+                    "      Rules-policy reason: a separate adjudication treating "
+                            + "the defender's invalid move as HOLD reproduces the "
+                            + "source's hold-support and attacking-move results. "
+                            + "This changes dislodgement, not merely an annotation. "
+                            + "JReferee's original orders and verdicts are retained.");
 
     }
 
