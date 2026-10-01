@@ -1,4 +1,4 @@
-# JReferee v1.4
+# JReferee v1.5
 
 A DATC-compliant* Diplomacy adjudicator, written in base Java (natively: OpenJDK 25).
 
@@ -41,6 +41,7 @@ The existence of a convoy operation is an implied result of the convoying fleet 
   - `DBNChecker` — compares a single game to local adjudication results, in detail
   - `DBNGameScraper` — populates the games database with games scraped from diplobn
   - `BoardViewerApp` — entry point for WIP graphics interface
+  - `OpeningBrowserApp` — entry point for graphical openings catalog 
 
 - ### `src.adjudication.*`
   - `Adjudicator` — *interface of* deterministic ('rules-based') orders resolvers; '*Adjudicators*'
@@ -66,6 +67,7 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 - ### `src.ui.*`
   - `BoardViewerServer` — loopback-only HTTP endpoint at `GET /api/board` for current `Game` state
   - `BoardSnapshotMapper` / `BoardSnapshotJsonWriter` — dependency-free DTO mapping and JSON serialization for viewer clients
+  - `OpeningBrowserApp` — loopback-only HTTP endpoint for a basic openings browser
 
 ---
 
