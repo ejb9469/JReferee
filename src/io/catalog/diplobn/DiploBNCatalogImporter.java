@@ -1,23 +1,17 @@
 package io.catalog.diplobn;
 
-import io.catalog.CatalogAnalysis;
 import io.catalog.CatalogGame;
 import io.catalog.GameCatalog;
 import io.catalog.GameSource;
 import io.catalog.GameSourceReference;
-import parsing.diplobn.DiploBNAdjudicationComparator;
+import io.catalog.SourceFingerprints;
 import parsing.diplobn.DiploBNDownloadedGame;
 import parsing.diplobn.DiploBNGame;
 import parsing.diplobn.DiploBNGameClient;
-import parsing.diplobn.DiploBNPhase;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
-import java.util.HexFormat;
 import java.util.Objects;
 
 
@@ -30,15 +24,6 @@ import java.util.Objects;
  */
 public final class DiploBNCatalogImporter
         implements DiploBNGameImporter {
-
-
-    // Constants \\
-
-    private static final String ANALYZER =
-            "DiploBNAdjudicationComparator";
-
-    private static final String ANALYZER_REVISION =
-            "JReferee-ineffective-convoy-v1";
 
 
     // Core state \\
@@ -98,7 +83,7 @@ public final class DiploBNCatalogImporter
                 game.gameLabel(),
                 game.competition(),
                 downloaded.sourceJson(),
-                sha256Of(downloaded.sourceJson()),
+                SourceFingerprints.sha256Hex(downloaded.sourceJson()),
                 game.phases().size()
         );
 
@@ -108,19 +93,9 @@ public final class DiploBNCatalogImporter
                 entry.tags()
         );
 
-        ComparisonSummary comparison = compare(game);
-
         catalogGame = catalog.recordAnalysis(
                 catalogGame.id(),
-                new CatalogAnalysis(
-                        ANALYZER,
-                        ANALYZER_REVISION,
-                        clock.instant(),
-                        comparison.comparedOrderCount(),
-                        comparison.matchingOrderCount(),
-                        comparison.compatibilityDifferenceCount(),
-                        comparison.definiteMismatchCount()
-                )
+                DiploBNAnalysis.analyze(game, clock.instant())
         );
 
         return new DiploBNGameCatalogFileImporter.ImportedGame(
@@ -131,75 +106,5 @@ public final class DiploBNCatalogImporter
         );
 
     }
-
-
-    // Comparison helpers \\
-
-    private static ComparisonSummary compare(DiploBNGame game) {
-
-        int comparedOrderCount = 0;
-        int matchingOrderCount = 0;
-        int compatibilityDifferenceCount = 0;
-        int definiteMismatchCount = 0;
-
-        for (DiploBNPhase phase : game.phases()) {
-
-            if (phase.movementOrders().isEmpty())
-                continue;
-
-            DiploBNAdjudicationComparator comparison =
-                    DiploBNAdjudicationComparator.compare(phase);
-
-            comparedOrderCount += comparison.comparedCount();
-            matchingOrderCount += comparison.matchingCount();
-            compatibilityDifferenceCount +=
-                    comparison.compatibilityDifferenceCount();
-            definiteMismatchCount += comparison.mismatchingCount();
-
-        }
-
-        return new ComparisonSummary(
-                comparedOrderCount,
-                matchingOrderCount,
-                compatibilityDifferenceCount,
-                definiteMismatchCount
-        );
-
-    }
-
-
-    // Source fingerprint helpers \\
-
-    private static String sha256Of(String source) {
-
-        Objects.requireNonNull(source, "source");
-
-        try {
-            MessageDigest digest =
-                    MessageDigest.getInstance("SHA-256");
-
-            return HexFormat.of().formatHex(
-                    digest.digest(
-                            source.getBytes(StandardCharsets.UTF_8))
-            );
-
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException(
-                    "SHA-256 is unavailable",
-                    exception);
-        }
-
-    }
-
-
-    // Result types \\
-
-    private record ComparisonSummary(
-            int comparedOrderCount,
-            int matchingOrderCount,
-            int compatibilityDifferenceCount,
-            int definiteMismatchCount
-    ) {  }
-
 
 }

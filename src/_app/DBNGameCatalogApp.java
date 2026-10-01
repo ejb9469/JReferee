@@ -6,9 +6,9 @@ import io.catalog.CatalogGame;
 import io.catalog.GameCatalog;
 import io.catalog.GameSource;
 import io.catalog.diplobn.DiploBNCatalogImporter;
+import io.catalog.diplobn.DiploBNAnalysis;
 import io.catalog.diplobn.DiploBNGameCatalogFileImporter;
 import io.persistence.SQLiteCatalogStore;
-import parsing.diplobn.DiploBNAdjudicationComparator;
 import parsing.diplobn.DiploBNParser;
 
 import java.nio.file.Files;
@@ -310,37 +310,7 @@ public final class DBNGameCatalogApp {
     ) {
 
         var game = parser.parse(catalogGame.sourcePayload());
-
-        int comparedOrderCount = 0;
-        int matchingOrderCount = 0;
-        int compatibilityDifferenceCount = 0;
-        int definiteMismatchCount = 0;
-
-        for (var phase : game.phases()) {
-
-            if (phase.movementOrders().isEmpty())
-                continue;
-
-            DiploBNAdjudicationComparator comparison =
-                    DiploBNAdjudicationComparator.compare(phase);
-
-            comparedOrderCount += comparison.comparedCount();
-            matchingOrderCount += comparison.matchingCount();
-            compatibilityDifferenceCount +=
-                    comparison.compatibilityDifferenceCount();
-            definiteMismatchCount += comparison.mismatchingCount();
-
-        }
-
-        return new CatalogAnalysis(
-                "DiploBNAdjudicationComparator",
-                "JReferee-ineffective-convoy-v1",
-                Instant.now(),
-                comparedOrderCount,
-                matchingOrderCount,
-                compatibilityDifferenceCount,
-                definiteMismatchCount
-        );
+        return DiploBNAnalysis.analyze(game, Instant.now());
 
     }
 

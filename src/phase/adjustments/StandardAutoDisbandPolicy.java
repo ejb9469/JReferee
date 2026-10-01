@@ -155,10 +155,10 @@ public final class StandardAutoDisbandPolicy
             if (entry.getValue() != nation)
                 continue;
 
-            Province ownedTerritory = canonicalProvince(entry.getKey());
+            Province ownedTerritory = Province.canonical(entry.getKey());
 
             for (Province candidate : Province.values())
-                if (canonicalProvince(candidate) == ownedTerritory)
+                if (Province.canonical(candidate) == ownedTerritory)
                     locations.add(candidate);
 
         }
@@ -230,7 +230,7 @@ public final class StandardAutoDisbandPolicy
                  * territory for this purpose.
                  */
                 .thenComparing(
-                        candidate -> canonicalProvince(
+                        candidate -> Province.canonical(
                                 candidate.location()
                         ).fullName)
 
@@ -260,12 +260,12 @@ public final class StandardAutoDisbandPolicy
          * naturally reach one of its explicit split-coast representations.
          * Take the closest equivalent map location.
          */
-        Province territory = canonicalProvince(location);
+        Province territory = Province.canonical(location);
         int shortestEquivalentDistance = Integer.MAX_VALUE;
 
         for (Province candidate : Province.values()) {
 
-            if (canonicalProvince(candidate) != territory)
+            if (Province.canonical(candidate) != territory)
                 continue;
 
             Integer candidateDistance = distances.get(candidate);
@@ -281,13 +281,7 @@ public final class StandardAutoDisbandPolicy
     }
 
     private boolean isSupplyCenter(Province province) {
-        return canonicalProvince(province).supplyCenter;
-    }
-
-    private Province canonicalProvince(Province province) {
-        return province.parent == null
-                ? province
-                : province.parent;
+        return Province.canonical(province).supplyCenter;
     }
 
     private record Candidate(
