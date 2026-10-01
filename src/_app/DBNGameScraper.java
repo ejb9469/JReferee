@@ -4,6 +4,7 @@ import domain.Constants;
 import io.catalog.GameCatalog;
 import io.catalog.GameSource;
 import io.catalog.GameSourceReference;
+import io.catalog.SourceFingerprints;
 import io.persistence.SQLiteCatalogStore;
 import parsing.diplobn.DiploBNDownloadedGame;
 import parsing.diplobn.DiploBNGameClient;
@@ -11,12 +12,9 @@ import parsing.diplobn.ParseException;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HexFormat;
 import java.util.List;
 
 /**
@@ -63,7 +61,6 @@ public final class DBNGameScraper {
         Collections.shuffle(candidates);
 
         DiploBNGameClient client = new DiploBNGameClient();
-        MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
 
         int imported = 0;
         int existing = 0;
@@ -136,9 +133,7 @@ public final class DBNGameScraper {
 
                 URI uri = URI.create(downloaded.canonicalUrl());
                 String payload = downloaded.sourceJson();
-                String fingerprint = HexFormat.of().formatHex(
-                        sha256.digest(
-                                payload.getBytes(StandardCharsets.UTF_8)));
+                String fingerprint = SourceFingerprints.sha256Hex(payload);
 
                 // Persistence failures deliberately abort the run.
                 catalog.catalog(

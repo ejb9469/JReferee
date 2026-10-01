@@ -29,7 +29,10 @@ public record AdjustmentPhaseRecord(
         if (!resolvedAt.gamePhase().isAdjustment())
             throw new IllegalArgumentException("Adjustment phase record requires an adjustment moment");
 
-        BoardState expectedBoardAfter = boardBefore.after(result);
+        BoardState expectedBoardAfter = PhaseRecordRules.expectedBoardAfter(
+                resolvedAt,
+                boardBefore,
+                result);
 
         if (!expectedBoardAfter.equals(boardAfter))
             throw new IllegalArgumentException("Adjustment boardAfter does not match its phase result");

@@ -1,7 +1,6 @@
 package game.record;
 
 import game.BoardState;
-import game.GamePhase;
 import game.Moment;
 import phase.retreats.RetreatOrder;
 import phase.retreats.RetreatResult;
@@ -31,11 +30,10 @@ public record RetreatPhaseRecord(
         if (!resolvedAt.gamePhase().isRetreat())
             throw new IllegalArgumentException("Retreat phase record requires a retreat moment");
 
-        BoardState expectedBoardAfter;
-        if (resolvedAt.gamePhase() == GamePhase.FALL_RETREAT)
-            expectedBoardAfter = boardBefore.afterFallTurn(result);
-        else
-            expectedBoardAfter = boardBefore.after(result);
+        BoardState expectedBoardAfter = PhaseRecordRules.expectedBoardAfter(
+                resolvedAt,
+                boardBefore,
+                result);
 
         if (!expectedBoardAfter.equals(boardAfter))
             throw new IllegalArgumentException("Retreat boardAfter does not match its phase result");
