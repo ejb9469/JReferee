@@ -25,9 +25,9 @@ public class Judge implements Adjudicator, ParadoxTransparent {
 
 
     // The adjudication program needs to handle the following situations:
-        // a. An order that is not indirectly dependent on itself
-        // b. An order that is indirectly dependent on itself, but there is still exactly 1 resolution
-        // c. An order that is indirectly dependent on itself, but there are 0 or 2 possible resolutions
+    // a. An order that is not indirectly dependent on itself
+    // b. An order that is indirectly dependent on itself, but there is still exactly 1 resolution
+    // c. An order that is indirectly dependent on itself, but there are 0 or 2 possible resolutions
 
 
     // Core state \\
@@ -70,8 +70,8 @@ public class Judge implements Adjudicator, ParadoxTransparent {
      * so a later change can safely create branch-local contexts.
      */
     private ResolutionContext rootContext = ResolutionContext.empty();
-    
-    
+
+
     // Constructors \\
 
     public Judge() {
