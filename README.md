@@ -36,15 +36,11 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 ## Notable Classes & Infrastructure
 
 - ### `src._app.*`
-  - `TestCaseManager.java` *(Entry Point)* — loads and runs DATC test cases
-  - `BoardViewerApp.java` *(ibid)* — entry point for WIP graphics interface
-  - `PerformanceTestCaseManager.java` *(Entry Point)* — performance harness for adjudication and parser workloads
-  - `DBNGameScraper.java` *(Entry Point)* — populates the games database with games scraped from diplobn
-
-- ### `src.parsing.diplobn.app.*`
-  - `DBNChecker.java` *(Entry Point)* — compares game(s) hosted on <u>[diplobn.com](https://diplobn.com/)</u> to local adjudication results
-  - `DBNGameImporter.java` *(Entry Point)* — imports and prints one DiploBN game
-  - `DBNGameCatalogApp.java` *(Entry Point)* — imports DiploBN games from catalog manifests
+  - `TestCaseManager` — loads and runs DATC test cases
+  - `DBNGameCatalogApp` — compares game(s) hosted on <u>[diplobn.com](https://diplobn.com/)</u> to local adjudication results
+  - `DBNChecker` — compares a single game to local adjudication results, in detail
+  - `DBNGameScraper` — populates the games database with games scraped from diplobn
+  - `BoardViewerApp` — entry point for WIP graphics interface
 
 - ### `src.adjudication.*`
   - `Adjudicator` — *interface of* deterministic ('rules-based') orders resolvers; '*Adjudicators*'
