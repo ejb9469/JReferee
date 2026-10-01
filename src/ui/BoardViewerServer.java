@@ -3,14 +3,9 @@ package ui;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-import domain.Nation;
-import domain.Province;
-import game.BoardState;
 import game.Game;
-import game.GameMoment;
 import game.record.GameRecord;
 import game.record.ResolvedPhaseRecord;
-import phase.UnitId;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -21,13 +16,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.TreeMap;
 
 
 /**
@@ -49,12 +41,6 @@ public final class BoardViewerServer implements AutoCloseable {
 
     public static final Path DEFAULT_STATIC_ROOT =
             Path.of("src", "resources", "ui");
-
-    private static final Comparator<Map.Entry<UnitId, Province>> UNIT_ORDER =
-            Comparator.<Map.Entry<UnitId, Province>, String>comparing(
-                            entry -> entry.getValue().name())
-                    .thenComparing(entry -> entry.getKey().owner().name())
-                    .thenComparing(entry -> entry.getKey().unitType().name());
 
     private static final Map<String, String> CONTENT_TYPES = Map.of(
             "css", "text/css; charset=utf-8",
@@ -346,7 +332,7 @@ public final class BoardViewerServer implements AutoCloseable {
                         )
                                 + " "
                                 + record.initialMoment().year(),
-                        snapshotOf(
+                        BoardSnapshotMapper.from(
                                 record.initialMoment(),
                                 record.initialBoard()
                         )
@@ -366,7 +352,7 @@ public final class BoardViewerServer implements AutoCloseable {
                             )
                                     + " "
                                     + resolvedPhase.gameMoment().year(),
-                            snapshotOf(
+                            BoardSnapshotMapper.from(
                                     resolvedPhase.gameMoment(),
                                     resolvedPhase.boardAfter()
                             )
@@ -375,42 +361,6 @@ public final class BoardViewerServer implements AutoCloseable {
         }
 
         return List.copyOf(entries);
-
-    }
-
-    private static BoardSnapshot snapshotOf(GameMoment moment, BoardState board) {
-
-        Objects.requireNonNull(moment, "moment");
-        Objects.requireNonNull(board, "board");
-
-        List<BoardSnapshot.Unit> units = board.locations()
-                .entrySet()
-                .stream()
-                .sorted(UNIT_ORDER)
-                .map(entry -> new BoardSnapshot.Unit(
-                        entry.getKey().owner().name(),
-                        entry.getKey().unitType().name(),
-                        entry.getValue().name()
-                ))
-                .toList();
-
-        TreeMap<String, String> sortedOwners = new TreeMap<>();
-
-        for (Map.Entry<Province, Nation> entry
-                : board.owners().entrySet()) {
-            sortedOwners.put(
-                    Province.canonical(entry.getKey()).name(),
-                    entry.getValue().name());
-        }
-
-        Map<String, String> owners = new LinkedHashMap<>();
-        sortedOwners.forEach(owners::put);
-
-        return new BoardSnapshot(
-                moment.year(),
-                moment.gamePhase().name(),
-                units,
-                owners);
 
     }
 

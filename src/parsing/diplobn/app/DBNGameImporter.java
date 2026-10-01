@@ -1,4 +1,4 @@
-package _app;
+package parsing.diplobn.app;
 
 import domain.Nation;
 import domain.Province;
@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Scanner;
 import java.util.Set;
 
 
@@ -30,14 +29,17 @@ import java.util.Set;
  * <p>Supply a DiploBN game URL as the first command-line argument, or run
  * without arguments to enter one interactively.</p>
  */
-public final class DBNGameImporter {
-
-
-    private DBNGameImporter() {
-    }
+public final class DBNGameImporter extends AbstractDiploBNConsoleApp {
 
 
     public static void main(String[] args) {
+
+        new DBNGameImporter().run(args);
+
+    }
+
+
+    private void run(String[] args) {
 
         String gamePageUrl = requestedGamePageUrl(args);
 
@@ -73,39 +75,7 @@ public final class DBNGameImporter {
     }
 
 
-    private static String requestedGamePageUrl(String[] args) {
-
-        if (args.length > 0)
-            return args[0];
-
-        System.out.println(
-                "Enter DiploBN game URL "
-                        + "(for example: "
-                        + "https://diplobn.com/game/?GameID=12990):");
-
-        Scanner scanner = new Scanner(System.in);
-
-        if (!scanner.hasNextLine()) {
-            System.err.println(
-                    "No DiploBN game URL was supplied");
-
-            return null;
-        }
-
-        String gamePageUrl = scanner.nextLine().strip();
-
-        if (gamePageUrl.isBlank()) {
-            System.err.println(
-                    "No DiploBN game URL was supplied");
-
-            return null;
-        }
-
-        return gamePageUrl;
-
-    }
-
-    private static void printSummary(DiploBNGame imported) {
+    private void printSummary(DiploBNGame imported) {
 
         System.out.println("DIPLOBN IMPORT SUMMARY:");
         System.out.println();
@@ -125,20 +95,6 @@ public final class DBNGameImporter {
                     index + 1,
                     imported.phases().get(index));
         }
-
-    }
-
-    private static void printMetadata(
-            String label,
-            String value
-    ) {
-
-        System.out.printf(
-                "%-14s %s%n",
-                label + ":",
-                value == null
-                        ? "<not supplied>"
-                        : value);
 
     }
 

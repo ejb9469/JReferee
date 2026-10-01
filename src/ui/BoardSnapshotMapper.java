@@ -2,7 +2,9 @@ package ui;
 
 import domain.Nation;
 import domain.Province;
+import game.BoardState;
 import game.Game;
+import game.GameMoment;
 import phase.UnitId;
 
 import java.util.Comparator;
@@ -23,9 +25,64 @@ public final class BoardSnapshotMapper {
     }
 
     public static BoardSnapshot from(Game game) {
+
         Objects.requireNonNull(game, "game");
 
-        List<BoardSnapshot.Unit> units = game.board().locations().entrySet().stream()
+        return from(
+                new SnapshotSource() {
+                    @Override
+                    public int year() {
+                        return game.year();
+                    }
+
+                    @Override
+                    public String phaseName() {
+                        return game.phase().name();
+                    }
+
+                    @Override
+                    public BoardState board() {
+                        return game.board();
+                    }
+                }
+        );
+
+    }
+
+    public static BoardSnapshot from(
+            GameMoment moment,
+            BoardState board
+    ) {
+
+        Objects.requireNonNull(moment, "moment");
+        Objects.requireNonNull(board, "board");
+
+        return from(
+                new SnapshotSource() {
+                    @Override
+                    public int year() {
+                        return moment.year();
+                    }
+
+                    @Override
+                    public String phaseName() {
+                        return moment.gamePhase().name();
+                    }
+
+                    @Override
+                    public BoardState board() {
+                        return board;
+                    }
+                }
+        );
+
+    }
+
+    public static BoardSnapshot from(SnapshotSource source) {
+
+        Objects.requireNonNull(source, "source");
+
+        List<BoardSnapshot.Unit> units = source.board().locations().entrySet().stream()
                 .sorted(UNIT_ORDER)
                 .map(entry -> new BoardSnapshot.Unit(
                         entry.getKey().owner().name(),
@@ -34,7 +91,7 @@ public final class BoardSnapshotMapper {
                 .toList();
 
         TreeMap<String, String> ownersByCanonicalName = new TreeMap<>();
-        for (Map.Entry<Province, Nation> entry : game.board().owners().entrySet()) {
+        for (Map.Entry<Province, Nation> entry : source.board().owners().entrySet()) {
             ownersByCanonicalName.put(
                     Province.canonical(entry.getKey()).name(),
                     entry.getValue().name());
@@ -44,10 +101,11 @@ public final class BoardSnapshotMapper {
         ownersByCanonicalName.forEach(owners::put);
 
         return new BoardSnapshot(
-                game.year(),
-                game.phase().name(),
+                source.year(),
+                source.phaseName(),
                 units,
                 owners);
+
     }
 
 }
