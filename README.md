@@ -119,3 +119,106 @@ Notes:
 - This change does not require static asset hosting; callers can serve existing `resources/ui/...` assets separately if desired.
 
 ---
+
+## Experimental movement strategy
+
+The route-based movement strategy is an opt-in API. It composes the existing
+`RoutePreferences` model, one named `PredictionPolicy`, complete national plans,
+complete opponent scenarios, and the existing `OutcomeEvaluator`. Callers
+supply the objectives, evaluator/scoring parameters, movement processor, and
+search limits. A returned ranking is only a ranking under those supplied
+settings; it is not a claim of tactical strength or a calibrated probability.
+The recommendation path does not resolve orders against or mutate the caller's
+board, game, histories, or trained model.
+
+`analysis.MovementStrategy.recommend(...)` accepts Spring or Fall movement only.
+It throws `IllegalArgumentException` for retreat/adjustment phases and history
+entries for unknown or inactive units. Omitted histories mean position-only
+evidence is requested; supplied histories must be past-only. A nation with no
+active units, missing own/opponent evidence, or own predictions emptied by
+filtering returns an explicit abstention status with diagnostics, never
+synthetic holds. With no opponents, the scenario generator supplies one
+complete empty-order scenario. The four explicit policies are `ORIGINAL`,
+`REFERENCE_FILTERED`, `YEAR_POOLED_SELECTION`, and
+`YEAR_POOLED_SELECTION_THEN_REFERENCE_FILTERED`. Filtering runs after selection
+and before candidate truncation; no threshold retry or full legality check is
+performed.
+
+The synthetic integration demonstration does not require a route corpus:
+
+```sh
+java -cp "$CP" _app.MovementStrategyDemoApp
+```
+
+### Four-policy experiment
+
+`_app.FourPolicyExperimentApp` explicitly runs the paired factorial
+comparison on TRAINING and VALIDATION partitions only:
+
+| Policy | Selection and filtering |
+| --- | --- |
+| A `ORIGINAL` | Existing exact, suffix, position, and enabled fallback behavior |
+| B `REFERENCE_FILTERED` | A, then filter incompatible support/convoy references |
+| C `YEAR_POOLED_SELECTION` | Independently qualifying year-pooled override |
+| D `YEAR_POOLED_SELECTION_THEN_REFERENCE_FILTERED` | C, then filter |
+
+The report contains structured immutable overall and year-specific reports,
+paired gains and losses for all six policy pairs, label exclusions, evidence
+and candidate-removal audits, and scenario counts. A paired net equals gains
+minus losses; policies may improve one stage and lose another. D's filtering
+audit compares its selected distribution against C before filtering. These
+are exact-submission imitation funnels and are not evidence that any variant
+is the best production policy.
+
+The experiment fixes minimum observations at 3, maximum suffix at 4, per-unit
+choices at 4, national plans at 8, and opponent scenarios at 32. It trains one
+model, evaluates the same eligible submissions for all four policies, and
+never supplies reserved TEST records. Do not tune on TEST.
+
+This repository has no Maven or Gradle build. With JDK 25 and the existing
+JetBrains annotations and SQLite JDBC jars available, set the jar paths and run
+the following from the repository root:
+
+```sh
+export ANNOTATIONS_JAR=/path/to/annotations-26.0.2.jar
+export SQLITE_JAR=/path/to/sqlite-jdbc-3.53.4.0.jar
+mkdir -p out
+javac --release 25 -cp "$ANNOTATIONS_JAR" -d out $(find src -name '*.java')
+export CP="out:$ANNOTATIONS_JAR:$SQLITE_JAR"
+java -cp "$CP" _app.MovementStrategyDemoApp
+java -cp "$CP" _app.FourPolicyExperimentApp /absolute/path/to/diplobn-catalog.sqlite
+```
+
+For focused route, policy, scenario, and strategy regressions, run:
+
+```sh
+for check in \
+  RoutePreferencesSelfCheck YearPoolingSelfCheck OccupancyRelaxationSelfCheck \
+  CandidateSelectionAuditSelfCheck StageCoverageSelfCheck \
+  YearPooledSelectionSelfCheck ReferenceFilteringSelfCheck \
+  JointOrdersSelfCheck OpponentScenariosSelfCheck OutcomeEvaluatorSelfCheck \
+  HeldOutEvaluationSelfCheck RouteCorpusSelfCheck ScenarioCoverageSelfCheck \
+  ScenarioWidthComparisonSelfCheck FourPolicyEvaluationSelfCheck \
+  MovementStrategySelfCheck
+do
+  java -cp "$CP" "testing.$check" || exit 1
+done
+java -cp "$CP" _app.TestCaseManager
+```
+
+`RouteCorpusSelfCheck` requires SQLite JDBC. `TestCaseManager` runs the
+repository's DATC, phase, and parser checks; existing known DATC limitations
+remain unchanged. Before interpreting corpus output, verify that the corpus
+partition and replay compatibility report is valid and that TEST remains
+reserved. Compare all four policies on the same TRAINING/VALIDATION inputs;
+report gains, losses, and denominators together. Treat a change as a candidate
+for further study only if paired outcomes, coverage losses, year-specific
+variation, and data limitations are understood. Neither an imitation gain nor
+these validation records establish tactical strength or justify selecting a
+production winner.
+
+No corpus experiment was run for this change: the local SQLite corpus and JDBC
+runtime were unavailable. Therefore, no new corpus measurements are claimed;
+combined-policy results remain pending. Previously supplied corpus figures
+are historical user-run results, not reproduced or extended here. The openings
+browser and its collapsed historical-results section remain unchanged.
