@@ -20,11 +20,13 @@ public final class StageCoverageEvaluation {
     private final int plansPerNation;
     private final int scenarioLimit;
     private final long minimumObservations;
+
     private final boolean yearPooledFallback;
+    private final boolean occupancyRelaxedFallback;
 
 
     public StageCoverageEvaluation() {
-        this(4, 4, 8, 32, 3, false);
+        this(4, 4, 8, 32, 3, false, false);
     }
 
     public StageCoverageEvaluation(
@@ -34,9 +36,8 @@ public final class StageCoverageEvaluation {
             int scenarioLimit,
             long minimumObservations) {
 
-        this(
-                maximumSuffix, choicesPerUnit, plansPerNation,
-                scenarioLimit, minimumObservations, false);
+        this(maximumSuffix, choicesPerUnit, plansPerNation,
+                scenarioLimit, minimumObservations, false, false);
 
     }
 
@@ -48,6 +49,21 @@ public final class StageCoverageEvaluation {
             long minimumObservations,
             boolean yearPooledFallback) {
 
+        this(maximumSuffix, choicesPerUnit, plansPerNation,
+                scenarioLimit, minimumObservations,
+                yearPooledFallback, false);
+
+    }
+
+    public StageCoverageEvaluation(
+            int maximumSuffix,
+            int choicesPerUnit,
+            int plansPerNation,
+            int scenarioLimit,
+            long minimumObservations,
+            boolean yearPooledFallback,
+            boolean occupancyRelaxedFallback) {
+
         if (maximumSuffix < 0)
             throw new IllegalArgumentException(
                     "Maximum suffix must not be negative");
@@ -57,12 +73,17 @@ public final class StageCoverageEvaluation {
             throw new IllegalArgumentException(
                     "Evaluation limits must be positive");
 
+        if (occupancyRelaxedFallback && !yearPooledFallback)
+            throw new IllegalArgumentException(
+                    "Occupancy relaxation requires year pooling");
+
         this.maximumSuffix = maximumSuffix;
         this.choicesPerUnit = choicesPerUnit;
         this.plansPerNation = plansPerNation;
         this.scenarioLimit = scenarioLimit;
         this.minimumObservations = minimumObservations;
         this.yearPooledFallback = yearPooledFallback;
+        this.occupancyRelaxedFallback = occupancyRelaxedFallback;
 
     }
 
@@ -88,12 +109,15 @@ public final class StageCoverageEvaluation {
         long started = System.nanoTime();
 
         progress.println("Prediction policy: "
-                + (yearPooledFallback
-                ? "baseline + final cross-year POSITION fallback"
+                + (occupancyRelaxedFallback
+                ? "baseline + year pooling + occupancy-relaxed fallback"
+                : yearPooledFallback
+                ? "baseline + year pooling"
                 : "baseline"));
 
-        RoutePreferences preferences =
-                new RoutePreferences(null, maximumSuffix, yearPooledFallback);
+        RoutePreferences preferences = new RoutePreferences(
+                null, maximumSuffix,
+                yearPooledFallback, occupancyRelaxedFallback);
 
         for (int index = 0; index < training.size(); index++) {
 
@@ -169,15 +193,14 @@ public final class StageCoverageEvaluation {
         BoardState board = movement.boardBefore();
 
         Map<UnitId, RoutePrediction> predictions = new LinkedHashMap<>();
-        Map<UnitId, RoutePrediction> positionPredictions = new LinkedHashMap<>();
 
-        Map<Nation, List<UnitId>> nationalUnits = new EnumMap<>(Nation.class);
+        Map<UnitId, RoutePreferences.PositionEvidence> evidence =
+                new LinkedHashMap<>();
 
-        /*
-         * Build both maps for every active unit before reading actual orders.
-         * The selected prediction drives candidate generation.
-         * The position-only prediction is used exclusively for the audit.
-         */
+        Map<Nation, List<UnitId>> nationalUnits =
+                new EnumMap<>(Nation.class);
+
+        // No current-phase actual orders are read in this loop.
         for (UnitId unit : board.locations().keySet()) {
 
             nationalUnits.computeIfAbsent(
@@ -187,7 +210,7 @@ public final class StageCoverageEvaluation {
                     histories.route(game.id(), unit),
                     movement.gameMoment());
 
-            RoutePrediction selected = Objects.requireNonNull(
+            predictions.put(unit, Objects.requireNonNull(
                     preferences.predict(
                             game.rulesetId(),
                             movement.gameMoment(),
@@ -195,33 +218,18 @@ public final class StageCoverageEvaluation {
                             unit,
                             history,
                             minimumObservations),
-                    "RoutePreferences.predict returned null for " + unit);
+                    "Missing selected prediction for " + unit));
 
-            predictions.put(unit, selected);
-
-            RoutePrediction positionOnly = Objects.requireNonNull(
-                    preferences.predict(
-                            game.rulesetId(),
-                            movement.gameMoment(),
-                            board,
-                            unit,
-                            List.of(),
-                            1),
-                    "Position prediction returned null for " + unit);
-
-            /*
-             * Keep the audit year-specific. With minimum 1, reaching pooled
-             * fallback means the year-specific position context was absent.
-             */
-            if (positionOnly.basis().equals("POSITION_YEAR_POOLED"))
-                positionOnly = new RoutePrediction("NONE", 0, Map.of());
-
-            positionPredictions.put(unit, positionOnly);
+            evidence.put(unit, preferences.positionEvidence(
+                    game.rulesetId(),
+                    movement.gameMoment(),
+                    board,
+                    unit));
 
         }
 
         if (!predictions.keySet().equals(board.locations().keySet())
-                || !positionPredictions.keySet().equals(board.locations().keySet()))
+                || !evidence.keySet().equals(board.locations().keySet()))
             throw new IllegalStateException(
                     "Prediction maps must cover every active unit");
 
@@ -273,13 +281,8 @@ public final class StageCoverageEvaluation {
             overall.units.observe(predicted, inDistribution, retained);
             annual.units.observe(predicted, inDistribution, retained);
 
-            audit(
-                    overall, board, prediction,
-                    positionPredictions.get(unit), label);
-
-            audit(
-                    annual, board, prediction,
-                    positionPredictions.get(unit), label);
+            audit(overall, board, prediction, evidence.get(unit), label);
+            audit(annual, board, prediction, evidence.get(unit), label);
 
         }
 
@@ -409,39 +412,102 @@ public final class StageCoverageEvaluation {
             Bucket bucket,
             BoardState board,
             RoutePrediction selected,
-            RoutePrediction position,
+            RoutePreferences.PositionEvidence evidence,
             Order actual) {
+
+        RoutePrediction position = evidence.yearSpecific();
+        RoutePrediction pooled = evidence.yearPooled();
+        RoutePrediction relaxed = evidence.occupancyRelaxed();
+
+        /*
+         * Measure why the year-pooled model still abstains.
+         * These counters include decisions subsequently rescued by relaxation.
+         */
+        boolean pooledEligible = pooled.observations() >= minimumObservations;
+
+        if (yearPooledFallback
+                && (selected.counts().isEmpty()
+                || selected.basis().equals("POSITION_OCCUPANCY_RELAXED"))) {
+
+            if (pooledEligible)
+                throw new IllegalStateException(
+                        "Skipped sufficient year-pooled evidence");
+
+            if (pooled.counts().isEmpty())
+                bucket.pooledAbsent++;
+            else
+                bucket.pooledSparse++;
+
+        }
+
+        if (selected.basis().equals("POSITION_OCCUPANCY_RELAXED")) {
+
+            if (!occupancyRelaxedFallback
+                    || selected.observations() < minimumObservations
+                    || !selected.equals(relaxed)
+                    || position.observations() >= minimumObservations
+                    || pooledEligible)
+                throw new IllegalStateException(
+                        "Invalid occupancy-relaxed fallback selection");
+
+            bucket.relaxed++;
+            bucket.relaxedGameTotal = Math.addExact(
+                    bucket.relaxedGameTotal,
+                    evidence.occupancyRelaxedGames());
+
+            if (evidence.occupancyRelaxedGames() < minimumObservations)
+                bucket.relaxedFewGames++;
+
+            if (topContains(board, selected, actual, choicesPerUnit))
+                bucket.relaxedHits++;
+
+            auditReferences(bucket, board, selected);
+            return;
+
+        }
 
         if (selected.basis().equals("POSITION_YEAR_POOLED")) {
 
-            if (selected.observations() < minimumObservations)
+            if (!yearPooledFallback
+                    || selected.observations() < minimumObservations
+                    || !selected.equals(pooled)
+                    || position.observations() >= minimumObservations)
                 throw new IllegalStateException(
-                        "Pooled prediction did not meet the evidence threshold");
+                        "Invalid year-pooled fallback selection");
 
             bucket.yearPooled++;
+            bucket.pooledGameTotal = Math.addExact(
+                    bucket.pooledGameTotal, evidence.yearPooledGames());
+
+            if (evidence.yearPooledGames() < minimumObservations)
+                bucket.pooledFewGames++;
 
             if (topContains(board, selected, actual, choicesPerUnit))
                 bucket.yearPooledHits++;
 
-            if (position.counts().isEmpty()) {
-
+            if (position.counts().isEmpty())
                 bucket.yearPooledNoContext++;
-
-            } else {
-
-                if (position.observations() >= minimumObservations)
-                    throw new IllegalStateException(
-                            "Pooled fallback replaced sufficient year-specific evidence");
-
+            else
                 bucket.yearPooledBelowThreshold++;
-
-            }
 
             return;
 
         }
 
         if (selected.counts().isEmpty()) {
+
+            if (occupancyRelaxedFallback) {
+
+                if (relaxed.observations() >= minimumObservations)
+                    throw new IllegalStateException(
+                            "Prediction NONE despite sufficient relaxed evidence");
+
+                if (relaxed.counts().isEmpty())
+                    bucket.relaxedAbsent++;
+                else
+                    bucket.relaxedSparse++;
+
+            }
 
             if (position.counts().isEmpty()) {
                 bucket.noPositionContext++;
@@ -482,11 +548,11 @@ public final class StageCoverageEvaluation {
 
         bucket.broaderPosition++;
 
-        boolean selectedHit = topContains(
-                board, selected, actual, choicesPerUnit);
+        boolean selectedHit =
+                topContains(board, selected, actual, choicesPerUnit);
 
-        boolean positionHit = topContains(
-                board, position, actual, choicesPerUnit);
+        boolean positionHit =
+                topContains(board, position, actual, choicesPerUnit);
 
         if (selectedHit)
             bucket.selectedHits++;
@@ -499,6 +565,56 @@ public final class StageCoverageEvaluation {
 
         if (selectedHit && !positionHit)
             bucket.positionLosses++;
+
+    }
+
+    private void auditReferences(
+            Bucket bucket,
+            BoardState board,
+            RoutePrediction prediction) {
+
+        List<Order> ranked = JointOrders.rankedOrders(board, prediction);
+
+        for (Order order : ranked.subList(
+                0, Math.min(choicesPerUnit, ranked.size()))) {
+
+            bucket.relaxedRetainedCandidates++;
+
+            boolean support =
+                    order.orderType() == domain.OrderType.SUPPORT;
+
+            boolean convoy =
+                    order.orderType() == domain.OrderType.CONVOY;
+
+            if (!support && !convoy)
+                continue;
+
+            bucket.referenceCandidates++;
+
+            boolean occupied = false;
+            boolean armyPresent = false;
+
+            for (var entry : board.locations().entrySet()) {
+
+                if (order.target() == null
+                        || domain.Province.canonical(entry.getValue())
+                        != domain.Province.canonical(order.target()))
+                    continue;
+
+                occupied = true;
+
+                if (entry.getKey().unitType() == domain.UnitType.ARMY)
+                    armyPresent = true;
+
+            }
+
+            if (!occupied) {
+                bucket.missingReference++;
+            } else if (convoy && !armyPresent) {
+                bucket.convoyNonArmy++;
+            }
+
+        }
 
     }
 
@@ -621,6 +737,23 @@ public final class StageCoverageEvaluation {
         private long yearPooledHits;
         private long yearPooledNoContext;
         private long yearPooledBelowThreshold;
+
+        private long pooledAbsent;
+        private long pooledSparse;
+        private long pooledGameTotal;
+        private long pooledFewGames;
+
+        private long relaxed;
+        private long relaxedHits;
+        private long relaxedGameTotal;
+        private long relaxedFewGames;
+        private long relaxedAbsent;
+        private long relaxedSparse;
+
+        private long relaxedRetainedCandidates;
+        private long referenceCandidates;
+        private long missingReference;
+        private long convoyNonArmy;
 
     }
 
@@ -804,6 +937,37 @@ public final class StageCoverageEvaluation {
                     bucket.yearPooledNoContext,
                     bucket.yearPooledBelowThreshold);
 
+            output.printf(
+                    "  Year-pooling abstentions: absent=%d below-cutoff=%d%n",
+                    bucket.pooledAbsent, bucket.pooledSparse);
+
+            output.printf(
+                    "  Pooled supporting games: decision-weighted mean=%s; "
+                            + "predictions supported by fewer than the observation "
+                            + "threshold in distinct games=%d%n",
+                    mean(bucket.pooledGameTotal, bucket.yearPooled),
+                    bucket.pooledFewGames);
+
+            output.printf(
+                    "  Occupancy-relaxed=%d top-K hits=%d; "
+                            + "supporting-game mean=%s; few-game predictions=%d%n",
+                    bucket.relaxed,
+                    bucket.relaxedHits,
+                    mean(bucket.relaxedGameTotal, bucket.relaxed),
+                    bucket.relaxedFewGames);
+
+            output.printf(
+                    "  Relaxed fallback still absent=%d below-cutoff=%d%n",
+                    bucket.relaxedAbsent, bucket.relaxedSparse);
+
+            output.printf(
+                    "  Relaxed retained candidates=%d; support/convoy candidates=%d; "
+                            + "missing referenced unit=%d; convoy references non-army=%d%n",
+                    bucket.relaxedRetainedCandidates,
+                    bucket.referenceCandidates,
+                    bucket.missingReference,
+                    bucket.convoyNonArmy);
+
         }
 
         private static String percent(long numerator, long denominator) {
@@ -811,6 +975,14 @@ public final class StageCoverageEvaluation {
             return denominator == 0 ? "n/a"
                     : String.format(Locale.ROOT, "%.2f%%",
                     100.0 * numerator / denominator);
+
+        }
+
+        private static String mean(long total, long count) {
+
+            return count == 0
+                    ? "n/a"
+                    : String.format(Locale.ROOT, "%.2f", (double) total / count);
 
         }
 
