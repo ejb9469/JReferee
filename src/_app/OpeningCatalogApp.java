@@ -1,21 +1,15 @@
 package _app;
 
 import adjudication.Order;
-import analysis.openings.Classifier;
+import analysis.openings.Catalog;
+import analysis.openings.Opening;
 import domain.Nation;
-import game.GameMoment;
-import game.GamePhase;
-import io.catalog.GameSource;
-import parsing.diplobn.DiploBNAdjudicationOrderTranslator;
 import parsing.diplobn.DiploBNGame;
-import parsing.diplobn.DiploBNOrder;
-import parsing.diplobn.DiploBNParser;
-import parsing.diplobn.DiploBNPhase;
 
 import java.io.PrintStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.*;
 
 import static domain.Constants.*;
@@ -26,6 +20,8 @@ public class OpeningCatalogApp {
     private static final Path DEFAULT_DATABASE_PATH =
             Path.of("data", "diplobn-catalog.sqlite");
 
+    private static final short APPEARANCE_LIMIT = 1;
+
 
     private OpeningCatalogApp() {     }
 
@@ -33,31 +29,21 @@ public class OpeningCatalogApp {
     public static void main(String[] args) throws SQLException, ClassNotFoundException {
 
         Path databasePath = databasePath(args).toAbsolutePath().normalize();
+        Catalog catalog = Catalog.load(databasePath);
 
-        if (!Files.isRegularFile(databasePath))
-            throw new IllegalArgumentException("Database not found: " + databasePath);
-
-        Class.forName("org.sqlite.JDBC");
-
-        // URI encoding also handles spaces and other special path characters.
-        String url = "jdbc:sqlite:" + databasePath.toUri().toASCIIString() + "?mode=ro";
         boolean color = System.getenv("NO_COLOR") == null
                 && !"dumb".equalsIgnoreCase(System.getenv("TERM"));
 
-        try (Connection connection = DriverManager.getConnection(url)) {
+        System.out.println();
+        System.out.println(styled(
+                "OPENING CATALOG",
+                ANSI_BOLD + ANSI_CYAN, color));
+        System.out.println(styled(
+                "Opening catalog: " + databasePath,
+                ANSI_DIM, color));
+        System.out.println();
 
-            System.out.println();
-            System.out.println(styled(
-                    "OPENING CATALOG",
-                    ANSI_BOLD + ANSI_CYAN, color));
-            System.out.println(styled(
-                    "Opening catalog: " + databasePath,
-                    ANSI_DIM, color));
-            System.out.println();
-
-            printReport(connection, System.out, color);
-
-        }
+        printReport(catalog, System.out, color);
 
     }
 
@@ -75,227 +61,93 @@ public class OpeningCatalogApp {
     }
 
 
-    // Opening extraction \\
+    // Existing entry points delegate to the shared catalog. \\
 
     public static Map<Nation, String> openings(DiploBNGame game) {
-        return openings(openingPhase(game));
+        return Catalog.openings(game);
     }
-
-    private static DiploBNPhase openingPhase(DiploBNGame game) {
-
-        Objects.requireNonNull(game, "game");
-
-        DiploBNPhase opening = null;
-
-        for (DiploBNPhase phase : game.phases()) {
-
-            if (phase.sourcePhase() != 19011
-                    || phase.gamePhase() != GamePhase.SPRING_MOVEMENT)
-                continue;
-
-            // Do not guess which snapshot is authoritative.
-            if (opening != null)
-                throw new IllegalArgumentException("Multiple Spring 1901 movement snapshots");
-
-            opening = phase;
-
-        }
-
-        if (opening == null)
-            throw new IllegalArgumentException("Missing Spring 1901 movement snapshot");
-
-        return opening;
-
-    }
-
-    private static Map<Nation, String> openings(DiploBNPhase opening) {
-
-        Classifier classifier = new Classifier(
-                new GameMoment(1901, GamePhase.SPRING_MOVEMENT),
-                opening.board(),
-                opening.movementOrders()
-        );
-
-        Map<Nation, String> result = new EnumMap<>(Nation.class);
-
-        for (Nation nation : Nation.values())
-            if (classifier.isComplete(nation))
-                result.put(nation, classifier.signature(nation));
-
-        return Collections.unmodifiableMap(result);
-
-    }
-
-    private static List<String> formattedOrders(DiploBNPhase opening, Nation nation) {
-
-        DiploBNAdjudicationOrderTranslator translator =
-                new DiploBNAdjudicationOrderTranslator();
-
-        List<Order> orders = new ArrayList<>();
-
-        for (DiploBNOrder source : opening.sourceMovementOrders())
-            if (source.owner() == nation)
-                orders.add(translator.translate(source, opening.board()));
-
-        // Use the adjudication package's sorting and notation.
-        Collections.sort(orders);
-
-        List<String> lines = new ArrayList<>();
-
-        for (Order order : orders)
-            lines.add(order.toString());
-
-        return List.copyOf(lines);
-
-    }
-
-
-    // Catalog report \\
 
     public static void printReport(Connection connection, PrintStream output) throws SQLException {
-        // Keep captured reports and existing tests free of escape sequences.
         printReport(connection, output, false);
     }
 
     public static void printReport(Connection connection, PrintStream output,
                                    boolean color) throws SQLException {
 
-        Objects.requireNonNull(connection, "connection");
+        Objects.requireNonNull(output, "output");
+        printReport(Catalog.load(connection), output, color);
+
+    }
+
+    public static void printReport(Catalog catalog, PrintStream output, boolean color) {
+
+        Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(output, "output");
 
-        Map<Nation, Map<String, List<String>>> occurrences = new EnumMap<>(Nation.class);
-        Map<String, List<String>> orderLines = new HashMap<>();
-        DiploBNParser parser = new DiploBNParser();
+        for (String diagnostic : catalog.diagnostics())
+            output.println(styled(diagnostic,
+                    diagnostic.startsWith("SKIP ") ? ANSI_ORANGE : ANSI_YELLOW, color));
 
-        int scanned = 0;
-        int represented = 0;
-        int skipped = 0;
-        int nationalOpenings = 0;
-
-        String sql = """
-                SELECT catalog_id, source_type, external_key, source_payload
-                FROM catalog_game
-                ORDER BY catalog_id
-                """;
-
-        try (PreparedStatement statement = connection.prepareStatement(sql);
-             ResultSet rows = statement.executeQuery()) {
-
-            while (rows.next()) {
-
-                scanned++;
-
-                String source = rows.getString("source_type");
-                String reference = source + "/" + rows.getString("external_key");
-
-                if (!GameSource.DIPLOBN.name().equals(source)) {
-                    printSkip(output, reference, "unsupported source", color);
-                    skipped++;
-                    continue;
-                }
-
-                DiploBNPhase opening;
-                Map<Nation, String> extracted;
-
-                try {
-                    DiploBNGame game = parser.parse(rows.getString("source_payload"));
-                    opening = openingPhase(game);
-                    extracted = openings(opening);
-                } catch (IllegalArgumentException exception) {
-                    printSkip(output, reference, exception.getMessage(), color);
-                    skipped++;
-                    continue;
-                }
-
-                if (extracted.isEmpty()) {
-                    printSkip(output, reference, "no complete national openings", color);
-                    skipped++;
-                    continue;
-                }
-
-                Set<Nation> missing = EnumSet.allOf(Nation.class);
-                missing.removeAll(extracted.keySet());
-
-                if (!missing.isEmpty()) {
-                    output.println(
-                            styled("INCOMPLETE", ANSI_BOLD + ANSI_YELLOW, color)
-                                    + " " + styled(reference, ANSI_DIM, color)
-                                    + ": " + nationNames(missing, color));
-                }
-
-                represented++;
-                nationalOpenings += extracted.size();
-
-                for (Map.Entry<Nation, String> entry : extracted.entrySet()) {
-
-                    Nation nation = entry.getKey();
-                    String signature = entry.getValue();
-
-                    Map<String, List<String>> bySignature = occurrences.computeIfAbsent(
-                            nation, ignored -> new TreeMap<>());
-
-                    bySignature.computeIfAbsent(
-                            signature, ignored -> new ArrayList<>()).add(reference);
-
-                    // One representative order listing per exact opening.
-                    if (!orderLines.containsKey(signature))
-                        orderLines.put(signature, formattedOrders(opening, nation));
-
-                }
-
-            }
-
-        }
+        List<Opening> displayed = catalog.distinct(APPEARANCE_LIMIT);
+        int displayedAppearances = appearances(catalog, displayed);
 
         output.println();
-        output.println(styled("Games scanned: " + scanned, ANSI_CYAN, color));
-        output.println(styled("Games represented: " + represented, ANSI_GREEN, color));
+        output.println(styled("Games scanned: " + catalog.scanned(), ANSI_CYAN, color));
+        output.println(styled("Games represented: " + catalog.represented(), ANSI_GREEN, color));
         output.println(styled(
-                "Games skipped: " + skipped,
-                skipped == 0 ? ANSI_DIM : ANSI_ORANGE, color));
+                "Games skipped: " + catalog.skipped(),
+                catalog.skipped() == 0 ? ANSI_DIM : ANSI_ORANGE, color));
         output.println(styled(
-                "Complete national openings: " + nationalOpenings,
+                "Complete national openings: " + catalog.nationalOpenings(),
                 ANSI_BOLD + ANSI_CYAN, color));
+
+        output.println();
+        output.println(styled(
+                "Showing openings seen more than " + APPEARANCE_LIMIT + " time(s).",
+                ANSI_BOLD, color));
+        output.println(styled(
+                "Displayed: " + displayed.size() + " distinct opening(s), "
+                        + displayedAppearances + " national appearance(s)",
+                ANSI_GREEN, color));
+        output.println(styled(
+                "Hidden: " + (catalog.entries().size() - displayed.size())
+                        + " distinct opening(s)",
+                ANSI_DIM, color));
 
         for (Nation nation : Nation.values()) {
 
-            Map<String, List<String>> bySignature = occurrences.getOrDefault(nation, Map.of());
+            List<Opening> all = catalog.openings(nation);
+            List<Opening> selected = catalog.distinct(all, APPEARANCE_LIMIT);
 
-            int total = 0;
-
-            for (List<String> games : bySignature.values())
-                total += games.size();
+            int total = appearances(catalog, all);
+            int shown = appearances(catalog, selected);
 
             output.printf("%n%s%s%n",
-                    nationName(nation, color),
+                    nationText(nation.name(), nation, color),
                     styled(
                             ": " + total + " complete opening(s), "
-                                    + bySignature.size() + " distinct",
+                                    + all.size() + " distinct",
                             ANSI_BOLD, color));
 
-            List<Map.Entry<String, List<String>>> ranked =
-                    new ArrayList<>(bySignature.entrySet());
+            output.println(styled(
+                    "  Showing " + selected.size() + " distinct opening(s), "
+                            + shown + " appearance(s)",
+                    ANSI_DIM, color));
 
-            ranked.sort((first, second) -> {
+            if (selected.isEmpty()) {
+                output.println(styled("  No openings exceed the appearance limit.", ANSI_DIM, color));
+                continue;
+            }
 
-                int countComparison = Integer.compare(
-                        second.getValue().size(), first.getValue().size());
-
-                if (countComparison != 0)
-                    return countComparison;
-
-                return first.getKey().compareTo(second.getKey());
-
-            });
-
-            for (Map.Entry<String, List<String>> entry : ranked) {
+            // Catalog order is already descending frequency within each nation.
+            for (Opening opening : selected) {
 
                 output.println("  " + styled(
-                        entry.getValue().size() + " game(s)",
+                        catalog.count(opening) + " game(s)",
                         ANSI_BOLD + ANSI_GREEN, color));
 
-                for (String order : orderLines.get(entry.getKey()))
-                    output.println("    " + nationText(order, nation, color));
+                for (Order order : opening.displayOrders())
+                    output.println("    " + nationText(order.toString(), nation, color));
 
                 output.println();
 
@@ -305,22 +157,19 @@ public class OpeningCatalogApp {
 
     }
 
+    private static int appearances(Catalog catalog, Collection<? extends Opening> openings) {
+
+        int total = 0;
+
+        for (Opening opening : openings)
+            total = Math.addExact(total, catalog.count(opening));
+
+        return total;
+
+    }
+
 
     // Console styling \\
-
-    private static void printSkip(PrintStream output, String reference,
-                                  String reason, boolean color) {
-
-        output.println(
-                styled("SKIP", ANSI_BOLD + ANSI_RED, color)
-                        + " " + styled(reference, ANSI_DIM, color)
-                        + ": " + styled(reason, ANSI_ORANGE, color));
-
-    }
-
-    private static String nationName(Nation nation, boolean color) {
-        return nationText(nation.name(), nation, color);
-    }
 
     private static String nationText(String text, Nation nation, boolean color) {
 
@@ -328,17 +177,6 @@ public class OpeningCatalogApp {
 
         return styled(text,
                 background + ANSI_BOLD + nationColor(nation), color);
-
-    }
-
-    private static String nationNames(Collection<Nation> nations, boolean color) {
-
-        StringJoiner names = new StringJoiner(", ", "[", "]");
-
-        for (Nation nation : nations)
-            names.add(nationName(nation, color));
-
-        return names.toString();
 
     }
 

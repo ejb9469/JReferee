@@ -56,4 +56,41 @@ public final class OpeningCombination extends Opening {
         return openingIds;
     }
 
+
+    // Country-grouped presentation, without repeating every component ID. \\
+
+    @Override
+    public String toString() {
+
+        String newline = System.lineSeparator();
+        StringBuilder out = new StringBuilder(id());
+
+        for (Map.Entry<Nation, Opening> entry : openings.entrySet()) {
+
+            out.append(newline)
+                    .append(entry.getKey().name())
+                    .append(':');
+
+            for (adjudication.Order order : entry.getValue().displayOrders())
+                out.append(newline).append("    ").append(order);
+
+        }
+
+        return out.toString();
+
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        // Component maps are derived from the canonical whole-board orders.
+        return super.equals(other);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
+
+    // Comparable<Opening> and compareTo(Opening) are inherited.
+
 }

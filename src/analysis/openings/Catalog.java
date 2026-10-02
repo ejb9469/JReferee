@@ -156,7 +156,7 @@ public class Catalog {
                 for (Opening opening : national.values())
                     record(openings, counts, opening);
 
-                // Only observed, complete, same-game combinations are counted.
+                // One combination occurrence per complete game, not per nation.
                 if (combination != null)
                     record(openings, counts, combination);
 
@@ -232,7 +232,7 @@ public class Catalog {
 
     public static Map<Nation, String> openings(DiploBNGame game) {
 
-        // Preserve the old signature-returning API for existing callers.
+        // Preserve the signature-returning API.
         Map<Nation, String> result = new EnumMap<>(Nation.class);
 
         for (Map.Entry<Nation, Opening> entry : extract(game).entrySet())
@@ -320,6 +320,61 @@ public class Catalog {
         return count(opening.id());
 
     }
+
+
+    // Frequency split: unique <= limit, distinct > limit. \\
+
+    public List<Opening> unique(int limit) {
+        return unique(entries, limit);
+    }
+
+    public List<Opening> distinct(int limit) {
+        return distinct(entries, limit);
+    }
+
+    /**
+     * Observed candidates with between one and limit appearances, inclusive.
+     */
+    public <T extends Opening> List<T> unique(Collection<T> candidates, int limit) {
+        return selectFrequency(candidates, limit, false);
+    }
+
+    /**
+     * Observed candidates with strictly more than limit appearances.
+     */
+    public <T extends Opening> List<T> distinct(Collection<T> candidates, int limit) {
+        return selectFrequency(candidates, limit, true);
+    }
+
+    private <T extends Opening> List<T> selectFrequency(
+            Collection<T> candidates, int limit, boolean above) {
+
+        Objects.requireNonNull(candidates, "candidates");
+
+        if (limit < 1)
+            throw new IllegalArgumentException("Appearance limit must be at least 1");
+
+        Set<T> selected = new LinkedHashSet<>();
+
+        for (T candidate : candidates) {
+
+            int appearances = count(candidate);
+
+            // An unknown opening is not a rare observed opening.
+            if (appearances == 0)
+                continue;
+
+            if (above ? appearances > limit : appearances <= limit)
+                selected.add(candidate);
+
+        }
+
+        return List.copyOf(selected);
+
+    }
+
+
+    // Unfiltered totals \\
 
     public List<String> diagnostics() {
         return diagnostics;

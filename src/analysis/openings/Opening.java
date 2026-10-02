@@ -11,7 +11,9 @@ import phase.Order;
 import java.util.*;
 
 
-public sealed class Opening permits OpeningCombination {
+public sealed class Opening
+        implements Comparable<Opening>
+        permits OpeningCombination {
 
     private final GameMoment moment;
     private final BoardState board;
@@ -45,10 +47,6 @@ public sealed class Opening permits OpeningCombination {
 
         EnumSet<Nation> scope = EnumSet.copyOf(nations);
 
-        if (scope.size() != 1 && !scope.equals(EnumSet.allOf(Nation.class)))
-            throw new IllegalArgumentException(
-                    "An opening must describe one nation or all seven nations");
-
         this.nations = Collections.unmodifiableSet(scope);
 
         for (Order order : this.orders)
@@ -56,7 +54,7 @@ public sealed class Opening permits OpeningCombination {
                 throw new IllegalArgumentException(
                         "Order belongs to a nation outside the opening: " + order.owner());
 
-        // Validates the phase, standard board, issuers, and duplicate orders.
+        // Validate submissions using their actual board locations.
         Classifier classifier = new Classifier(moment, board, this.orders);
         Nation[] selected = scope.toArray(new Nation[0]);
 
@@ -145,12 +143,15 @@ public sealed class Opening permits OpeningCombination {
     }
 
     @Override
-    public final String toString() {
+    public String toString() {
         return id + ": " + label();
     }
 
+
+    // Compare canonical identity, never unit UUIDs or occurrence counts. \\
+
     @Override
-    public final boolean equals(Object other) {
+    public boolean equals(Object other) {
 
         if (this == other)
             return true;
@@ -158,7 +159,6 @@ public sealed class Opening permits OpeningCombination {
         if (!(other instanceof Opening opening))
             return false;
 
-        // Compare canonical content as well as the hash.
         return id.equals(opening.id)
                 && signature.equals(opening.signature)
                 && nations.equals(opening.nations);
@@ -166,8 +166,40 @@ public sealed class Opening permits OpeningCombination {
     }
 
     @Override
-    public final int hashCode() {
+    public int hashCode() {
         return Objects.hash(id, signature, nations);
+    }
+
+    @Override
+    public final int compareTo(Opening other) {
+
+        Objects.requireNonNull(other, "other");
+
+        int comparison = Integer.compare(nations.size(), other.nations.size());
+
+        if (comparison != 0)
+            return comparison;
+
+        // Both scopes are backed by EnumSet, giving a consistent nation order.
+        Iterator<Nation> first = nations.iterator();
+        Iterator<Nation> second = other.nations.iterator();
+
+        while (first.hasNext()) {
+
+            comparison = first.next().compareTo(second.next());
+
+            if (comparison != 0)
+                return comparison;
+
+        }
+
+        comparison = signature.compareTo(other.signature);
+
+        if (comparison != 0)
+            return comparison;
+
+        return id.compareTo(other.id);
+
     }
 
 }

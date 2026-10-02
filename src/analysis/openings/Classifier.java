@@ -13,11 +13,8 @@ import java.util.*;
 
 
 /**
- * Categorizes submitted orders from the standard Spring 1901 position.<br>
- * Validation and matching engine behind `Opening`.<br><br>
- *
- * Matching preserves exact coast specifications and ignores unit UUIDs.
- * Orders are not adjudicated (and missing orders are not replaced with holds).
+ * Validation and matching engine behind Opening.
+ * Matching uses board locations, not unit UUIDs or creation origins.
  */
 public class Classifier {
 
@@ -30,7 +27,7 @@ public class Classifier {
 
 
     public Classifier(GameMoment moment, BoardState board,
-                             Collection<? extends Order> orders) {
+                      Collection<? extends Order> orders) {
 
         Objects.requireNonNull(moment, "moment");
 
@@ -46,22 +43,12 @@ public class Classifier {
     }
 
 
-    /**
-     * Identifies any supplied combination, including a single order.
-     *
-     * This does not assert completeness or that the board is a starting board.
-     * Every issuer must exist on the supplied board.
-     */
+    // Signatures and completeness \\
+
     public static String signature(BoardState board, Collection<? extends Order> orders) {
         return "orders-v1:" + String.join(";", keys(board, orders));
     }
 
-    /**
-     * Identifies the complete opening of the selected nations.
-     * With no arguments, selects all nations.
-     *
-     * Missing submissions cause an exception rather than becoming holds.
-     */
     public String signature(Nation... nations) {
 
         Set<Nation> scope = scope(nations);
@@ -81,19 +68,45 @@ public class Classifier {
 
     }
 
+
+    // Opening overloads reuse the existing matching logic. \\
+
+    public boolean matches(Opening opening) {
+        return matches(opening, true);
+    }
+
+    public boolean matches(Opening opening, boolean exact) {
+
+        Objects.requireNonNull(opening, "opening");
+
+        return matches(opening.board(), opening.orders(), exact);
+
+    }
+
+    public List<String> classify(Map<String, ? extends Opening> categories, boolean exact) {
+
+        Objects.requireNonNull(categories, "categories");
+
+        List<String> matching = new ArrayList<>();
+
+        for (Map.Entry<String, ? extends Opening> entry : categories.entrySet()) {
+
+            String name = requireCategoryName(entry.getKey());
+
+            if (matches(entry.getValue(), exact))
+                matching.add(name);
+
+        }
+
+        Collections.sort(matching);
+        return List.copyOf(matching);
+
+    }
+
+
     /**
-     * Tests a combination expressed using existing phase orders.
-     *
-     * requiredBoard supplies the locations of the pattern's issuing units.
-     * It must also represent the standard starting position, but its unit
-     * UUIDs need not match those of this classifier.
-     *
-     * When exact is false, additional orders are unrestricted.
-     * When exact is true, required must describe every starting unit of each
-     * nation it mentions. Other nations remain unrestricted.
-     *
-     * False means the pattern is not confirmed by the supplied orders;
-     * this includes missing required submissions.
+     * Exact matching covers every starting unit of the mentioned nations.
+     * Subset matching leaves unmentioned orders unrestricted.
      */
     public boolean matches(BoardState requiredBoard, Collection<? extends Order> required,
                            boolean exact) {
@@ -122,12 +135,6 @@ public class Classifier {
 
     }
 
-    /**
-     * Returns all confirmed category names, sorted alphabetically.
-     *
-     * Each map value contains the orders required by that category.
-     * All definitions use the same requiredBoard and matching mode.
-     */
     public List<String> classify(BoardState requiredBoard, Map<String, List<Order>> categories,
                                  boolean exact) {
 
@@ -137,10 +144,7 @@ public class Classifier {
 
         for (Map.Entry<String, List<Order>> entry : categories.entrySet()) {
 
-            String name = Objects.requireNonNull(entry.getKey(), "category name");
-
-            if (name.isBlank())
-                throw new IllegalArgumentException("Category names must not be blank");
+            String name = requireCategoryName(entry.getKey());
 
             if (matches(requiredBoard, entry.getValue(), exact))
                 matching.add(name);
@@ -149,6 +153,17 @@ public class Classifier {
 
         Collections.sort(matching);
         return List.copyOf(matching);
+
+    }
+
+    private static String requireCategoryName(String name) {
+
+        Objects.requireNonNull(name, "category name");
+
+        if (name.isBlank())
+            throw new IllegalArgumentException("Category names must not be blank");
+
+        return name;
 
     }
 
@@ -196,11 +211,9 @@ public class Classifier {
         return province == null ? "-" : province.name();
     }
 
-    /**
-     * Checks order structure, not geographical legality or adjudication results.
-     */
     private static void requireMovementOrder(Order order) {
 
+        // Structure only; classification does not adjudicate the orders.
         boolean valid = switch (order.orderType()) {
             case HOLD -> order.target() == null && order.auxiliaryTarget() == null;
             case MOVE -> order.target() != null && order.auxiliaryTarget() == null;
