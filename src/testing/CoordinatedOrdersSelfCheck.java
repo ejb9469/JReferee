@@ -21,6 +21,7 @@ public final class CoordinatedOrdersSelfCheck {
         coasts();
         boundedSearch();
         foreignCooperation();
+        consistentForeignAssumptions();
         stability();
         System.out.println("CoordinatedOrders checks passed.");
     }
@@ -141,6 +142,11 @@ public final class CoordinatedOrdersSelfCheck {
         require(generate(board(spa, gas), predictions(Order.hold(spa),
                 Order.supportHold(gas, Province.Spa))).plans().isEmpty(),
                 "Canonical reference confused with exact fleet coast");
+        require(generate(board(gas), predictions(Order.move(gas, Province.Mar))).plans().isEmpty(),
+                "Coastal fleet move bypassed Judge's sea-adjacency rule");
+        require(new JointOrders().generate(board(gas), Nation.ENGLAND,
+                predictions(Order.move(gas, Province.Mar))).size() == 1,
+                "Fleet path check leaked into raw historical generation");
     }
 
     private static void boundedSearch() {
@@ -180,12 +186,36 @@ public final class CoordinatedOrdersSelfCheck {
         require(new CoordinatedOrders(2, 1).generate(board(bur, pic), Nation.ENGLAND,
                 supportDomains, CoordinationMode.STRICT).plans().size() == 1,
                 "Later-assigned supported unit caused premature pruning");
+        var competingObligations = predictions(
+                Order.supportMove(bel, Province.Pic, Province.Bur));
+        competingObligations.put(bur, prediction(
+                Order.supportMove(bur, Province.Pic, Province.Par), 10, Order.hold(bur), 1));
+        competingObligations.put(pic, prediction(
+                Order.move(pic, Province.Bur), 2, Order.move(pic, Province.Par), 1));
+        var intersected = new CoordinatedOrders(2, 1).generate(board(bel, bur, pic),
+                Nation.ENGLAND, competingObligations, CoordinationMode.STRICT);
+        require(intersected.plans().size() == 1
+                        && intersected.plans().getFirst().orders().contains(Order.hold(bur)),
+                "Mutually conflicting obligations consumed the narrow beam before target assignment");
         var independent = predictions(Order.hold(bel), Order.hold(pic));
         independent.put(bel, prediction(Order.hold(bel), 2, Order.move(bel, Province.Hol), 1));
         var bounded = new CoordinatedOrders(2, 1).generate(board(bel, pic), Nation.ENGLAND,
                 independent, CoordinationMode.STRICT);
         require(bounded.diagnostics().beamTruncated(), "Beam pruning not observable");
         require(bounded.diagnostics().expandedCandidates() <= 4, "Unbounded enumeration");
+        Map<UnitId, RoutePrediction> budgetDomains = predictions(
+                Order.supportMove(bur, Province.Bel, Province.Pic));
+        budgetDomains.put(bel, prediction(Order.move(bel, Province.Hol), 10,
+                Order.move(bel, Province.Pic), 1));
+        var budget = new CoordinatedOrders(2, 1).generate(board(bel, bur), Nation.ENGLAND,
+                budgetDomains, CoordinationMode.STRICT);
+        require(budget.plans().isEmpty() && budget.diagnostics().beamTruncated()
+                        && budget.diagnostics().omittedChoices() == 0
+                        && !budget.exhaustedRetainedDomains(),
+                "Beam exhaustion falsely proved no coherent plan exists");
+        require(new CoordinatedOrders(2, 2).generate(board(bel, bur), Nation.ENGLAND,
+                budgetDomains, CoordinationMode.STRICT).plans().size() == 1,
+                "Beam-exhaustion fixture has no coherent alternative");
         require(generate(board, Map.of()).plans().isEmpty(), "Missing evidence invented holds");
         require(new CoordinatedOrders(1, 1).generate(board, Nation.FRANCE, Map.of(),
                 CoordinationMode.STRICT).plans().isEmpty(), "Absent nation invented orders");
@@ -248,6 +278,66 @@ public final class CoordinatedOrdersSelfCheck {
         require(board.locations().equals(before) && domains.size() == 2
                         && domains.get(nth).observations() == 1,
                 "Search mutated input");
+    }
+
+    private static void consistentForeignAssumptions() {
+        UnitId lon = unit(UnitType.ARMY, Province.Lon);
+        UnitId yor = unit(UnitType.ARMY, Province.Yor);
+        UnitId nth = foreign(UnitType.FLEET, Province.NTH);
+        var domains = predictions(Order.move(lon, Province.Nwy), Order.move(yor, Province.Bel));
+        require(conditional(board(lon, yor, nth), domains).plans().isEmpty(),
+                "One foreign fleet was promised two incompatible convoys");
+        UnitId eng = foreign(UnitType.FLEET, Province.ENG);
+        var alternatives = conditional(board(lon, yor, nth, eng),
+                predictions(Order.move(lon, Province.Bel), Order.move(yor, Province.Nwy)));
+        require(alternatives.plans().size() == 1
+                        && alternatives.diagnostics().conditionalPlans().values().iterator().next()
+                        .stream().anyMatch(text -> text.contains("ENG CONVOY Lon -> Bel")),
+                "Compatible alternative foreign convoy assignment was not found");
+        UnitId ownEng = unit(UnitType.FLEET, Province.ENG);
+        UnitId foreignLon = foreign(UnitType.ARMY, Province.Lon);
+        require(conditional(board(ownEng, foreignLon),
+                predictions(Order.supportMove(ownEng, Province.Lon, Province.IRI)))
+                .plans().isEmpty(), "Foreign army assumed to move into water");
+        UnitId ownNth = unit(UnitType.FLEET, Province.NTH);
+        UnitId foreignYor = foreign(UnitType.ARMY, Province.Yor);
+        require(conditional(board(ownNth, foreignYor),
+                predictions(Order.supportMove(ownNth, Province.Yor, Province.Bel)))
+                .plans().isEmpty(), "Foreign nonadjacent army move lacked a convoy route");
+        UnitId nwg = unit(UnitType.FLEET, Province.NWG);
+        require(conditional(board(nwg, yor, nth), predictions(
+                Order.supportMove(nwg, Province.NTH, Province.Nwy),
+                Order.move(yor, Province.Bel))).plans().isEmpty(),
+                "Foreign fleet simultaneously assumed to move and convoy");
+        UnitId bel = unit(UnitType.ARMY, Province.Bel);
+        UnitId bur = unit(UnitType.ARMY, Province.Bur);
+        UnitId pic = foreign(UnitType.ARMY, Province.Pic);
+        require(conditional(board(bel, bur, pic), predictions(
+                Order.supportHold(bel, Province.Pic),
+                Order.supportMove(bur, Province.Pic, Province.Par))).plans().isEmpty(),
+                "Foreign target simultaneously assumed stationary and moving");
+
+        List<UnitId> many = new ArrayList<>(List.of(lon, yor, nth));
+        for (Province province : List.of(Province.ADR, Province.AEG, Province.BAL,
+                Province.BLA, Province.BOT, Province.EAS, Province.ENG, Province.HEL,
+                Province.ION, Province.LYO, Province.MAO, Province.NAO))
+            many.add(foreign(UnitType.FLEET, province));
+        var limited = conditional(board(many.toArray(UnitId[]::new)), domains);
+        require(limited.plans().isEmpty() && limited.diagnostics().dependencySearchTruncated()
+                        && !limited.exhaustedRetainedDomains()
+                        && limited.diagnostics().dependencyAssignmentsExamined()
+                        <= CoordinatedOrders.FOREIGN_ASSIGNMENT_LIMIT,
+                "Foreign-assignment budget exhaustion was misreported or unbounded");
+    }
+
+    private static CoordinatedOrders.Result conditional(BoardState board,
+                                                        Map<UnitId, RoutePrediction> domains) {
+        return new CoordinatedOrders(4, 32).generate(
+                board, Nation.ENGLAND, domains, CoordinationMode.CONDITIONAL);
+    }
+
+    private static UnitId foreign(UnitType type, Province province) {
+        return new UnitId(UUID.randomUUID(), Nation.FRANCE, type, province);
     }
 
     private static CoordinatedOrders.Result generate(BoardState board,

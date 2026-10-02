@@ -15,6 +15,8 @@ import java.util.*;
  */
 public final class CoordinatedOrders {
 
+    public static final int FOREIGN_ASSIGNMENT_LIMIT = 4096;
+
     private final int choicesPerUnit;
     private final int beamWidth;
 
@@ -67,6 +69,8 @@ public final class CoordinatedOrders {
         long expandedCount = 0;
         long rejected = 0;
         boolean truncated = false;
+        boolean dependencyTruncated = false;
+        long dependencyAssignments = 0;
         Set<String> reasons = new TreeSet<>();
         for (UnitId unit : units) {
             List<OrderPlan> expanded = new ArrayList<>();
@@ -76,6 +80,8 @@ public final class CoordinatedOrders {
                     List<Order> orders = new ArrayList<>(partial.orders());
                     orders.add(choice);
                     Check check = check(board, nation, orders, domains, mode);
+                    dependencyTruncated |= check.limited();
+                    dependencyAssignments += check.examined();
                     if (check.reason() != null) {
                         rejected++;
                         reasons.add(check.reason());
@@ -99,6 +105,8 @@ public final class CoordinatedOrders {
             if (plan.orders().size() != units.size())
                 continue;
             Check check = check(board, nation, plan.orders(), domains, mode);
+            dependencyTruncated |= check.limited();
+            dependencyAssignments += check.examined();
             if (check.reason() != null) {
                 rejected++;
                 reasons.add(check.reason());
@@ -109,9 +117,10 @@ public final class CoordinatedOrders {
             }
         }
         Diagnostics diagnostics = new Diagnostics(mode, expandedCount, rejected, omitted,
-                truncated, List.copyOf(reasons), conditional);
+                truncated, List.copyOf(reasons), conditional,
+                dependencyAssignments, dependencyTruncated);
         return new Result(complete, diagnostics,
-                complete.isEmpty() && omitted == 0 && !truncated);
+                complete.isEmpty() && omitted == 0 && !truncated && !dependencyTruncated);
     }
 
     private static Check check(BoardState board, Nation nation, List<Order> partial,
@@ -120,6 +129,10 @@ public final class CoordinatedOrders {
         for (Order order : partial)
             assigned.put(order.unit(), order);
         Set<String> dependencies = new TreeSet<>();
+        Map<UnitId, Order> foreignMoves = new LinkedHashMap<>();
+        Set<UnitId> foreignStationary = new HashSet<>();
+        Map<UnitId, Order> routes = new LinkedHashMap<>();
+        Map<UnitId, List<Order>> friendlyObligations = new HashMap<>();
         for (Order order : partial) {
             if (!valid(board, order))
                 return Check.reject(label(board, order.unit()) + ": invalid movement order.");
@@ -137,29 +150,68 @@ public final class CoordinatedOrders {
                     if (mode == CoordinationMode.STRICT)
                         return Check.reject("Foreign cooperation required: " + dependency);
                     dependencies.add(dependency);
+                    if (order.auxiliaryTarget() == null) {
+                        foreignStationary.add(target);
+                    } else {
+                        Order requiredMove = Order.move(target, order.auxiliaryTarget());
+                        Order previous = foreignMoves.putIfAbsent(target, requiredMove);
+                        if (previous != null && !previous.equals(requiredMove))
+                            return Check.reject("Conflicting foreign MOVE requirements for "
+                                    + label(board, target) + ".");
+                    }
                 } else {
+                    List<Order> obligations = friendlyObligations.computeIfAbsent(
+                            target, ignored -> new ArrayList<>());
+                    obligations.add(order);
                     List<Order> options = options(target, assigned, domains);
-                    if (options.stream().noneMatch(candidate -> agrees(order, candidate)
-                            && valid(board, candidate)))
+                    if (options.stream().noneMatch(candidate -> valid(board, candidate)
+                            && obligations.stream().allMatch(reference -> agrees(reference, candidate))))
                         return Check.reject(label(board, order.unit()) + ": "
                                 + order.orderType() + " disagrees with "
                                 + label(board, target) + " move/destination or stationary order.");
                 }
                 if (order.orderType() == OrderType.CONVOY) {
                     Order move = Order.move(target, order.auxiliaryTarget());
-                    Check route = route(board, nation, move, assigned, domains, mode, true);
-                    if (route.reason() != null)
-                        return route;
-                    dependencies.addAll(route.dependencies());
+                    routes.put(target, move);
+                } else if (order.auxiliaryTarget() != null && target.unitType() == UnitType.ARMY
+                        && !board.locationOf(target).isAdjacentTo(order.auxiliaryTarget())) {
+                    routes.put(target, Order.move(target, order.auxiliaryTarget()));
                 }
             }
             if (order.orderType() == OrderType.MOVE && order.unitType() == UnitType.ARMY
                     && !board.locationOf(order.unit()).isAdjacentTo(order.target())) {
-                Check route = route(board, nation, order, assigned, domains, mode, false);
-                if (route.reason() != null)
-                    return route;
-                dependencies.addAll(route.dependencies());
+                routes.put(order.unit(), order);
             }
+        }
+        for (Order move : foreignMoves.values()) {
+            if (foreignStationary.contains(move.unit()))
+                return Check.reject("Conflicting foreign stationary/MOVE requirements for "
+                        + label(board, move.unit()) + ".");
+            if (!valid(board, move))
+                return Check.reject("Invalid required foreign MOVE for " + label(board, move.unit()) + ".");
+            if (move.unitType() == UnitType.ARMY
+                    && !board.locationOf(move.unit()).isAdjacentTo(move.target()))
+                routes.put(move.unit(), move);
+        }
+        if (mode == CoordinationMode.CONDITIONAL && partial.size() == domains.size()
+                && !routes.isEmpty()) {
+            ForeignSearch search = new ForeignSearch(board, nation, assigned, domains,
+                    List.copyOf(routes.values()), foreignMoves.keySet());
+            if (!search.find(0, new HashMap<>())) {
+                return new Check(search.limited
+                        ? "Foreign cooperation assignment search exhausted its "
+                        + FOREIGN_ASSIGNMENT_LIMIT + " node limit."
+                        : "No consistent simultaneous foreign convoy orders can supply the required routes.",
+                        List.of(), search.examined, search.limited);
+            }
+            dependencies.addAll(search.dependencies);
+            return new Check(null, List.copyOf(dependencies), search.examined, search.limited);
+        }
+        for (Order move : routes.values()) {
+            Check route = route(board, nation, move, assigned, domains, mode, foreignMoves.keySet());
+            if (route.reason() != null)
+                return route;
+            dependencies.addAll(route.dependencies());
         }
         return new Check(null, List.copyOf(dependencies));
     }
@@ -179,7 +231,7 @@ public final class CoordinatedOrders {
 
     private static Check route(BoardState board, Nation nation, Order move,
                                Map<UnitId, Order> assigned, Map<UnitId, List<Order>> domains,
-                               CoordinationMode mode, boolean explicitConvoy) {
+                               CoordinationMode mode, Set<UnitId> movingForeign) {
         if (!valid(board, move))
             return Check.reject("Invalid convoyed army move.");
         List<UnitId> fleets = board.locations().keySet().stream()
@@ -190,7 +242,8 @@ public final class CoordinatedOrders {
         List<UnitId> foreign = new ArrayList<>();
         for (UnitId fleet : fleets) {
             if (fleet.owner() != nation) {
-                foreign.add(fleet);
+                if (!movingForeign.contains(fleet))
+                    foreign.add(fleet);
                 continue;
             }
             if (options(fleet, assigned, domains).stream().anyMatch(order ->
@@ -207,8 +260,7 @@ public final class CoordinatedOrders {
         path = path(board, move, available);
         if (path.isEmpty())
             return Check.reject(label(board, move.unit()) + " -> " + move.target()
-                    + ": no connected matching convoy chain in retained domains"
-                    + (explicitConvoy ? " for convoy order." : "."));
+                    + ": no connected matching convoy chain in retained domains.");
         List<String> dependencies = path.stream().filter(unit -> unit.owner() != nation)
                 .map(unit -> label(board, unit) + " CONVOY "
                         + board.locationOf(move.unit()) + " -> " + move.target()).toList();
@@ -249,7 +301,12 @@ public final class CoordinatedOrders {
     }
 
     private static boolean valid(BoardState board, Order order) {
-        return Orders.orderIsValid(new adjudication.Order(order, board.locationOf(order.unit())));
+        if (!Orders.orderIsValid(new adjudication.Order(order, board.locationOf(order.unit()))))
+            return false;
+        return order.orderType() != OrderType.MOVE || order.unitType() != UnitType.FLEET
+                || board.locationOf(order.unit()).geography != Geography.COASTAL
+                || order.target().geography != Geography.COASTAL
+                || Province.adjacentBySea(board.locationOf(order.unit()), order.target());
     }
 
     private static UnitId unitAt(BoardState board, Province province) {
@@ -274,7 +331,111 @@ public final class CoordinatedOrders {
                 ? " stationary non-MOVE order" : " MOVE -> " + order.auxiliaryTarget());
     }
 
-    private record Check(String reason, List<String> dependencies) {
+    /**
+     * Foreign orders are assumptions, not evidence or generated submissions.
+     * Explore a bounded assignment, rather than promising mutually exclusive
+     * convoy orders from the same foreign fleet.
+     */
+    private static final class ForeignSearch {
+        private final BoardState board;
+        private final Nation nation;
+        private final Map<UnitId, Order> own;
+        private final Map<UnitId, List<Order>> domains;
+        private final List<Order> routes;
+        private final List<UnitId> fleets;
+        private long examined;
+        private boolean limited;
+        private List<String> dependencies = List.of();
+
+        ForeignSearch(BoardState board, Nation nation, Map<UnitId, Order> own,
+                      Map<UnitId, List<Order>> domains, List<Order> routes,
+                      Set<UnitId> movingForeign) {
+            this.board = board;
+            this.nation = nation;
+            this.own = own;
+            this.domains = domains;
+            this.routes = routes;
+            this.fleets = board.locations().keySet().stream()
+                    .filter(unit -> unit.owner() != nation
+                            && unit.unitType() == UnitType.FLEET
+                            && board.locationOf(unit).geography == Geography.WATER
+                            && !movingForeign.contains(unit))
+                    .sorted(unitOrder(board)).toList();
+        }
+
+        boolean find(int depth, Map<UnitId, Order> assumptions) {
+            if (examined == FOREIGN_ASSIGNMENT_LIMIT) {
+                limited = true;
+                return false;
+            }
+            examined++;
+            Set<String> needed = new TreeSet<>();
+            boolean supplied = true;
+            for (Order move : routes) {
+                List<UnitId> available = new ArrayList<>();
+                for (UnitId unit : board.locations().keySet().stream()
+                        .sorted(unitOrder(board)).toList()) {
+                    if (unit.unitType() != UnitType.FLEET
+                            || board.locationOf(unit).geography != Geography.WATER)
+                        continue;
+                    if (unit.owner() == nation) {
+                        if (options(unit, own, domains).stream()
+                                .anyMatch(order -> matches(order, move)))
+                            available.add(unit);
+                    } else if (assumptions.containsKey(unit)
+                            && matches(assumptions.get(unit), move)) {
+                        available.add(unit);
+                    }
+                }
+                List<UnitId> selected = path(board, move, available);
+                if (selected.isEmpty()) {
+                    supplied = false;
+                    for (UnitId fleet : fleets)
+                        if (!assumptions.containsKey(fleet))
+                            available.add(fleet);
+                    if (path(board, move, available).isEmpty())
+                        return false;
+                } else {
+                    for (UnitId fleet : selected)
+                        if (fleet.owner() != nation)
+                            needed.add(label(board, fleet) + " CONVOY "
+                                    + board.locationOf(move.unit()) + " -> " + move.target());
+                }
+            }
+            if (supplied) {
+                dependencies = List.copyOf(needed);
+                return true;
+            }
+            if (depth == fleets.size())
+                return false;
+            UnitId fleet = fleets.get(depth);
+            assumptions.put(fleet, null); // No convoy assumption for this fleet.
+            if (find(depth + 1, assumptions))
+                return true;
+            for (Order move : routes) {
+                if (limited)
+                    break;
+                assumptions.put(fleet, Order.convoy(fleet,
+                        board.locationOf(move.unit()), move.target()));
+                if (find(depth + 1, assumptions))
+                    return true;
+            }
+            assumptions.remove(fleet);
+            return false;
+        }
+
+        private boolean matches(Order order, Order move) {
+            return order != null && order.orderType() == OrderType.CONVOY
+                    && order.target() == board.locationOf(move.unit())
+                    && order.auxiliaryTarget() == move.target() && valid(board, order);
+        }
+    }
+
+    private record Check(String reason, List<String> dependencies, long examined, boolean limited) {
+        Check(String reason, List<String> dependencies) {
+            this(reason, dependencies, 0, false);
+        }
+
         static Check reject(String reason) {
             return new Check(reason, List.of());
         }
@@ -291,7 +452,16 @@ public final class CoordinatedOrders {
     public record Diagnostics(CoordinationMode mode, long expandedCandidates,
                               long rejectedCandidates, long omittedChoices,
                               boolean beamTruncated, List<String> reasons,
-                              Map<String, List<String>> conditionalPlans) {
+                              Map<String, List<String>> conditionalPlans,
+                              long dependencyAssignmentsExamined,
+                              boolean dependencySearchTruncated) {
+        public Diagnostics(CoordinationMode mode, long expandedCandidates,
+                           long rejectedCandidates, long omittedChoices,
+                           boolean beamTruncated, List<String> reasons,
+                           Map<String, List<String>> conditionalPlans) {
+            this(mode, expandedCandidates, rejectedCandidates, omittedChoices,
+                    beamTruncated, reasons, conditionalPlans, 0, false);
+        }
         public Diagnostics {
             Objects.requireNonNull(mode, "mode");
             reasons = List.copyOf(reasons);

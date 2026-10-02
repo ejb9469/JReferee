@@ -499,6 +499,12 @@ public final class StrategyBrowserApp {
                 .append(",\"rejectedCandidates\":").append(coordination.rejectedCandidates())
                 .append(",\"omittedChoices\":").append(coordination.omittedChoices())
                 .append(",\"beamTruncated\":").append(coordination.beamTruncated())
+                .append(",\"dependencyAssignmentsExamined\":")
+                .append(coordination.dependencyAssignmentsExamined())
+                .append(",\"dependencySearchTruncated\":")
+                .append(coordination.dependencySearchTruncated())
+                .append(",\"foreignAssignmentLimit\":")
+                .append(CoordinatedOrders.FOREIGN_ASSIGNMENT_LIMIT)
                 .append(",\"reasons\":").append(stringsJson(coordination.reasons()))
                 .append(",\"conditionalPlans\":{");
 

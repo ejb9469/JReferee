@@ -473,7 +473,10 @@ async function generate(event) {
             `${coordination.mode}: ${coordination.expandedCandidates} expanded; `
             + `${coordination.rejectedCandidates} rejected; `
             + `${coordination.omittedChoices} choices omitted; `
-            + `beam truncated: ${coordination.beamTruncated ? "yes" : "no"}.`;
+            + `beam truncated: ${coordination.beamTruncated ? "yes" : "no"}; `
+            + `${coordination.dependencyAssignmentsExamined} foreign-assignment nodes `
+            + `(limit ${coordination.foreignAssignmentLimit} per check); `
+            + `dependency search truncated: ${coordination.dependencySearchTruncated ? "yes" : "no"}.`;
         for (const reason of coordination.reasons) {
             const item = document.createElement("li");
             item.textContent = reason;

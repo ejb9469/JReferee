@@ -150,6 +150,120 @@ The synthetic integration demonstration does not require a route corpus:
 java -cp "$CP" _app.MovementStrategyDemoApp
 ```
 
+### Coordinated own-country recommendations
+
+Independent frequency-ranked orders can disagree: for example, `F NTH CONVOY
+Yor -> Bel` paired with `A Yor MOVE Nwy`. Adjudication and outcome scoring do
+not repair such a candidate. Coordination is therefore checked during own-plan
+beam expansion, before incompatible partial plans consume beam slots.
+
+Pass a sixth `MovementStrategy.Configuration` argument:
+
+```java
+new MovementStrategy.Configuration(
+        PredictionPolicy.REFERENCE_FILTERED, 3, 4, 8, 32,
+        CoordinationMode.STRICT)
+```
+
+The five-argument constructor still selects `RAW`. `JointOrders.generate`,
+opponent distributions, historical experiments, prediction-policy defaults,
+observation denominators, and evaluator weights are unchanged.
+
+* `RAW`: historical independent combinations, including incoherent submissions.
+* `STRICT`: friendly support/convoy references must agree with the selected
+  orders; required convoy routes must be self-contained.
+* `CONDITIONAL`: permits foreign cooperation, but reports required foreign
+  moves, stationary orders, and matching convoy orders per plan signature.
+  These assumptions must admit a consistent simultaneous assignment; one fleet
+  cannot promise two different convoys. Ranking still uses explicit opponent
+  scenarios, which need not fulfill the assumptions.
+
+Hold support accepts stationary support/convoy orders as well as HOLD, not
+MOVE. Reference lookup recognizes canonical territories, but support matching
+preserves the phase engine's **exact encoded origins and destinations**:
+`Spa`, `SpaNC`, and `SpaSC` are not silently substituted. The limited
+`ReferenceCompatibility` filter is unchanged. Geography checks reuse
+`Orders.orderIsValid` and `Province` adjacency, including the Judge's coastal
+fleet path rule. Connected multi-fleet convoy reachability uses the engine's
+matching endpoints and sea-fleet adjacency; own fleets must have matching
+convoy choices, not merely occupy seas. This establishes a **potential route**,
+not survival against disruption. Adjacent army moves do not require convoys;
+there is no invented via-convoy flag or change to convoy kidnapping.
+Self-bounces and tactical sacrifices are not blanket-filtered.
+
+Domains still retain only the top `choicesPerUnit` **observed** orders. No
+holds, modified targets, counts, or extra evidence are synthesized. Forward
+checks keep later-assigned units available optimistically; complete plans are
+checked again. Beam search can still miss a coherent plan. Conditional foreign
+assignment search is separately bounded to 4096 nodes per complete-plan check.
+`Recommendation.coordination()` reports the mode, expanded/rejected candidates,
+omitted choices, beam truncation, foreign-assignment nodes/truncation, rejection
+reasons, and signature-keyed dependencies. `OWN_COORDINATION_REJECTED` means
+all supplied own domains were exhausted under the requested mode;
+`OWN_COORDINATION_LIMIT_REACHED` means **no coherent plan within current
+limits**, not proof that no such plan exists. Missing evidence and all-filtered
+predictions retain their separate abstentions. No fallback incoherent plan is
+ranked.
+
+### Strategy browser
+
+`_app.StrategyBrowserApp [database-path]` uses the existing editable strategy
+page and explicitly defaults to `STRICT`; RAW and CONDITIONAL remain selectable.
+JSON and UI show coordination rejection reasons, search limits, and plan-specific
+foreign dependencies. Cancellation/invalidation clears generated results and
+ignores stale responses. Generated overlays and imported historical submission
+overlays remain separate. Imports are comparison/position input only, never
+current-turn evidence or additions to training.
+
+The server still binds to `127.0.0.1`, validates Host/origin/per-start token,
+bounds request bodies and search sizes, and uses one generation semaphore.
+It loads TRAINING only, requests empty histories, and neither writes the
+database nor executes orders against the edited position. Opening-browser
+assets, navigation, singleton filtering, and maps are not replaced.
+
+### Coordination validation and remaining work
+
+Actual commands run for this change from the repository root (existing
+annotations jar downloaded to `/tmp`; no new project dependencies):
+
+```sh
+JDK=/usr/lib/jvm/temurin-25-jdk-amd64/bin
+ANNOTATIONS_JAR=/tmp/jreferee-deps/annotations-26.0.2.jar
+"$JDK/javac" --release 25 -cp "$ANNOTATIONS_JAR" -d /tmp/jreferee-classes \
+  $(find /home/runner/work/JReferee/JReferee/src -name '*.java' \
+      ! -name 'StrategyBrowserApp.java')
+CP="/tmp/jreferee-classes:$ANNOTATIONS_JAR"
+for check in CoordinatedOrdersSelfCheck JointOrdersSelfCheck \
+  OpponentScenariosSelfCheck OutcomeEvaluatorSelfCheck MovementStrategySelfCheck \
+  ReferenceFilteringSelfCheck YearPooledSelectionSelfCheck FourPolicyEvaluationSelfCheck
+do
+  "$JDK/java" -cp "$CP" "testing.$check" || exit 1
+done
+"$JDK/java" -cp "$CP" _app.MovementStrategyDemoApp
+"$JDK/java" -cp "$CP" _app.TestCaseManager
+```
+
+All listed checks passed. DATC: 132/132 cases, 677/677 orders; phase checks:
+34/34 cases, 163/163 checks; parser fixtures: 2/2, 96/96 checks. Synthetic
+regressions cover the exact NTH/Yor mismatch, connected/disconnected routes,
+assigned incompatible fleets, adjacent moves, stationary support, explicit
+coasts, later assignments, cutoff/beam/foreign-budget exhaustion, conflicting
+foreign assumptions, stable insertion/UUID behavior, immutable inputs, legacy
+generation, and strategy-to-ranking orchestration. CodeQL reported zero Java
+and JavaScript alerts. The automated review executable was unavailable; a
+separate read-only review found three defects, now fixed and re-reviewed.
+
+Backend-only compilation was run. Browser application compilation, the added
+corpus-free `testing.StrategyBrowserSelfCheck` JSON adapter check, and live UI
+checks were **not run**. After full compilation using the commands below,
+run that check and manually verify strict abstention, conditional dependency
+display, cancellation/invalidation during a pending request, switching between
+generated and historical overlays, and unchanged opening-browser navigation.
+The ignored local SQLite database is absent, so corpus recall experiments and
+database-backed browser startup remain unverified. Reserved TEST games were
+not used. Exact submitted-order recall is separate from coherence and tactical
+strength; no imitation, later-game, or strength improvements are claimed.
+
 ### Four-policy experiment
 
 `_app.FourPolicyExperimentApp` explicitly runs the paired factorial
