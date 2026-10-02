@@ -1,66 +1,132 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>JReferee Openings</title>
-    <link rel="stylesheet" href="/ui/openings.css">
-    <script defer src="/ui/openings.js"></script>
-</head>
+<section class="validation-baseline" aria-labelledby="validation-baseline-title">
+    <h2 id="validation-baseline-title">Route prediction — validation baseline</h2>
 
-<body>
-<header class="toolbar">
-    <h1>JReferee Openings</h1>
+    <p>
+        <strong>Recorded experiment, not a live calculation.</strong>
+        These results describe the supplied replay-compatible corpus.
+        They do not change when an opening or country is selected, and they
+        may not describe the catalog currently loaded by this browser.
+    </p>
 
-    <label>
-        Country
-        <select id="nation" disabled></select>
-    </label>
+    <dl>
+        <dt>Corpus</dt>
+        <dd>1,192 source games; 1,040 accepted; 152 rejected.</dd>
 
-    <label class="search">
-        Search orders
-        <input id="search" type="search" placeholder="En F Lon - NTH" disabled>
-    </label>
-</header>
+        <dt>Partitions</dt>
+        <dd>838 training, 107 validation, 95 reserved test games.</dd>
 
-<p id="summary" class="summary" role="status">Loading opening catalog…</p>
+        <dt>Configuration</dt>
+        <dd>
+            Maximum route suffix 4; minimum observations 3;
+            4 choices per unit; 8 plans per nation; 32 opponent scenarios.
+        </dd>
 
-<main class="browser-layout">
-    <aside class="opening-panel" aria-label="Opening selection">
-        <h2 id="list-title">Openings</h2>
-        <p id="list-summary"></p>
+        <dt>Replay revision</dt>
+        <dd><code>jreferee-standard-szykman-local-replay-v3</code></dd>
 
-        <nav class="navigation" aria-label="Opening navigation">
-            <button id="previous" type="button" disabled>Previous</button>
-            <output id="position" aria-live="polite">0 / 0</output>
-            <button id="next" type="button" disabled>Next</button>
-        </nav>
+        <dt>Split revision</dt>
+        <dd><code>diplobn-route-corpus-split-v1</code></dd>
+    </dl>
 
-        <div id="opening-list"></div>
-    </aside>
+    <h3>Main finding</h3>
+    <p>
+        Missing matching contexts dominate the prediction gaps.
+        All 71 exact opponent-scenario matches occurred in 1901.
+        In this run, no complete opponent scenario was generated from
+        1903 onward.
+    </p>
 
-    <section class="map-panel" aria-label="Opening map">
-        <h2 id="selection-title">Submitted orders — Spring 1901</h2>
-        <p class="muted">
-            Units remain at their starting positions. Lines show submissions,
-            not adjudicated results.
-        </p>
+    <div class="validation-table-scroll" tabindex="0"
+         role="region" aria-label="Validation stage counts">
+        <table>
+            <caption>
+                Counts at successive stages. Each column has its own
+                eligible-observation denominator.
+            </caption>
+            <thead>
+            <tr>
+                <th scope="col">Stage</th>
+                <th scope="col">Unit decisions</th>
+                <th scope="col">National turns</th>
+                <th scope="col">Opponent perspectives</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <th scope="row">Eligible observations</th>
+                <td>63,357</td><td>12,286</td><td>12,286</td>
+            </tr>
+            <tr>
+                <th scope="row">Required predictions available</th>
+                <td>16,986</td><td>2,113</td><td>1,473</td>
+            </tr>
+            <tr>
+                <th scope="row">Actual orders in full selected distributions</th>
+                <td>12,768</td><td>1,694</td><td>1,089</td>
+            </tr>
+            <tr>
+                <th scope="row">Actual orders retained in top-four choices</th>
+                <td>12,135</td><td>1,463</td><td>671</td>
+            </tr>
+            <tr>
+                <th scope="row">Required actual national plans retained</th>
+                <td>Not applicable</td><td>1,126</td><td>287</td>
+            </tr>
+            <tr>
+                <th scope="row">Actual opponent combination retained</th>
+                <td>Not applicable</td><td>Not applicable</td><td>71</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
 
-        <div id="map-host"></div>
+    <details>
+        <summary>Coverage gaps and fallback audit</summary>
+        <ul>
+            <li>
+                46,371 unit decisions had no prediction:
+                37,510 had no matching position context even at minimum 1,
+                and 8,861 had evidence below the minimum of 3.
+            </li>
+            <li>
+                “Position” still includes game year, season, nation,
+                unit type, location/coast, neighboring occupants,
+                and nearby supply-center ownership.
+            </li>
+            <li>
+                On the same 7,098 decisions with broader position evidence,
+                history-selected distributions achieved 4,872 top-four hits;
+                position distributions achieved 5,329.
+                There were 642 gains and 185 losses, for a net gain of 457.
+            </li>
+            <li>
+                Lowering minimum observations from 3 to 1 increased
+                individual prediction coverage from 26.81% to 40.80%,
+                but the aggregate opponent-scenario hit count stayed at 71
+                with width 32.
+            </li>
+        </ul>
+    </details>
 
-        <p class="legend">
-            Solid arrow: move · Ring: hold · Dashed line: support ·
-            Dotted line: convoy
-        </p>
-
-        <p id="map-warning" role="status"></p>
-        <p id="province-details" aria-live="polite">Select a province to inspect it.</p>
-    </section>
-</main>
-
-<details class="diagnostics">
-    <summary id="diagnostic-summary">Import diagnostics</summary>
-    <ul id="diagnostic-list"></ul>
-</details>
-</body>
-</html>
+    <details>
+        <summary>Interpretation and limitations</summary>
+        <ul>
+            <li>
+                These are exact submitted-order matching metrics—not win
+                rates, tactical evaluations, or calibrated probabilities.
+            </li>
+            <li>
+                The accepted subset excludes games incompatible with the
+                current replay importer; exclusions may bias the results.
+            </li>
+            <li>
+                Reserved test games were not used for model training or scoring.
+            </li>
+            <li>
+                The next experiment adds cross-year position fallback only
+                for decisions without an existing prediction. Its results
+                have not yet been measured.
+            </li>
+        </ul>
+    </details>
+</section>
