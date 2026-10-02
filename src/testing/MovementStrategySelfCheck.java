@@ -8,6 +8,7 @@ import analysis.PredictionPolicy;
 import analysis.RoutePreferences;
 import analysis.RoutePrediction;
 import analysis.PlanEvaluation;
+import analysis.CoordinationMode;
 import domain.Nation;
 import domain.Province;
 import game.BoardState;
@@ -96,9 +97,85 @@ public final class MovementStrategySelfCheck {
 
         checkExplicitAbstentions(training, preferences, board);
         checkEmptyAndInvalidInputs();
+        checkCoordinationIntegration();
 
         System.out.println("MovementStrategy checks passed.");
 
+    }
+
+    private static void checkCoordinationIntegration() {
+        BoardState board = StandardGameFactory.create1901().board();
+        UnitId london = unitAt(board, Province.Lon);
+        UnitId liverpool = unitAt(board, Province.Lvp);
+        Map<UnitId, Province> before = new LinkedHashMap<>(board.locations());
+        RoutePreferences model = new RoutePreferences();
+        trainingGames(board, unit -> unit.equals(london)
+                ? Order.supportMove(london, Province.Lvp, Province.Yor)
+                : unit.equals(liverpool) ? Order.move(liverpool, Province.Wal)
+                : Order.hold(unit), 3).forEach(model::add);
+
+        MovementStrategy.Configuration strict = new MovementStrategy.Configuration(
+                PredictionPolicy.ORIGINAL, 1, 2, 1, 1, CoordinationMode.STRICT);
+        MovementStrategy.Recommendation rejected = recommend(model, board, strict);
+        require(rejected.status() == MovementStrategy.Status.OWN_COORDINATION_REJECTED
+                        && rejected.rankedPlans().isEmpty()
+                        && rejected.coordination().rejectedCandidates() > 0,
+                "Coherence rejection was confused with missing evidence or ranked");
+        require(recommend(model, board, new MovementStrategy.Configuration(
+                        PredictionPolicy.ORIGINAL, 1, 2, 1, 1)).hasRecommendation(),
+                "Legacy strategy default no longer ranks raw historical combinations");
+
+        trainingGames(board, unit -> unit.equals(london)
+                ? Order.supportMove(london, Province.Lvp, Province.Yor)
+                : unit.equals(liverpool) ? Order.move(liverpool, Province.Yor)
+                : Order.hold(unit), 1).forEach(model::add);
+        int games = model.gameCount();
+        MovementStrategy.Recommendation limited = recommend(model, board,
+                new MovementStrategy.Configuration(
+                        PredictionPolicy.ORIGINAL, 1, 1, 1, 1, CoordinationMode.STRICT));
+        require(limited.status() == MovementStrategy.Status.OWN_COORDINATION_LIMIT_REACHED
+                        && limited.coordination().omittedChoices() == 1
+                        && limited.diagnostic().contains("within current limits"),
+                "Cutoff exhaustion made a false evidence or impossibility claim");
+        MovementStrategy.Recommendation coherent = recommend(model, board, strict);
+        require(coherent.hasRecommendation()
+                        && coherent.coordination().mode() == CoordinationMode.STRICT
+                        && coherent.opponentScenarioCount() == 1,
+                "Coherent plan did not reach outcome ranking");
+        require(coherent.rankedPlans().getFirst().plan().orders()
+                        .contains(Order.move(liverpool, Province.Yor)),
+                "Ranking returned an incoherent own plan");
+        require(board.locations().equals(before) && model.gameCount() == games,
+                "Strict recommendation mutated board or trained evidence");
+        MovementStrategy.Recommendation missing = recommend(new RoutePreferences(), board, strict);
+        require(missing.status() == MovementStrategy.Status.OWN_EVIDENCE_INSUFFICIENT
+                        && missing.coordination().mode() == CoordinationMode.STRICT,
+                "Missing evidence lost selected coordination mode");
+
+        UnitId foreign = unitAt(board, Province.Bre);
+        BoardState conditionalBoard = board;
+        RoutePreferences conditionalModel = new RoutePreferences();
+        trainingGames(conditionalBoard, unit -> unit.equals(london)
+                ? Order.supportMove(london, Province.Bre, Province.ENG)
+                : unit.equals(foreign) ? Order.move(foreign, Province.ENG)
+                : Order.hold(unit), 1)
+                .forEach(conditionalModel::add);
+        require(recommend(conditionalModel, conditionalBoard, strict).status()
+                        == MovementStrategy.Status.OWN_COORDINATION_REJECTED,
+                "Strict orchestration silently assumed foreign support target's move");
+        MovementStrategy.Recommendation conditional = recommend(conditionalModel, conditionalBoard,
+                new MovementStrategy.Configuration(PredictionPolicy.ORIGINAL,
+                        1, 2, 1, 1, CoordinationMode.CONDITIONAL));
+        require(conditional.hasRecommendation()
+                        && !conditional.coordination().conditionalPlans().isEmpty(),
+                "Conditional scenario ranking lost foreign assumptions");
+    }
+
+    private static MovementStrategy.Recommendation recommend(
+            RoutePreferences model, BoardState board, MovementStrategy.Configuration configuration) {
+        return MovementStrategy.recommend(model, RULESET, SPRING_1901, board,
+                Nation.ENGLAND, Map.of(), Map.of(), configuration,
+                new OutcomeEvaluator(1.0, 3.0, 0.5), processor());
     }
 
 
@@ -172,7 +249,7 @@ public final class MovementStrategySelfCheck {
         records.forEach(preferences::add);
 
         MovementStrategy.Configuration configuration = new MovementStrategy.Configuration(
-                PredictionPolicy.ORIGINAL, 3, 4, 8, 32);
+                PredictionPolicy.ORIGINAL, 3, 4, 8, 32, CoordinationMode.STRICT);
         MovementStrategy.Recommendation noOpponents = MovementStrategy.recommend(
                 preferences, RULESET, SPRING_1901, loneNation, Nation.FRANCE,
                 Map.of(), Map.of(), configuration,
@@ -212,7 +289,7 @@ public final class MovementStrategySelfCheck {
                 StandardGameFactory.create1901().board(), Nation.ENGLAND,
                 Map.of(), Map.of(),
                 new MovementStrategy.Configuration(
-                        PredictionPolicy.REFERENCE_FILTERED, 3, 4, 8, 32),
+                        PredictionPolicy.REFERENCE_FILTERED, 3, 4, 8, 32, CoordinationMode.STRICT),
                 new OutcomeEvaluator(1.0, 3.0, 0.5), processor());
 
         require(filtered.status()

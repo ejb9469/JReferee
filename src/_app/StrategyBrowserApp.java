@@ -1,6 +1,7 @@
 package _app;
 
 import analysis.*;
+import analysis.openings.Classifier;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import contracts.OrderForm;
@@ -38,7 +39,7 @@ public final class StrategyBrowserApp {
     private static final int MAX_REQUEST_BYTES = 32_768;
 
     private static final Set<String> FORM_FIELDS = Set.of(
-            "nation", "year", "phase", "policy",
+            "nation", "year", "phase", "policy", "coordinationMode",
             "units", "centers", "objectives",
             "centerWeight", "dislodgementPenalty", "caution",
             "minimum", "choices", "plans", "scenarios");
@@ -332,7 +333,8 @@ public final class StrategyBrowserApp {
         var configuration = new MovementStrategy.Configuration(
                 enumValue(PredictionPolicy.class, values.get("policy")),
                 integer(values, "minimum", 1, 10000),
-                choices, plans, scenarios);
+                choices, plans, scenarios,
+                enumValue(CoordinationMode.class, values.get("coordinationMode")));
 
         Map<UnitId, Province> locations = new LinkedHashMap<>();
         Set<Province> occupied = EnumSet.noneOf(Province.class);
@@ -430,6 +432,7 @@ public final class StrategyBrowserApp {
         defaults.put("year", "1901");
         defaults.put("phase", "SPRING_MOVEMENT");
         defaults.put("policy", "REFERENCE_FILTERED");
+        defaults.put("coordinationMode", "STRICT");
         defaults.put("units", units);
         defaults.put("centers", centers);
         defaults.put("objectives", "");
@@ -469,11 +472,11 @@ public final class StrategyBrowserApp {
         var config = query.configuration();
 
         String settings = String.format(Locale.ROOT,
-                "%s %d | %s | %s | position-only | minimum=%d choices=%d "
+                "%s %d | %s | %s | coordination=%s | position-only | minimum=%d choices=%d "
                         + "plans=%d scenarios=%d | center=%.3f dislodgement=%.3f "
                         + "caution=%.3f | objectives=%s | ruleset=%s",
                 query.moment().gamePhase(), query.moment().year(),
-                query.nation(), config.policy(),
+                query.nation(), config.policy(), config.coordinationMode(),
                 config.minimumObservations(), config.choicesPerUnit(),
                 config.nationalPlanLimit(), config.opponentScenarioLimit(),
                 query.centerWeight(), query.dislodgementPenalty(), query.caution(),
@@ -488,6 +491,26 @@ public final class StrategyBrowserApp {
                 .append(",\"scenarioCount\":").append(recommendation.opponentScenarioCount())
                 .append(",\"board\":").append(BoardSnapshotJsonWriter.toJson(
                         BoardSnapshotMapper.from(query.moment(), query.board())));
+
+        var coordination = recommendation.coordination();
+        out.append(",\"coordination\":{\"mode\":")
+                .append(quote(coordination.mode().name()))
+                .append(",\"expandedCandidates\":").append(coordination.expandedCandidates())
+                .append(",\"rejectedCandidates\":").append(coordination.rejectedCandidates())
+                .append(",\"omittedChoices\":").append(coordination.omittedChoices())
+                .append(",\"beamTruncated\":").append(coordination.beamTruncated())
+                .append(",\"reasons\":").append(stringsJson(coordination.reasons()))
+                .append(",\"conditionalPlans\":{");
+
+        boolean firstConditional = true;
+        for (var entry : coordination.conditionalPlans().entrySet()) {
+            if (!firstConditional)
+                out.append(',');
+            firstConditional = false;
+            out.append(quote(entry.getKey())).append(':')
+                    .append(stringsJson(entry.getValue()));
+        }
+        out.append("}}");
 
         List<String> diagnostics = new ArrayList<>();
 
@@ -519,8 +542,12 @@ public final class StrategyBrowserApp {
             if (rank > 0)
                 out.append(',');
 
+            String signature = Classifier.signature(query.board(), evaluation.plan().orders());
             out.append("{\"rank\":").append(++rank)
                     .append(",\"nation\":").append(quote(query.nation().name()))
+                    .append(",\"signature\":").append(quote(signature))
+                    .append(",\"dependencies\":").append(stringsJson(
+                            coordination.conditionalPlans().getOrDefault(signature, List.of())))
                     .append(",\"score\":").append(evaluation.score())
                     .append(",\"mean\":").append(evaluation.mean())
                     .append(",\"worst\":").append(evaluation.worst())
@@ -602,6 +629,11 @@ public final class StrategyBrowserApp {
 
     private static String provinceJson(Province province) {
         return quote(province == null ? null : province.name());
+    }
+
+    private static String stringsJson(List<String> values) {
+        return "[" + String.join(",", values.stream()
+                .map(StrategyBrowserApp::quote).toList()) + "]";
     }
 
     private static String quote(String value) {
