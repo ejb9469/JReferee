@@ -113,7 +113,28 @@ public enum Province {
     // `adjacencyMap` and `aliasesMap` autopopulate at runtime, once for every new Province constant
     private static Map<Province, Province[]>    adjacencyMap;
     private static Map<String, Province>        aliasesMap;  // TODO: Flesh out, add secondary names & common misspellings (in `populateAliasesMap()`)
+    static {
 
+        // Enum constants now exist, including Switzerland.
+        populateAdjacencyMap();
+
+        if (adjacencyMap.containsKey(null))
+            throw new IllegalStateException("Adjacency map contains a null province");
+
+        for (Province province : values()) {
+
+            Province[] neighbors = adjacencyMap.get(province);
+
+            if (neighbors == null)
+                throw new IllegalStateException("Missing adjacency entry: " + province.name());
+
+            for (Province neighbor : neighbors)
+                if (neighbor == null)
+                    throw new IllegalStateException("Null neighbor in adjacency entry: " + province.name());
+
+        }
+
+    }
 
     public final String     fullName;
 
@@ -133,8 +154,6 @@ public enum Province {
     // Full constructor - modern
     private Province(String fullName, Geography geography, boolean supplyCenter, Nation homeowner, int coastId, boolean canal, boolean splitCoast, Province parent) {
 
-        populateAdjacencyMap();
-
         this.fullName = fullName;
         this.supplyCenter = supplyCenter;
         this.homeowner = homeowner;
@@ -152,8 +171,6 @@ public enum Province {
 
         this.parent = parent;
 
-        // Call `enforceStasis()` at the end of construction of all Province constants
-        // --> (All other constructors call this one...)
         try {
             enforceStasis();
         } catch (IllegalStateException ex) {
