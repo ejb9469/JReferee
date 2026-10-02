@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>JReferee Openings</title>
     <link rel="stylesheet" href="/ui/openings.css">
-    <script defer src="/ui/openings.js"></script>
+    <link rel="stylesheet" href="/ui/browser-controls.css">
+    <script type="module" src="/ui/openings.js"></script>
 </head>
-
 <body>
 <header class="toolbar">
     <h1>JReferee Openings</h1>
@@ -22,17 +22,18 @@
         <input id="search" type="search"
                placeholder="En F Lon - NTH" disabled>
     </label>
+
+    <label class="checkbox-label">
+        <input id="hide-singletons" type="checkbox" disabled>
+        Hide single-entry openings
+    </label>
 </header>
 
 <noscript>
-    <p class="notice">
-        JavaScript is required for opening selection and the interactive map.
-    </p>
+    <p class="notice">JavaScript is required for the interactive browser.</p>
 </noscript>
 
-<p id="summary" class="summary" role="status">
-    Loading opening catalog…
-</p>
+<p id="summary" class="summary" role="status">Loading opening catalog…</p>
 
 <main class="browser-layout">
     <aside class="opening-panel" aria-label="Opening selection">
@@ -50,19 +51,15 @@
 
     <section class="map-panel" aria-labelledby="selection-title">
         <h2 id="selection-title">Submitted orders — Spring 1901</h2>
-
         <p class="muted">
             Units remain at their starting positions.
-            Lines show submitted orders, not adjudicated results.
+            Lines show submissions, not adjudicated results.
         </p>
-
         <div id="map-host"></div>
-
         <p class="legend">
             Solid arrow: move · Ring: hold · Dashed line: support ·
             Dotted line: convoy
         </p>
-
         <p id="map-warning" role="status"></p>
         <p id="province-details" aria-live="polite">
             Select a province to inspect it.
@@ -78,44 +75,33 @@
 
     <details class="validation-baseline">
         <summary>Recorded route-prediction experiments</summary>
-
         <div class="details-content">
             <p class="notice">
                 <strong>Historical validation results—not live opening statistics.</strong>
-                These figures do not change with the selected country or opening
-                and may not describe the catalog currently loaded.
+                These figures do not change with the selected country or filters
+                and may not describe the currently loaded catalog.
             </p>
 
             <dl class="experiment-metadata">
                 <dt>Corpus</dt>
-                <dd>1,192 source games; 1,040 accepted; 152 rejected.</dd>
-
-                <dt>Split</dt>
-                <dd>
-                    838 training, 107 validation, 95 reserved test games.
-                    Reserved test games were not used for training or scoring.
-                </dd>
-
+                <dd>1,192 scanned; 1,040 accepted; 152 rejected.</dd>
+                <dt>Partitions</dt>
+                <dd>838 training; 107 validation; 95 reserved test games.</dd>
                 <dt>Configuration</dt>
                 <dd>
-                    Maximum route suffix 4; minimum observations 3;
-                    4 choices per unit; 8 plans per nation;
-                    32 opponent scenarios.
+                    Maximum suffix 4; minimum observations 3;
+                    4 unit choices; 8 national plans; 32 opponent scenarios.
                 </dd>
-
                 <dt>Replay revision</dt>
                 <dd><code>jreferee-standard-szykman-local-replay-v3</code></dd>
-
                 <dt>Split revision</dt>
                 <dd><code>diplobn-route-corpus-split-v1</code></dd>
             </dl>
 
             <div class="validation-table-scroll" tabindex="0"
-                 role="region" aria-label="Recorded experiment comparison">
+                 role="region" aria-label="Historical validation results">
                 <table>
-                    <caption>
-                        Validation on the same accepted corpus and fixed split.
-                    </caption>
+                    <caption>Same accepted corpus and fixed split.</caption>
                     <thead>
                     <tr>
                         <th scope="col">Metric</th>
@@ -127,71 +113,52 @@
                     <tbody>
                     <tr>
                         <th scope="row">Individual prediction coverage</th>
-                        <td>26.81%</td>
-                        <td>47.33%</td>
-                        <td>93.63%</td>
+                        <td>26.81%</td><td>47.33%</td><td>93.63%</td>
                     </tr>
                     <tr>
                         <th scope="row">Top-four accuracy, all unit decisions</th>
-                        <td>19.15%</td>
-                        <td>31.13%</td>
-                        <td>53.25%</td>
+                        <td>19.15%</td><td>31.13%</td><td>53.25%</td>
                     </tr>
                     <tr>
                         <th scope="row">National turns with complete predictions</th>
-                        <td>2,113</td>
-                        <td>2,596</td>
-                        <td>9,530</td>
+                        <td>2,113</td><td>2,596</td><td>9,530</td>
                     </tr>
                     <tr>
                         <th scope="row">Actual national plans retained</th>
-                        <td>1,126</td>
-                        <td>1,165</td>
-                        <td>1,449</td>
+                        <td>1,126</td><td>1,165</td><td>1,449</td>
                     </tr>
                     <tr>
                         <th scope="row">Opponent perspectives with complete predictions</th>
-                        <td>1,473</td>
-                        <td>1,552</td>
-                        <td>5,855</td>
+                        <td>1,473</td><td>1,552</td><td>5,855</td>
                     </tr>
                     <tr>
                         <th scope="row">Actual opponent scenarios retained</th>
-                        <td>71</td>
-                        <td>71</td>
-                        <td>71</td>
+                        <td>71</td><td>71</td><td>71</td>
                     </tr>
                     </tbody>
                 </table>
             </div>
 
             <p>
-                Unit metrics use 63,357 submitted decisions.
-                National-turn and opponent-perspective metrics each use
-                12,286 eligible observations.
+                Unit denominator: 63,357 submitted decisions.
+                National and opponent denominators: 12,286 each.
             </p>
-
-            <h3>Interpretation</h3>
             <ul>
                 <li>
-                    Broader fallback contexts improve individual coverage and
-                    national-plan matching. All 71 complete opponent-scenario
-                    matches remain in 1901 in these runs.
+                    All 71 final scenario matches occurred in 1901 in these runs.
                 </li>
                 <li>
-                    The relaxed fallback's retained support/convoy candidates
-                    included 9,147 references to empty provinces and 221
-                    convoy references without an army, out of 30,481
-                    support/convoy candidate occurrences.
+                    Of 30,481 retained relaxed support/convoy candidate occurrences,
+                    9,147 referenced empty provinces and 221 convoy references
+                    lacked an army.
                 </li>
                 <li>
-                    Reference checks are not full legality checks.
-                    Exact submitted-order matching is not a win rate,
-                    tactical evaluation, or calibrated probability.
+                    Reference checks are not full legality checks. Exact submission
+                    matching is not a win rate or calibrated probability.
                 </li>
                 <li>
-                    Results apply only to the accepted replay-compatible
-                    subset. The fallback policies remain experimental.
+                    These experimental results apply to the accepted replay-compatible
+                    subset. Reserved test games were not used for training or scoring.
                 </li>
             </ul>
         </div>

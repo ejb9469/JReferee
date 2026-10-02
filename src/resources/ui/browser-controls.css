@@ -1,0 +1,109 @@
+.toolbar .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 0.45rem;
+}
+
+.toolbar .checkbox-label input {
+    width: auto;
+    min-width: auto;
+}
+
+.position-editor {
+    margin: 1rem 1.25rem;
+    padding: 1rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    background: #fff;
+}
+
+.position-editor h2 {
+    margin-top: 0;
+}
+
+.position-editor fieldset {
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+}
+
+.editor-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.position-editor label {
+    display: grid;
+    gap: 0.25rem;
+    font-weight: 600;
+}
+
+.position-editor input,
+.position-editor select,
+.position-editor textarea {
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem;
+    border: 1px solid #94a3b8;
+    border-radius: 0.375rem;
+    background: #fff;
+    color: #172033;
+    font: inherit;
+}
+
+.position-editor textarea {
+    resize: vertical;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.9rem;
+}
+
+.position-editor small {
+    font-weight: normal;
+    color: #475569;
+}
+
+.position-editor .text-fields {
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.editor-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+#generate {
+    background: #1d4ed8;
+    color: #fff;
+    border-color: #1d4ed8;
+}
+
+#error {
+    color: #9a3412;
+    white-space: pre-wrap;
+}
+
+#error:empty {
+    display: none;
+}
+
+#summary,
+#list-summary,
+#plan-metrics {
+    overflow-wrap: anywhere;
+}
+
+fieldset:disabled {
+    opacity: 0.65;
+}
+
+@media (max-width: 600px) {
+    .position-editor {
+        margin: 0.75rem;
+    }
+}

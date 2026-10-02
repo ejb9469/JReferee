@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JReferee Movement Strategy</title>
+    <link rel="stylesheet" href="/ui/openings.css">
+    <link rel="stylesheet" href="/ui/browser-controls.css">
+    <script type="module" src="/ui/strategy.js"></script>
+</head>
+<body>
+<header class="toolbar">
+    <h1>Movement Strategy</h1>
+</header>
+
+<p class="notice">
+    Experimental single-phase recommendations, not a multi-turn policy or
+    calibrated win probability. Both fallback tiers are enabled.
+    Generation uses position evidence, without route histories.
+    No orders are executed.
+</p>
+
+<section class="position-editor" aria-labelledby="import-title">
+    <h2 id="import-title">Import a DiploBN game position</h2>
+
+    <fieldset id="import-fields" disabled>
+        <div class="editor-grid">
+            <label>
+                Game export
+                <input id="game-file" type="file" accept=".json,application/json">
+                <small>
+                    Select a JSON file produced by DBNGameImporter.
+                    Maximum file size: 5 MiB.
+                </small>
+            </label>
+
+            <label>
+                Movement snapshot
+                <select id="import-phase" disabled></select>
+            </label>
+        </div>
+
+        <div class="editor-actions">
+            <button id="import-phase-button" type="button" disabled>
+                Import selected phase
+            </button>
+        </div>
+    </fieldset>
+
+    <p id="import-status" role="status">
+        No game file loaded.
+    </p>
+
+    <p class="muted">
+        Import copies the phase's starting units and center ownership into the
+        editor. Historical orders are shown separately and are never sent to
+        the recommendation endpoint. Source snapshots are not replay verification.
+    </p>
+</section>
+
+<form id="editor" class="position-editor">
+    <h2>Position and generation settings</h2>
+
+    <fieldset id="fields" disabled>
+        <div class="editor-grid">
+            <label>
+                Country to advise
+                <select name="nation" id="nation" required></select>
+            </label>
+
+            <label>
+                Year
+                <input name="year" type="number" min="1901" max="9999" required>
+            </label>
+
+            <label>
+                Phase
+                <select name="phase">
+                    <option value="SPRING_MOVEMENT">Spring movement</option>
+                    <option value="FALL_MOVEMENT">Fall movement</option>
+                </select>
+            </label>
+
+            <label>
+                Prediction policy
+                <select name="policy">
+                    <option value="ORIGINAL">Original selection</option>
+                    <option value="REFERENCE_FILTERED">Original + reference filtering</option>
+                    <option value="YEAR_POOLED_SELECTION">Year-pooled selection</option>
+                    <option value="YEAR_POOLED_SELECTION_THEN_REFERENCE_FILTERED">
+                        Year-pooled selection + filtering
+                    </option>
+                </select>
+            </label>
+        </div>
+
+        <div class="editor-grid text-fields">
+            <label>
+                Units
+                <textarea name="units" rows="12" spellcheck="false"></textarea>
+                <small>
+                    One NATION TYPE PROVINCE per line.
+                    Example: ENGLAND FLEET Lon.
+                    Include every active unit and explicit fleet coasts.
+                </small>
+            </label>
+
+            <label>
+                Owned supply centers
+                <textarea name="centers" rows="12" spellcheck="false"></textarea>
+                <small>
+                    One PROVINCE NATION per line.
+                    Omitted centers are neutral; ownership is not inferred from units.
+                </small>
+            </label>
+
+            <label>
+                Additional objectives for the advised country
+                <textarea name="objectives" rows="12" spellcheck="false"></textarea>
+                <small>
+                    One PROVINCE VALUE per line. Example: NTH 1.0.
+                    Empty means no extra objectives.
+                </small>
+            </label>
+        </div>
+
+        <details>
+            <summary>Scoring and bounded search limits</summary>
+            <p class="muted">
+                Scoring defaults are illustrative, not optimized.
+                National plans × opponent scenarios must not exceed 512.
+            </p>
+
+            <div class="editor-grid">
+                <label>
+                    Center weight
+                    <input name="centerWeight" type="number"
+                           min="0" max="1000" step="any" required>
+                </label>
+                <label>
+                    Dislodgement penalty
+                    <input name="dislodgementPenalty" type="number"
+                           min="0" max="1000" step="any" required>
+                </label>
+                <label>
+                    Caution
+                    <input name="caution" type="number"
+                           min="0" max="1" step="any" required>
+                </label>
+                <label>
+                    Minimum observations
+                    <input name="minimum" type="number"
+                           min="1" max="10000" required>
+                </label>
+                <label>
+                    Choices per unit
+                    <input name="choices" type="number"
+                           min="1" max="8" required>
+                </label>
+                <label>
+                    National plans
+                    <input name="plans" type="number"
+                           min="1" max="32" required>
+                </label>
+                <label>
+                    Opponent scenarios
+                    <input name="scenarios" type="number"
+                           min="1" max="64" required>
+                </label>
+            </div>
+        </details>
+
+        <div class="editor-actions">
+            <button id="generate" type="submit">Generate</button>
+            <button id="reset-position" type="button">Restore starting position</button>
+        </div>
+    </fieldset>
+
+    <p id="error" role="alert"></p>
+</form>
+
+<p id="summary" class="summary" role="status">Loading editor…</p>
+
+<main class="browser-layout">
+    <aside class="opening-panel" aria-label="Ranked plan selection">
+        <h2 id="list-title">Ranked plans</h2>
+        <p id="list-summary"></p>
+
+        <label>
+            Search generated orders
+            <input id="search" type="search" disabled>
+        </label>
+
+        <nav class="navigation" aria-label="Plan navigation">
+            <button id="previous" type="button" disabled>Previous</button>
+            <output id="position" aria-live="polite">0 / 0</output>
+            <button id="next" type="button" disabled>Next</button>
+        </nav>
+
+        <div id="opening-list"></div>
+    </aside>
+
+    <section class="map-panel" aria-labelledby="selection-title">
+        <h2 id="selection-title">Position</h2>
+        <p class="muted">
+            The heading identifies whether the overlay shows a generated
+            candidate or historical submissions. Neither is an adjudicated outcome.
+        </p>
+
+        <div id="map-host"></div>
+
+        <p class="legend">
+            Solid arrow: move · Ring: hold · Dashed line: support ·
+            Dotted line: convoy
+        </p>
+
+        <p id="plan-metrics"></p>
+        <p id="map-warning" role="status"></p>
+        <p id="province-details" aria-live="polite"></p>
+    </section>
+</main>
+
+<footer class="secondary-panels">
+    <details id="historical-panel">
+        <summary>Imported historical submissions — comparison only</summary>
+        <div class="details-content">
+            <p id="historical-summary">No imported phase.</p>
+            <button id="show-historical" type="button" disabled>
+                Show this country's historical orders on map
+            </button>
+            <ul id="historical-orders"></ul>
+            <p class="muted">
+                Missing submissions remain missing; no holds are invented.
+                Historical orders are not strategy inputs.
+                Editing units, ownership, year, or phase detaches this comparison.
+            </p>
+        </div>
+    </details>
+
+    <details class="diagnostics">
+        <summary id="diagnostic-summary">Prediction evidence</summary>
+        <ul id="diagnostic-list"></ul>
+    </details>
+</footer>
+
+<noscript>
+    <p class="notice">JavaScript is required for generation and display.</p>
+</noscript>
+</body>
+</html>
