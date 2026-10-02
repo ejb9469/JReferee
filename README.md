@@ -249,8 +249,10 @@ regressions cover the exact NTH/Yor mismatch, connected/disconnected routes,
 assigned incompatible fleets, adjacent moves, stationary support, explicit
 coasts, later assignments, cutoff/beam/foreign-budget exhaustion, conflicting
 foreign assumptions, stable insertion/UUID behavior, immutable inputs, legacy
-generation, and strategy-to-ranking orchestration. CodeQL reported zero Java
-and JavaScript alerts. The automated review executable was unavailable; a
+generation, and strategy-to-ranking orchestration. Initial CodeQL reported zero
+Java and JavaScript alerts. After the joint-assumption fixes, final JavaScript
+analysis reported zero alerts, but Java analysis timed out; final Java security
+validation remains incomplete. The automated review executable was unavailable; a
 separate read-only review found three defects, now fixed and re-reviewed.
 
 Backend-only compilation was run. Browser application compilation, the added
