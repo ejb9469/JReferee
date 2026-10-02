@@ -1,8 +1,5 @@
 package analysis;
 
-import domain.OrderType;
-import domain.Province;
-import domain.UnitType;
 import game.BoardState;
 import game.record.GameRecord;
 import game.record.MovementPhaseRecord;
@@ -286,46 +283,8 @@ public final class CandidateSelectionAudit {
 
     public static ReferenceIssue referenceIssue(
             BoardState board, Order order) {
-
-        Objects.requireNonNull(board, "board");
-        Objects.requireNonNull(order, "order");
-
-        boolean support = order.orderType() == OrderType.SUPPORT;
-        boolean convoy = order.orderType() == OrderType.CONVOY;
-
-        if (!support && !convoy)
-            return ReferenceIssue.NONE;
-
-        Province target = order.target();
-
-        boolean occupied = false;
-        boolean armyPresent = false;
-
-        if (target != null) {
-
-            Province territory = Province.canonical(target);
-
-            for (var entry : board.locations().entrySet()) {
-
-                if (Province.canonical(entry.getValue()) != territory)
-                    continue;
-
-                occupied = true;
-
-                if (entry.getKey().unitType() == UnitType.ARMY)
-                    armyPresent = true;
-
-            }
-
-        }
-
-        if (!occupied)
-            return ReferenceIssue.MISSING_UNIT;
-
-        if (convoy && !armyPresent)
-            return ReferenceIssue.CONVOY_WITHOUT_ARMY;
-
-        return ReferenceIssue.NONE;
+        return ReferenceIssue.valueOf(
+                ReferenceCompatibility.issue(board, order).name());
 
     }
 
@@ -336,9 +295,7 @@ public final class CandidateSelectionAudit {
         Objects.requireNonNull(ranked, "ranked");
 
         // Preserve production ranking. Filter before any top-K truncation.
-        return ranked.stream()
-                .filter(order -> referenceIssue(board, order) == ReferenceIssue.NONE)
-                .toList();
+        return ReferenceCompatibility.compatibleOrders(board, ranked);
 
     }
 

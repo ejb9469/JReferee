@@ -24,8 +24,8 @@ public final class ReferenceFilteredPrediction {
 
         for (var entry : original.counts().entrySet()) {
 
-            if (CandidateSelectionAudit.referenceIssue(board, entry.getKey())
-                    == CandidateSelectionAudit.ReferenceIssue.NONE)
+            if (ReferenceCompatibility.issue(board, entry.getKey())
+                    == ReferenceCompatibility.Issue.NONE)
                 retained.put(entry.getKey(), entry.getValue());
 
         }
