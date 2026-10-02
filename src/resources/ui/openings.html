@@ -123,9 +123,17 @@
                 Reserved test games were not used for model training or scoring.
             </li>
             <li>
-                The next experiment adds cross-year position fallback only
-                for decisions without an existing prediction. Its results
-                have not yet been measured.
+                Cross-year fallback has now been evaluated on the same split:
+                individual prediction coverage increased from 26.81% to 47.33%,
+                adding 7,591 top-four order hits and 39 national-plan matches.
+                Complete opponent-scenario matches remained 71.
+                This fallback remains experimental.
+            </li>
+            <li>
+                The next experiment additionally relaxes neighboring-unit occupancy
+                matching, only after existing prediction methods abstain.
+                Nearby center ownership remains part of its context.
+                Results for that experiment have not yet been measured.
             </li>
         </ul>
     </details>

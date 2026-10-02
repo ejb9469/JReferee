@@ -21,27 +21,46 @@ public class RoutePreferences {
 
     private final UnitRoutes routes;
     private final int maximumSuffix;
+
     private final boolean yearPooledFallback;
+    private final boolean occupancyRelaxedFallback;
+
+    /*
+     * Number of distinct training games contributing to each position key.
+     * Counts are separate from decision-observation counts.
+     */
+    private final Map<List<String>, Long> supportingGames = new HashMap<>();
 
     private final Map<List<String>, Map<List<String>, Long>> decisions = new HashMap<>();
 
 
     public RoutePreferences() {
-        this(null, 4, false);
+        this(null, 4, false, false);
     }
 
     public RoutePreferences(Opening opening, int maximumSuffix) {
-        this(opening, maximumSuffix, false);
+        this(opening, maximumSuffix, false, false);
+    }
+
+    public RoutePreferences(Opening opening, int maximumSuffix, boolean yearPooledFallback) {
+
+        this(opening, maximumSuffix, yearPooledFallback, false);
+
     }
 
     public RoutePreferences(
             Opening opening,
             int maximumSuffix,
-            boolean yearPooledFallback) {
+            boolean yearPooledFallback,
+            boolean occupancyRelaxedFallback) {
 
         if (maximumSuffix < 0)
             throw new IllegalArgumentException(
                     "Maximum suffix length must not be negative");
+
+        if (occupancyRelaxedFallback && !yearPooledFallback)
+            throw new IllegalArgumentException(
+                    "Occupancy relaxation requires year pooling");
 
         this.routes = opening == null
                 ? new UnitRoutes()
@@ -49,6 +68,7 @@ public class RoutePreferences {
 
         this.maximumSuffix = maximumSuffix;
         this.yearPooledFallback = yearPooledFallback;
+        this.occupancyRelaxedFallback = occupancyRelaxedFallback;
 
     }
 
@@ -62,14 +82,16 @@ public class RoutePreferences {
         if (!routes.add(game))
             return false;
 
+        Set<List<String>> positionKeysInGame = new HashSet<>();
+
         for (ResolvedPhaseRecord phase : game.resolvedPhases()) {
 
             if (!(phase instanceof MovementPhaseRecord movement))
                 continue;
 
-            for (MovementResult.Outcome outcome : movement.result().outcomes().values()) {
+            for (MovementResult.Outcome outcome
+                    : movement.result().outcomes().values()) {
 
-                // An omitted order is not evidence of a deliberate hold.
                 if (!outcome.submitted())
                     continue;
 
@@ -92,21 +114,47 @@ public class RoutePreferences {
 
                 List<String> recent = recentEvents(history);
 
-                for (int length = 1; length <= Math.min(maximumSuffix, recent.size()); length++)
-                    record(key(context, "SUFFIX", tail(recent, length)), action);
+                for (int length = 1;
+                     length <= Math.min(maximumSuffix, recent.size());
+                     length++)
+                    record(
+                            key(context, "SUFFIX", tail(recent, length)),
+                            action);
 
-                record(key(context, "POSITION", List.of()), action);
+                recordPosition(
+                        key(context, "POSITION", List.of()),
+                        action, positionKeysInGame);
 
                 if (yearPooledFallback)
-                    record(
-                            key(withoutYear(context), "POSITION_YEAR_POOLED", List.of()),
-                            action);
+                    recordPosition(
+                            key(withoutYear(context),
+                                    "POSITION_YEAR_POOLED", List.of()),
+                            action, positionKeysInGame);
+
+                if (occupancyRelaxedFallback)
+                    recordPosition(
+                            key(withoutOccupants(context),
+                                    "POSITION_OCCUPANCY_RELAXED", List.of()),
+                            action, positionKeysInGame);
 
             }
 
         }
 
+        for (List<String> positionKey : positionKeysInGame)
+            supportingGames.merge(positionKey, 1L, Math::addExact);
+
         return true;
+
+    }
+
+    private void recordPosition(
+            List<String> positionKey,
+            List<String> action,
+            Set<List<String>> positionKeysInGame) {
+
+        record(positionKey, action);
+        positionKeysInGame.add(positionKey);
 
     }
 
@@ -167,6 +215,18 @@ public class RoutePreferences {
 
             if (enough(pooled, minimumObservations))
                 return prediction("POSITION_YEAR_POOLED", 0, pooled, unit);
+
+        }
+
+        if (occupancyRelaxedFallback) {
+
+            Map<List<String>, Long> relaxed = decisions.get(
+                    key(withoutOccupants(context),
+                            "POSITION_OCCUPANCY_RELAXED", List.of()));
+
+            if (enough(relaxed, minimumObservations))
+                return prediction(
+                        "POSITION_OCCUPANCY_RELAXED", 0, relaxed, unit);
 
         }
 
@@ -412,7 +472,7 @@ public class RoutePreferences {
 
     /**
      * The current context layout begins with ruleset, year, and phase.
-     * Replace only the year; retain every other context component.
+     * Replace only the year; retain every other context component.<br><br>
      *
      * This is used solely for position fallback, never exact route history.
      */
@@ -425,6 +485,24 @@ public class RoutePreferences {
         pooled.set(1, "*");
 
         return List.copyOf(pooled);
+
+    }
+
+    /**
+     * Pool years and omit neighboring-unit occupancy.<br><br>
+     *
+     * Retains ruleset, season, query nation, query unit type,
+     * exact query location/coast, and nearby center ownership.
+     */
+    private static List<String> withoutOccupants(List<String> context) {
+
+        List<String> relaxed = new ArrayList<>();
+
+        for (String component : withoutYear(context))
+            if (!component.startsWith("UNIT|"))
+                relaxed.add(component);
+
+        return List.copyOf(relaxed);
 
     }
 
@@ -466,6 +544,62 @@ public class RoutePreferences {
 
     public synchronized long unfinishedAt(List<String> prefix) {
         return routes.unfinishedAt(prefix);
+    }
+
+
+
+    // PositionEvidence blank inner record
+
+    public record PositionEvidence(
+            RoutePrediction yearSpecific,
+            RoutePrediction yearPooled,
+            RoutePrediction occupancyRelaxed,
+            long yearSpecificGames,
+            long yearPooledGames,
+            long occupancyRelaxedGames
+    ) {     }
+
+    // ... & assc. helpers ...
+
+    public synchronized PositionEvidence positionEvidence(
+            String ruleset,
+            GameMoment moment,
+            BoardState board,
+            UnitId unit) {
+
+        List<String> context = context(ruleset, moment, board, unit);
+
+        List<String> specificKey =
+                key(context, "POSITION", List.of());
+
+        List<String> pooledKey =
+                key(withoutYear(context), "POSITION_YEAR_POOLED", List.of());
+
+        List<String> relaxedKey =
+                key(withoutOccupants(context),
+                        "POSITION_OCCUPANCY_RELAXED", List.of());
+
+        return new PositionEvidence(
+                evidenceAt(specificKey, "POSITION", unit),
+                evidenceAt(pooledKey, "POSITION_YEAR_POOLED", unit),
+                evidenceAt(relaxedKey, "POSITION_OCCUPANCY_RELAXED", unit),
+                supportingGames.getOrDefault(specificKey, 0L),
+                supportingGames.getOrDefault(pooledKey, 0L),
+                supportingGames.getOrDefault(relaxedKey, 0L));
+
+    }
+
+    private RoutePrediction evidenceAt(
+            List<String> evidenceKey,
+            String basis,
+            UnitId unit) {
+
+        Map<List<String>, Long> counts = decisions.get(evidenceKey);
+
+        return counts == null
+                ? new RoutePrediction("NONE", 0, Map.of())
+                : prediction(basis, 0, counts, unit);
+
     }
 
 
