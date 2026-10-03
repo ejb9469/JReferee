@@ -122,6 +122,47 @@ Notes:
 
 ## Experimental movement strategy
 
+### Configurable preference scoring: design and sources
+
+The optional scoring layers are an original, interpretable Java heuristic,
+not CICERO, a trained joint policy, reinforcement learning, or piKL equilibrium
+search. The useful research distinction is **human anchor versus strategic
+planning/value**, not a set of published province weights:
+
+- [Official CICERO/Diplodocus project](https://github.com/facebookresearch/diplomacy_cicero)
+  separates dialogue-free strategy models, planning agents, and training.
+  Its [human-imitation joint-policy model card](https://github.com/facebookresearch/diplomacy_cicero/blob/main/model_cards/human_imitation_joint_policy.md)
+  describes an anchor compatible with human conventions and autoregressive
+  actions that can model correlations. Our independent order frequencies
+  cannot model those correlations; hard coordination checks remain essential.
+- [Human-regularized no-press Diplomacy/Diplodocus](https://arxiv.org/abs/2210.05492)
+  motivates retaining a human anchor while planning. This implementation does
+  not reproduce its learning or planning algorithm.
+- [Modeling Strong and Human-Like Gameplay with KL-Regularized Search](https://openreview.net/pdf?id=H9N_sqy6lc)
+  motivates an adjustable preference for human-like actions alongside value.
+  A weighted average log frequency here is **not** a KL divergence, an
+  equilibrium computation, or a reproduction of piKL.
+- [DipNet project](https://github.com/diplomacy/research) and
+  [paper](https://arxiv.org/abs/1909.02128) provide the broader supervised-policy
+  and board-context motivation. We import neither its models nor its dataset.
+
+The official project READMEs and CICERO model card were read for this change.
+Direct arXiv/OpenReview access may be unavailable in the task environment;
+paper access and validation results are recorded separately below rather than
+claiming those algorithms were replicated. CICERO's main code is MIT with
+separately licensed external utilities and noncommercial model weights; DipNet
+also separates code licensing from restrictions on weights and data. **No code,
+assets, weights, or datasets from either project are reused.** No external API,
+ML framework, checkpoint download, Python service, or press generation is added.
+
+All new scoring layers default to zero/empty in the Java API and browser.
+Existing center-position, snapshot objective, dislodgement, caution, and
+tactical-bias settings retain their meaning. Province profiles and named
+regions are user heuristics, not learned values or historical national goals.
+The opt-in example (German Prussia negative; global MAO/ION fleet values
+positive) is editable, removable, experimental, and **untuned**. None is a
+prohibition: actual outcomes and tactical needs can outweigh positional wishes.
+
 The route-based movement strategy is an opt-in API. It composes the existing
 `RoutePreferences` model, one named `PredictionPolicy`, complete national plans,
 complete opponent scenarios, and the existing `OutcomeEvaluator`. Callers
