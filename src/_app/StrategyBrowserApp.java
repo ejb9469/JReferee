@@ -41,7 +41,7 @@ public final class StrategyBrowserApp {
     private static final Set<String> FORM_FIELDS = Set.of(
             "nation", "year", "phase", "policy", "coordinationMode",
             "units", "centers", "objectives",
-            "centerWeight", "dislodgementPenalty", "caution",
+            "centerWeight", "dislodgementPenalty", "caution", "tacticalBiasWeight",
             "minimum", "choices", "plans", "scenarios");
     private static final Set<String> OPTIONAL_FORM_FIELDS = Set.of("compareAlternatives");
 
@@ -247,7 +247,7 @@ public final class StrategyBrowserApp {
                         new OutcomeEvaluator(
                                 query.centerWeight(),
                                 query.dislodgementPenalty(),
-                                query.caution()),
+                                query.caution(), query.configuration().tacticalBiasWeight()),
                         new MovementProcessor());
 
                 send(exchange, 200, "application/json; charset=utf-8",
@@ -337,7 +337,8 @@ public final class StrategyBrowserApp {
                 enumValue(PredictionPolicy.class, values.get("policy")),
                 integer(values, "minimum", 1, 10000),
                 choices, plans, scenarios,
-                enumValue(CoordinationMode.class, values.get("coordinationMode")));
+                enumValue(CoordinationMode.class, values.get("coordinationMode")),
+                decimal(values.get("tacticalBiasWeight"), "Tactical bias weight", 0, 1000));
 
         Map<UnitId, Province> locations = new LinkedHashMap<>();
         Set<Province> occupied = EnumSet.noneOf(Province.class);
@@ -443,6 +444,7 @@ public final class StrategyBrowserApp {
         defaults.put("centerWeight", "1");
         defaults.put("dislodgementPenalty", "3");
         defaults.put("caution", "0.5");
+        defaults.put("tacticalBiasWeight", "5");
         defaults.put("minimum", "3");
         defaults.put("choices", "4");
         defaults.put("plans", "8");
@@ -478,12 +480,13 @@ public final class StrategyBrowserApp {
         String settings = String.format(Locale.ROOT,
                 "%s %d | %s | %s | coordination=%s | position-only | minimum=%d choices=%d "
                         + "plans=%d scenarios=%d | center=%.3f dislodgement=%.3f "
-                        + "caution=%.3f | objectives=%s | ruleset=%s",
+                        + "caution=%.3f tactical-bias=%.3f | objectives=%s | ruleset=%s",
                 query.moment().gamePhase(), query.moment().year(),
                 query.nation(), config.policy(), config.coordinationMode(),
                 config.minimumObservations(), config.choicesPerUnit(),
                 config.nationalPlanLimit(), config.opponentScenarioLimit(),
                 query.centerWeight(), query.dislodgementPenalty(), query.caution(),
+                config.tacticalBiasWeight(),
                 query.objectives(), ruleset);
 
         StringBuilder out = new StringBuilder("{\"settings\":")
@@ -548,6 +551,13 @@ public final class StrategyBrowserApp {
                 .append("],\"plans\":[");
 
         int rank = 0;
+        List<PlanEvaluation> baseRanking = recommendation.rankedPlans().stream()
+                .sorted(Comparator.comparingDouble(PlanEvaluation::baseScore).reversed()
+                        .thenComparing(Comparator.comparingDouble(
+                                (PlanEvaluation value) -> value.plan().logPreference()).reversed())
+                        .thenComparing(value -> Classifier.signature(
+                                query.board(), value.plan().orders())))
+                .toList();
         int comparisonsRemaining = TacticalAnalysis.MAX_COMPARISONS;
         int comparisonWorkRemaining = TacticalAnalysis.MAX_SCENARIO_EVALUATIONS;
 
@@ -560,7 +570,7 @@ public final class StrategyBrowserApp {
                     query.board(), query.moment(), evaluation.plan(),
                     recommendation.selectedPredictions(), recommendation.scenarioOrders(),
                     query.objectives(), new OutcomeEvaluator(query.centerWeight(),
-                            query.dislodgementPenalty(), query.caution()),
+                            query.dislodgementPenalty(), query.caution(), config.tacticalBiasWeight()),
                     new MovementProcessor(), query.compareAlternatives(),
                     comparisonsRemaining, comparisonWorkRemaining);
             comparisonsRemaining -= tactical.comparisonsEvaluated();
@@ -571,6 +581,11 @@ public final class StrategyBrowserApp {
                     .append(",\"dependencies\":").append(stringsJson(
                             coordination.conditionalPlans().getOrDefault(signature, List.of())))
                     .append(",\"score\":").append(evaluation.score())
+                    .append(",\"baseScore\":").append(evaluation.baseScore())
+                    .append(",\"baseRank\":").append(baseRanking.indexOf(evaluation) + 1)
+                    .append(",\"penaltyWeight\":").append(evaluation.penaltyWeight())
+                    .append(",\"offendingMoveCount\":").append(evaluation.offendingMoveCount())
+                    .append(",\"penaltyTotal\":").append(evaluation.penaltyTotal())
                     .append(",\"mean\":").append(evaluation.mean())
                     .append(",\"worst\":").append(evaluation.worst())
                     .append(",\"logPreference\":").append(evaluation.plan().logPreference())
@@ -637,7 +652,9 @@ public final class StrategyBrowserApp {
                     + ",\"scenarioDeltas\":" + deltas
                     + ",\"meanDelta\":" + comparison.meanDelta()
                     + ",\"worstDelta\":" + comparison.worstDelta()
-                    + ",\"scoreDelta\":" + comparison.scoreDelta() + "}");
+                    + ",\"scoreDelta\":" + comparison.scoreDelta()
+                    + ",\"adjustedScoreDelta\":" + comparison.adjustedScoreDelta()
+                    + ",\"penaltyDelta\":" + comparison.penaltyDelta() + "}");
         }
         return out.toString();
     }
@@ -720,8 +737,9 @@ public final class StrategyBrowserApp {
                 + ",\"centerWeight\":" + query.centerWeight()
                 + ",\"dislodgementPenalty\":" + query.dislodgementPenalty()
                 + ",\"caution\":" + query.caution()
+                + ",\"tacticalBiasWeight\":" + config.tacticalBiasWeight()
                 + ",\"equalScenarioWeights\":true"
-                + ",\"formula\":\"combined=(1-caution)*mean+caution*worst\""
+                + ",\"formula\":\"base=(1-caution)*mean+caution*worst; adjusted=base-weight*offendingMoveCount\""
                 + ",\"limits\":{\"minimumObservations\":" + config.minimumObservations()
                 + ",\"choicesPerUnit\":" + config.choicesPerUnit()
                 + ",\"nationalPlanLimit\":" + config.nationalPlanLimit()

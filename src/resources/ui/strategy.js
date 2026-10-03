@@ -88,6 +88,13 @@ function clearResults() {
     $("#plan-metrics").textContent = "";
     $("#plan-dependencies").replaceChildren();
     $("#plan-inspector").hidden = true;
+    for (const selector of ["#result-context", "#scoring-context", "#bias-summary",
+        "#scenario-metrics", "#requirement-details"])
+        $(selector).textContent = "";
+    for (const selector of ["#scenario-orders", "#structured-dependencies",
+        "#dependency-legend", "#plan-findings", "#plan-comparisons"])
+        $(selector).replaceChildren();
+    $("#show-dependencies").checked = false;
     $("#scenario-selector").replaceChildren();
     $("#dependency-set").replaceChildren();
     resultContext = null;
@@ -404,7 +411,7 @@ function refreshHistorical() {
         + `${importedPhase.board.year} ${importedPhase.board.phase}; `
         + `source status ${importedPhase.sourceStatus}. `
         + `${nation}: ${orders.length} submitted orders for ${units.length} units. `
-        + "Source data, not locally replay-verified.";
+        + "Source data, not locally replay-verified; raw historical orders are unpenalized.";
 
     for (const order of orders) {
         const item = document.createElement("li");
@@ -437,7 +444,8 @@ function showHistorical() {
         + importedPhase.board.year;
 
     $("#plan-metrics").textContent =
-        "Comparison overlay only. Click a ranked plan to return to generated recommendations.";
+        "Raw historical submissions — unpenalized comparison overlay only. "
+        + "Click a ranked plan to return to generated recommendations.";
     $("#plan-dependencies").replaceChildren();
     $("#plan-inspector").hidden = true;
 
@@ -588,15 +596,16 @@ function renderList() {
         const heading = document.createElement("span");
         heading.className = "opening-count";
         heading.textContent =
-            `Rank ${plan.rank} · score ${number(plan.score)} · `
+            `Rank ${plan.rank} · ${scoreSummary(plan)} · `
             + `mean ${number(plan.mean)} · worst ${number(plan.worst)}`
+            + ` · ${rankExplanation(plan)}`
             + ((plan.dependencies ?? []).length ? " · CONDITIONAL" : "");
         button.append(heading);
 
         for (const order of plan.orders) {
             const line = document.createElement("span");
             line.className = "order";
-            line.textContent = order.text;
+            line.textContent = order.text + (offendingIncoming(plan, order) ? " · FLAGGED INCOMING MOVE" : "");
             line.style.setProperty("--nation-color", bootstrap.colors[result.nation]);
             line.classList.toggle("germany", result.nation === "GERMANY");
             button.append(line);
@@ -638,7 +647,7 @@ function select(index) {
         : `${result.nation} — ${moment}`;
 
     $("#plan-metrics").textContent = plan
-        ? `Score ${number(plan.score)}; mean ${number(plan.mean)}; `
+        ? `${scoreSummary(plan)}; ${rankExplanation(plan)}; mean ${number(plan.mean)}; `
           + `worst ${number(plan.worst)}; log preference ${number(plan.logPreference)}.`
         : "";
 
@@ -744,6 +753,7 @@ function setupInspector(plan) {
     $("#scenario-selector").replaceChildren();
     $("#dependency-set").replaceChildren();
     $("#requirement-details").textContent = "";
+    $("#show-dependencies").checked = false;
     if (!plan)
         return;
     const scenarios = scenarioDetails(plan);
@@ -796,10 +806,21 @@ function renderInspector() {
         : Object.entries(context.objectives ?? {}).map(([province, value]) => `${province} ${value}`).join("; ");
     $("#scoring-context").textContent =
         `Scoring: center weight ${context.centerWeight}; dislodgement penalty ${context.dislodgementPenalty}; `
-        + `caution ${context.caution}; objectives: ${objectives || "none"}. `
+        + `caution ${context.caution}; tactical bias weight ${context.tacticalBiasWeight}; `
+        + `objectives: ${objectives || "none"}. `
         + `${result.scenarioCount} sampled scenarios have equal weight`
         + (result.scenarioCount ? ` (1/${result.scenarioCount})` : "") + "; not calibrated probabilities. "
-        + (context.formula ?? "combined=(1-caution)*mean+caution*worst");
+        + (context.formula ?? "base=(1-caution)*mean+caution*worst; adjusted=base-weight*offendingMoveCount");
+    $("#bias-summary").textContent = `${scoreSummary(plan)}. ${rankExplanation(plan)}. `
+        + (plan.penaltyWeight === 0 ? "Bias disabled exactly; diagnostic warnings may remain. "
+            : "Heuristic ranking adjustment only, not an adjudicated outcome change. ")
+        + (context.coordinationMode === "RAW"
+            ? "Raw generation is not reordered; the evaluator still applies the result-time weight. "
+            : Number(context.tacticalBiasWeight) > 0
+            ? "Any positive weight enables count-first coordinated search with bounded "
+                + "max(256, beam width) grouping; penalty magnitude scales with weight. "
+            : "Zero weight retains legacy search ordering. ")
+        + "Coordination validity is separate from this heuristic; mean, worst, and scenario components remain raw.";
     const scenario = scenarioDetails(plan)[Number($("#scenario-selector").value)];
     $("#scenario-metrics").textContent = scenario
         ? `Scenario score ${number(scenario.score)}; center-position component `
@@ -870,7 +891,8 @@ function renderInspector() {
             + (finding.evaluatedStatus ? ` Comparison status: ${finding.evaluatedStatus}.` : ""),
             "finding-warning");
         for (const order of finding.orders ?? [])
-            appendText($("#plan-findings"), "li", `Flagged order: ${order.text}`);
+            appendText($("#plan-findings"), "li",
+                `${order.type === "MOVE" ? "Flagged incoming move" : "Related stationary order"}: ${order.text}`);
     }
     if (!(plan.findings ?? []).length)
         appendText($("#plan-findings"), "li",
@@ -922,7 +944,11 @@ function renderComparisons(plan) {
             + `(Δ ${number(comparison.meanDelta)}, ${deltaRelation(comparison.meanDelta)}); worst: ${number(originalWorst)} → `
             + `${number(comparison.alternativeWorst ?? originalWorst + comparison.worstDelta)} `
             + `(Δ ${number(comparison.worstDelta)}, ${deltaRelation(comparison.worstDelta)}); `
-            + `combined score Δ ${number(comparison.scoreDelta)} (${deltaRelation(comparison.scoreDelta)}). `
+            + `raw outcome/base score Δ ${number(comparison.scoreDelta)} (${deltaRelation(comparison.scoreDelta)}); `
+            + `penalty Δ ${number(comparison.penaltyDelta)} (alternative − original); `
+            + `bias-adjusted score Δ ${number(comparison.adjustedScoreDelta)} `
+            + `(${deltaRelation(comparison.adjustedScoreDelta)}). `
+            + "A heuristic gain is not an adjudicated outcome improvement. "
             + "This does not establish universal superiority.");
         const scroll = document.createElement("div");
         scroll.className = "comparison-table-scroll";
@@ -957,6 +983,28 @@ function deltaRelation(value) {
     if (value === null || value === undefined || !Number.isFinite(Number(value)))
         return "unavailable";
     return Number(value) > 0 ? "BETTER" : Number(value) < 0 ? "WORSE" : "EQUAL";
+}
+
+function scoreSummary(plan) {
+    return `Adjusted ${number(plan.score)} · base ${number(plan.baseScore)} · `
+        + `offending moves ${plan.offendingMoveCount ?? "unavailable"} · `
+        + `weight ${number(plan.penaltyWeight)} · penalty total ${number(plan.penaltyTotal)}`;
+}
+
+function rankExplanation(plan) {
+    if (plan.baseRank === undefined)
+        return "Base rank unavailable";
+    return plan.baseRank === plan.rank
+        ? `Base rank ${plan.baseRank} unchanged after heuristic bias`
+        : `Base rank ${plan.baseRank} → adjusted rank ${plan.rank}: `
+            + "base score minus weight × offending moves reorders candidates";
+}
+
+function offendingIncoming(plan, order) {
+    return order.type === "MOVE" && (plan.findings ?? []).some(finding =>
+        (finding.orders ?? []).some(flagged =>
+            flagged.type === "MOVE" && flagged.origin === order.origin
+            && flagged.target === order.target));
 }
 
 function number(value) {
