@@ -1,0 +1,21 @@
+{
+  "format": "jreferee-strategy-game",
+  "version": 1,
+  "gameLabel": "Browser import fixture",
+  "phases": [
+    {
+      "snapshot": 1,
+      "sourceStatus": "fixture-only",
+      "missingSubmissionCount": 0,
+      "board": {
+        "year": 1902,
+        "phase": "FALL_MOVEMENT",
+        "units": [{"nation": "FRANCE", "type": "FLEET", "province": "SpaSC"}],
+        "supplyCenterOwners": {"Spa": "FRANCE"}
+      },
+      "orders": [
+        {"nation": "FRANCE", "type": "HOLD", "origin": "SpaSC", "target": null, "auxiliaryTarget": null, "text": "F SpaSC H"}
+      ]
+    }
+  ]
+}
