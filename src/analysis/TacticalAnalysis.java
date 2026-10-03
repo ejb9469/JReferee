@@ -82,11 +82,14 @@ public final class TacticalAnalysis {
             String diagnostic = "Alternative comparison was not requested.";
             if (compareAlternatives) {
                 Order suggested = warning.suggestedAlternative();
-                RoutePrediction evidence = observedChoices.get(suggested.unit());
-                Long count = evidence == null ? null : evidence.counts().get(suggested);
                 status = TacticalPrinciple.EvaluationStatus.UNAVAILABLE;
-                diagnostic = "No observed support-hold choice is available; not evaluated.";
-                if (count != null && count > 0 && evidence.observations() > 0) {
+                if (suggested == null) {
+                    diagnostic = "No legal one-order support alternative is available; not evaluated.";
+                } else {
+                    RoutePrediction evidence = observedChoices.get(suggested.unit());
+                    Long count = evidence == null ? null : evidence.counts().get(suggested);
+                    diagnostic = "No observed suggested support choice is available; not evaluated.";
+                    if (count != null && count > 0 && evidence.observations() > 0) {
                     provenance = new Provenance(evidence.basis(), evidence.observations(), count);
                     List<Order> orders = plan.orders().stream().map(order ->
                             order.unit().equals(suggested.unit()) ? suggested : order).toList();
@@ -143,6 +146,7 @@ public final class TacticalAnalysis {
                     } else {
                         diagnostic = "A replacement plan order lacks observed evidence; not evaluated.";
                     }
+                }
                 }
             }
             var updated = new TacticalPrinciple.Warning(warning.id(), warning.category(),

@@ -8,7 +8,12 @@ import java.util.*;
 public interface TacticalPrinciple {
     List<Warning> inspect(BoardState board, OrderPlan plan);
 
-    enum Category { FRIENDLY_CONVOY_FLEET, FRIENDLY_SUPPORT_UNIT }
+    enum Category {
+        FRIENDLY_CONVOY_FLEET,
+        FRIENDLY_SUPPORT_UNIT,
+        FRIENDLY_HOLD_UNIT,
+        FRIENDLY_PROVINCE_ATTACK
+    }
     enum Severity { WARNING }
     enum EvaluationStatus { NOT_REQUESTED, UNAVAILABLE, INVALID, LIMIT_REACHED, EVALUATED }
 
@@ -29,6 +34,8 @@ public interface TacticalPrinciple {
             return switch (category) {
                 case FRIENDLY_CONVOY_FLEET -> "friendly-convoy-fleet";
                 case FRIENDLY_SUPPORT_UNIT -> "friendly-support-unit";
+                case FRIENDLY_HOLD_UNIT -> "friendly-hold-unit";
+                case FRIENDLY_PROVINCE_ATTACK -> "friendly-province-attack";
             };
         }
     }
