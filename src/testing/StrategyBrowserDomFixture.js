@@ -196,7 +196,7 @@ async function main() {
     await command("Runtime.enable");
     await wait('document.querySelector("#fields")?.disabled === false');
     const labels = await evaluate('document.body.textContent.replace(/\\s+/g, " ")');
-    assert.match(labels, /shaped combined score, before the human preference term is added/);
+    assert.match(labels, /Distinct moves into your HOLD, SUPPORT, or CONVOY unit/);
     assert.match(labels, /first 64 historical observed choices per unit/);
     assert.match(labels, /Exact fleet coasts such as SpaNC are allowed/);
     assert.equal(await evaluate('document.querySelectorAll(".unit-token").length'), fixture.board.units.length);

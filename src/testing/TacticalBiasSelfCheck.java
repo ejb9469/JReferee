@@ -50,8 +50,13 @@ public final class TacticalBiasSelfCheck {
         immutable(() -> findings.clear());
         require(TacticalBias.offendingMoveCount(board, plan(move)) == 0,
                 "Unresolved partial target counted");
-        require(TacticalBias.offendingMoveCount(board, plan(move, Order.hold(nth))) == 0,
-                "Ordinary HOLD counted");
+        require(TacticalBias.offendingMoveCount(board, plan(move, Order.hold(nth))) == 1,
+                "Friendly HOLD collision was not counted");
+        var heldFinding = TacticalBias.inspect(board, plan(move, Order.hold(nth))).getFirst();
+        require(heldFinding.category() == TacticalPrinciple.Category.FRIENDLY_HOLD_UNIT
+                        && heldFinding.explanation().equals("Moves into your holding unit.")
+                        && heldFinding.suggestedAlternative().orderType() == OrderType.SUPPORT,
+                "Friendly HOLD collision missing or not concise");
         require(TacticalBias.offendingMoveCount(board,
                 plan(move, Order.move(nth, Province.Nwy))) == 0, "Moving target counted");
         require(TacticalBias.offendingMoveCount(board,
@@ -60,6 +65,65 @@ public final class TacticalBiasSelfCheck {
         UnitId foreign = unit(Nation.FRANCE, UnitType.FLEET, Province.NTH);
         require(TacticalBias.offendingMoveCount(board(edi, foreign), plan(move)) == 0,
                 "Foreign occupancy counted without selected own order");
+        UnitId mover = own(UnitType.ARMY, Province.Bur);
+        UnitId supporter = own(UnitType.FLEET, Province.Lon);
+        UnitId supporterTwo = own(UnitType.FLEET, Province.Bre);
+        UnitId supportedForeign = new UnitId(UUID.fromString("00000000-0000-0000-0000-000000000003"),
+                Nation.FRANCE, UnitType.ARMY, Province.Edi);
+        BoardState supportedBoard = new BoardState(Map.of(mover, Province.Bur, supporter, Province.Lon,
+                supporterTwo, Province.Bre, supportedForeign, Province.Pic), Map.of());
+        Order incoming = Order.move(mover, Province.Bel);
+        Order supportForeign = Order.supportMove(supporter, Province.Pic, Province.Bel);
+        Order supportForeignTwo = Order.supportMove(supporterTwo, Province.Pic, Province.Bel);
+        var supportedFindings = TacticalBias.inspect(supportedBoard,
+                plan(incoming, supportForeign, supportForeignTwo));
+        require(supportedFindings.size() == 2 && supportedFindings.stream().allMatch(warning ->
+                        warning.category() == TacticalPrinciple.Category.FOREIGN_SUPPORTED_DESTINATION
+                                && warning.explanation().equals("Competes with a foreign move you support.")
+                                && warning.suggestedAlternative() == null)
+                        && TacticalBias.offendingMoveCount(supportedBoard,
+                        plan(incoming, supportForeign, supportForeignTwo)) == 1,
+                "Multiple own supports did not report all reasons while counting the MOVE once");
+        require(supportedFindings.equals(TacticalBias.inspect(supportedBoard,
+                        plan(supportForeignTwo, incoming, supportForeign))),
+                "Foreign-destination warning signatures depend on order insertion");
+        require(TacticalBias.offendingMoveCount(supportedBoard,
+                plan(Order.move(mover, Province.Pic), supportForeign)) == 0,
+                "Move into supported foreign unit's origin was flagged");
+        require(TacticalBias.offendingMoveCount(supportedBoard,
+                plan(incoming, Order.supportHold(supporter, Province.Pic))) == 0,
+                "Foreign support-hold created a destination conflict");
+        require(TacticalBias.offendingMoveCount(supportedBoard,
+                plan(incoming, Order.supportMove(supporter, Province.Pic, Province.Por))) == 0,
+                "Different supported destination was flagged");
+        rejects(() -> plan(incoming, Order.supportMove(
+                unit(Nation.FRANCE, UnitType.FLEET, Province.MAO), Province.Pic, Province.Bel)));
+        require(TacticalBias.offendingMoveCount(supportedBoard,
+                plan(incoming, Order.supportMove(supporter, Province.NTH, Province.Bel))) == 0,
+                "Missing foreign support reference created a conflict");
+        require(TacticalBias.offendingMoveCount(supportedBoard,
+                plan(incoming, new Order(supporter, OrderType.SUPPORT, Province.Edi, Province.Bel))) == 0,
+                "Support reference to a unit's creation location was accepted");
+        BoardState missingReferenceBoard = board(mover, supporter);
+        Order missingSupport = Order.supportMove(supporter, Province.Pic, Province.Bel);
+        OrderPlan missingReferencePlan = plan(incoming, missingSupport);
+        require(TacticalBias.inspect(missingReferenceBoard, missingReferencePlan).isEmpty()
+                        && CoordinatedOrders.coordinationProblem(missingReferenceBoard,
+                        missingReferencePlan).isPresent(),
+                "Missing foreign support reference fabricated a warning or bypassed rejection: "
+                        + CoordinatedOrders.coordinationProblem(missingReferenceBoard, missingReferencePlan));
+        UnitId foreignCoast = new UnitId(UUID.fromString("00000000-0000-0000-0000-000000000004"),
+                Nation.FRANCE, UnitType.FLEET, Province.Lon);
+        BoardState coastSupportBoard = new BoardState(Map.of(mover, Province.MAO,
+                supporter, Province.Por, foreignCoast, Province.SpaNC), Map.of());
+        require(TacticalBias.offendingMoveCount(coastSupportBoard, plan(
+                Order.move(mover, Province.SpaSC),
+                Order.supportMove(supporter, Province.SpaNC, Province.Spa))) == 1,
+                "Exact current foreign coast or canonical destination matching failed");
+        require(TacticalBias.offendingMoveCount(coastSupportBoard, plan(
+                Order.move(mover, Province.SpaSC),
+                Order.supportMove(supporter, Province.SpaSC, Province.Spa))) == 0,
+                "Canonicalized foreign support origin bypassed exact-coast matching");
         UnitId foreignArmy = unit(Nation.FRANCE, UnitType.ARMY, Province.Yor);
         BoardState foreignTargetBoard = board(edi, nth, foreignArmy);
         for (Order stationary : List.of(Order.convoy(nth, Province.Yor, Province.Hol),
@@ -70,7 +134,7 @@ public final class TacticalBiasSelfCheck {
         var foreignScenarios = Map.of(
                 "foreign-convoy", List.of(Order.convoy(foreign, Province.Yor, Province.Hol),
                         Order.move(foreignArmy, Province.Hol)),
-                "foreign-support", List.of(Order.supportHold(foreign, Province.Yor),
+                "foreign-support", List.of(Order.supportMove(foreign, Province.Yor, Province.Hol),
                         Order.hold(foreignArmy)));
         var foreignEvaluation = new OutcomeEvaluator(0, 0, 0, 5).rank(
                 board(edi, foreign, foreignArmy), moment(), List.of(plan(move)),
@@ -84,6 +148,51 @@ public final class TacticalBiasSelfCheck {
                 plan(Order.move(lon, Province.NTH), convoy, move, army));
         require(two.size() == 2 && two.stream().map(TacticalPrinciple.Warning::id).distinct()
                 .count() == 2, "Multiple offending MOVEs not independently counted");
+        UnitId held = own(UnitType.ARMY, Province.Bel);
+        UnitId validSupporter = own(UnitType.ARMY, Province.Ruh);
+        BoardState overlappingBoard = new BoardState(Map.of(mover, Province.Bur, validSupporter, Province.Ruh,
+                held, Province.Bel, supportedForeign, Province.Pic), Map.of());
+        Order heldMove = Order.move(mover, Province.Bel);
+        Order hold = Order.hold(held);
+        Order foreignSupportToBel = Order.supportMove(validSupporter, Province.Pic, Province.Bel);
+        var overlapping = TacticalBias.inspect(overlappingBoard,
+                plan(heldMove, hold, foreignSupportToBel));
+        require(overlapping.size() == 2
+                        && TacticalBias.offendingMoveCount(overlappingBoard,
+                        plan(heldMove, hold, foreignSupportToBel)) == 1,
+                "Overlapping HOLD and foreign-destination reasons double-counted a MOVE");
+        var overlapEvaluation = new OutcomeEvaluator(0, 0, 0, 3).rank(overlappingBoard, moment(),
+                List.of(plan(heldMove, hold, foreignSupportToBel)),
+                Map.of("quiet", List.of(Order.hold(supportedForeign))), Map.of(), processor()).getFirst();
+        require(overlapEvaluation.findings().size() == 2 && overlapEvaluation.offendingMoveCount() == 1
+                        && overlapEvaluation.penaltyTotal() == 3,
+                "Plan metadata charged once per warning rather than once per incoming MOVE");
+        Order replacementSupport = Order.supportHold(mover, Province.Bel);
+        var overlapComparison = TacticalAnalysis.analyze(overlappingBoard, moment(),
+                plan(heldMove, hold, foreignSupportToBel),
+                predictions(heldMove, replacementSupport, hold, foreignSupportToBel),
+                Map.of("quiet", List.of(Order.hold(supportedForeign))), Map.of(),
+                new OutcomeEvaluator(0, 0, 0, 3), processor(), true, 8, 128)
+                .comparisons().stream().filter(comparison -> comparison.warning().category()
+                        == TacticalPrinciple.Category.FRIENDLY_HOLD_UNIT).findFirst().orElseThrow();
+        require(overlapComparison.baselineEvaluation() != null,
+                "Overlapping plan comparison was not evaluated: " + overlapComparison.diagnostic());
+        require(overlapComparison.baselineEvaluation().offendingMoveCount() == 1
+                        && overlapComparison.baselineEvaluation().penaltyTotal() == 3
+                        && overlapComparison.alternativeEvaluation().offendingMoveCount() == 0
+                        && overlapComparison.penaltyDelta() == -3
+                        && overlapComparison.adjustedScoreDelta()
+                        == overlapComparison.scoreDelta() - overlapComparison.penaltyDelta(),
+                "Comparison duplicated overlapping warnings or changed raw/adjusted arithmetic");
+        var nullAlternative = TacticalAnalysis.analyze(supportedBoard, moment(),
+                plan(incoming, supportForeign), Map.of(), Map.of("quiet", List.of()), Map.of(),
+                new OutcomeEvaluator(0, 0, 0, 3), processor(), true, 8, 128)
+                .comparisons().getFirst();
+        require(nullAlternative.warning().suggestedAlternative() == null
+                        && nullAlternative.alternative() == null
+                        && nullAlternative.warning().evaluatedStatus()
+                        == TacticalPrinciple.EvaluationStatus.UNAVAILABLE,
+                "Foreign-destination finding without an alternative is not safely unavailable");
 
         UnitId relocated = new UnitId(UUID.fromString("00000000-0000-0000-0000-000000000001"),
                 Nation.ENGLAND, UnitType.FLEET, Province.Lon);
@@ -97,6 +206,7 @@ public final class TacticalBiasSelfCheck {
             var warning = TacticalBias.inspect(coastBoard, plan(coastMove, support)).getFirst();
             require(warning.category() == TacticalPrinciple.Category.FRIENDLY_SUPPORT_UNIT
                     && warning.principleId().equals("friendly-support-unit")
+                    && warning.explanation().equals("Moves into your supporting unit.")
                     && warning.suggestedAlternative().target() == Province.SpaNC,
                     "Canonical support hold/move or current-location detection failed");
             require(TacticalAnalysis.FRIENDLY_CONVOY_FLEET
@@ -199,6 +309,10 @@ public final class TacticalBiasSelfCheck {
     }
 
     private static void beam() {
+        holdCollisionPair(Province.Bel, Province.Pic);
+        holdCollisionPair(Province.Pic, Province.Bel);
+        foreignDestinationPair(Province.Pic, Province.Bur);
+        foreignDestinationPair(Province.Bur, Province.Hol);
         narrowPair(Province.Bel, Province.Pic);
         narrowPair(Province.Pic, Province.Bel);
         UnitId edi = own(UnitType.FLEET, Province.Edi);
@@ -234,6 +348,51 @@ public final class TacticalBiasSelfCheck {
                 predictions(move, convoy, Order.move(yor, Province.Nwy)), CoordinationMode.STRICT);
         require(mismatch.plans().isEmpty() && mismatch.diagnostics().rejectedCandidates() > 0,
                 "Bias weakened hard coordination");
+    }
+
+    private static void holdCollisionPair(Province moverProvince, Province holderProvince) {
+        UnitId mover = own(UnitType.ARMY, moverProvince);
+        UnitId holder = own(UnitType.ARMY, holderProvince);
+        BoardState board = board(mover, holder);
+        Order incoming = Order.move(mover, holderProvince);
+        Order holding = Order.hold(holder);
+        Order movingAway = Order.move(holder,
+                holderProvince == Province.Bel ? Province.Bur : Province.Bre);
+        var evidence = weighted(predictions(incoming, holding, movingAway), holding, 9);
+        var result = new CoordinatedOrders(2, 1, 1).generate(board, Nation.ENGLAND,
+                evidence, CoordinationMode.STRICT);
+        require(result.plans().size() == 1
+                        && result.plans().getFirst().orders().contains(movingAway)
+                        && TacticalBias.offendingMoveCount(board, result.plans().getFirst()) == 0,
+                "Narrow beam pruned the safe moving-target choice for HOLD collision " + moverProvince);
+        var flaggedOnly = new CoordinatedOrders(1, 1, 1).generate(board, Nation.ENGLAND,
+                predictions(incoming, holding), CoordinationMode.STRICT);
+        require(flaggedOnly.plans().size() == 1
+                        && TacticalBias.offendingMoveCount(board, flaggedOnly.plans().getFirst()) == 1,
+                "A flagged-only HOLD collision candidate was rejected");
+    }
+
+    private static void foreignDestinationPair(Province moverProvince, Province supporterProvince) {
+        UnitId mover = own(UnitType.ARMY, moverProvince);
+        UnitId supporter = own(UnitType.ARMY, supporterProvince);
+        UnitId foreign = unit(Nation.FRANCE, UnitType.ARMY, Province.Ruh);
+        BoardState board = board(mover, supporter, foreign);
+        Order incoming = Order.move(mover, Province.Bel);
+        Order support = Order.supportMove(supporter, Province.Ruh, Province.Bel);
+        Order hold = Order.hold(supporter);
+        var evidence = weighted(predictions(incoming, support, hold), support, 9);
+        var result = new CoordinatedOrders(2, 1, 1).generate(board, Nation.ENGLAND,
+                evidence, CoordinationMode.CONDITIONAL);
+        require(!result.plans().isEmpty()
+                        && result.plans().getFirst().orders().contains(hold)
+                        && TacticalBias.offendingMoveCount(board, result.plans().getFirst()) == 0,
+                "Narrow beam pruned the safe choice for supported foreign destination " + moverProvince
+                        + ": " + result.plans() + "; " + result.diagnostics());
+        var flaggedOnly = new CoordinatedOrders(1, 1, 1).generate(board, Nation.ENGLAND,
+                predictions(incoming, support), CoordinationMode.CONDITIONAL);
+        require(!flaggedOnly.plans().isEmpty()
+                        && TacticalBias.offendingMoveCount(board, flaggedOnly.plans().getFirst()) == 1,
+                "A flagged-only foreign-destination candidate was rejected");
     }
 
     private static void narrowPair(Province moverProvince, Province stationaryProvince) {

@@ -418,6 +418,7 @@ public final class StrategyBrowserSelfCheck {
         Set<String> categories = new HashSet<>();
         Map<String, Object> sampledOrders = new HashMap<>();
         boolean reordered = false;
+        boolean nullAlternative = false;
         for (Object value : (List<?>) fixture.get("plans")) {
             Map<?, ?> plan = object(value);
             require(number(plan.get("score")) == number(plan.get("baseScore")) - number(plan.get("penaltyTotal"))
@@ -432,8 +433,12 @@ public final class StrategyBrowserSelfCheck {
                 require(previous == null || previous.equals(scenario.get("opponentOrders")),
                         "Fixture plans do not share identical named opponent scenarios");
             }
-            for (Object finding : (List<?>) plan.get("findings"))
-                categories.add((String) object(finding).get("category"));
+            for (Object finding : (List<?>) plan.get("findings")) {
+                Map<?, ?> warning = object(finding);
+                categories.add((String) warning.get("category"));
+                nullAlternative |= "FOREIGN_SUPPORTED_DESTINATION".equals(warning.get("category"))
+                        && warning.get("suggestedAlternative") == null;
+            }
             for (Object valueComparison : (List<?>) plan.get("comparisons")) {
                 Map<?, ?> comparison = object(valueComparison);
                 if (comparison.get("status").equals("EVALUATED"))
@@ -442,13 +447,14 @@ public final class StrategyBrowserSelfCheck {
                             "Fixture comparison conflates heuristic and outcome gains");
             }
         }
-        require(reordered && categories.containsAll(Set.of("FRIENDLY_CONVOY_FLEET", "FRIENDLY_SUPPORT_UNIT")),
+        require(reordered && categories.containsAll(Set.of("FRIENDLY_CONVOY_FLEET",
+                        "FRIENDLY_SUPPORT_UNIT", "FOREIGN_SUPPORTED_DESTINATION")) && nullAlternative,
                 "Fixture lacks support/convoy findings or visible base-rank reordering");
         String html = java.nio.file.Files.readString(ui.resolve("strategy.html"));
         String js = java.nio.file.Files.readString(ui.resolve("strategy.js"));
         require(html.contains("name=\"tacticalBiasWeight\"") && html.contains("id=\"bias-summary\"")
                         && html.contains("Untuned default 5")
-                        && html.contains("count-first coordinated search ordering")
+                        && html.contains("count-first search")
                         && js.contains("scoreSummary(plan)") && js.contains("FLAGGED INCOMING MOVE")
                         && js.contains("raw outcome/base score Δ") && js.contains("bias-adjusted score Δ")
                         && js.contains("raw historical orders are unpenalized"),

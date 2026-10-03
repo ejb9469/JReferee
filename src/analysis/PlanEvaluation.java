@@ -1,5 +1,8 @@
 package analysis;
 
+import domain.OrderType;
+import phase.Order;
+
 import java.util.*;
 
 /** Raw outcomes remain separate from shaping and once-per-plan preference/bias terms.
@@ -70,7 +73,12 @@ public record PlanEvaluation(
 
         TacticalBias.validateWeight(penaltyWeight);
         findings = List.copyOf(findings);
-        if (offendingMoveCount < 0 || offendingMoveCount != findings.size()
+        Set<Order> offendingMoves = new HashSet<>();
+        for (TacticalPrinciple.Warning finding : findings)
+            for (Order order : finding.orders())
+                if (order.orderType() == OrderType.MOVE)
+                    offendingMoves.add(order);
+        if (offendingMoveCount < 0 || offendingMoveCount != offendingMoves.size()
                 || !Double.isFinite(penaltyTotal) || penaltyTotal < 0
                 || Double.compare(penaltyTotal, penaltyWeight * offendingMoveCount) != 0
                 || Double.compare(score, shapedScore - penaltyTotal + humanContribution) != 0)
