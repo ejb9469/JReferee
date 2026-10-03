@@ -19,6 +19,7 @@ public class OutcomeEvaluator {
     private final double dislodgementPenalty;
     private final double caution;
     private final double tacticalBiasWeight;
+    private final ScoringConfiguration scoringConfiguration;
 
 
     public OutcomeEvaluator(double centerWeight, double dislodgementPenalty, double caution) {
@@ -27,6 +28,12 @@ public class OutcomeEvaluator {
 
     public OutcomeEvaluator(double centerWeight, double dislodgementPenalty, double caution,
                             double tacticalBiasWeight) {
+        this(centerWeight, dislodgementPenalty, caution, tacticalBiasWeight,
+                ScoringConfiguration.defaults());
+    }
+
+    public OutcomeEvaluator(double centerWeight, double dislodgementPenalty, double caution,
+                            double tacticalBiasWeight, ScoringConfiguration scoringConfiguration) {
 
         if (!Double.isFinite(centerWeight) || centerWeight < 0)
             throw new IllegalArgumentException("Center weight must be finite and non-negative");
@@ -42,16 +49,23 @@ public class OutcomeEvaluator {
         this.caution = caution;
         TacticalBias.validateWeight(tacticalBiasWeight);
         this.tacticalBiasWeight = tacticalBiasWeight;
+        this.scoringConfiguration = Objects.requireNonNull(scoringConfiguration, "scoringConfiguration");
 
     }
 
     public double tacticalBiasWeight() { return tacticalBiasWeight; }
+    public ScoringConfiguration scoringConfiguration() { return scoringConfiguration; }
+
+    public OutcomeEvaluator withScoringConfiguration(ScoringConfiguration configuration) {
+        return new OutcomeEvaluator(centerWeight, dislodgementPenalty, caution, tacticalBiasWeight,
+                configuration);
+    }
 
     /** Preserve raw outcome settings while explicitly selecting a recommendation bias. */
     public OutcomeEvaluator withTacticalBiasWeight(double weight) {
         TacticalBias.validateWeight(weight);
         return weight == tacticalBiasWeight ? this
-                : new OutcomeEvaluator(centerWeight, dislodgementPenalty, caution, weight);
+                : new OutcomeEvaluator(centerWeight, dislodgementPenalty, caution, weight, scoringConfiguration);
     }
 
 
@@ -62,12 +76,24 @@ public class OutcomeEvaluator {
             Map<String, List<Order>> opponentScenarios,
             Map<Province, Double> objectives,
             MovementProcessor processor) {
+        return rank(board, moment, candidates, opponentScenarios, objectives, processor, Map.of());
+    }
+
+    public List<PlanEvaluation> rank(
+            BoardState board,
+            GameMoment moment,
+            Collection<OrderPlan> candidates,
+            Map<String, List<Order>> opponentScenarios,
+            Map<Province, Double> objectives,
+            MovementProcessor processor,
+            Map<UnitId, RoutePrediction> evidence) {
 
         Objects.requireNonNull(board, "board");
         Objects.requireNonNull(moment, "moment");
         Objects.requireNonNull(candidates, "candidates");
         Objects.requireNonNull(opponentScenarios, "opponentScenarios");
         Objects.requireNonNull(processor, "processor");
+        evidence = Map.copyOf(Objects.requireNonNull(evidence, "evidence"));
 
         if (!moment.gamePhase().isMovement())
             throw new IllegalArgumentException("This evaluator supports movement phases only");
@@ -106,7 +132,12 @@ public class OutcomeEvaluator {
             Map<String, ScenarioEvaluation> details = new LinkedHashMap<>();
             double mean = 0;
             double worst = Double.POSITIVE_INFINITY;
+            double shapedMean = 0;
+            double shapedWorst = Double.POSITIVE_INFINITY;
             int index = 0;
+            HumanPreference preference = HumanPreference.evaluate(board, plan, evidence);
+            if (scoringConfiguration.humanWeight() > 0 && !preference.available())
+                throw new IllegalArgumentException("Positive human weight requires full post-policy evidence");
 
             for (Map.Entry<String, List<Order>> scenario : scenarios.entrySet()) {
 
@@ -120,24 +151,39 @@ public class OutcomeEvaluator {
                         - positionValue(board, nation, board.locations(), Map.of());
                 long dislodged = outcome.dislodgements().keySet().stream()
                         .filter(unit -> unit.owner() == plan.nation()).count();
+                PositionShaping.Breakdown shaping = PositionShaping.evaluate(
+                        board, nation, outcome, scoringConfiguration);
+                double augmented = value + shaping.provinceContribution() + shaping.regionalContribution();
+                if (!Double.isFinite(augmented))
+                    throw new IllegalArgumentException("Shaped evaluation overflowed; reduce the weights");
                 details.put(scenario.getKey(), new ScenarioEvaluation(scenario.getKey(),
                         scenario.getValue(), objectiveDelta, centerDelta,
-                        dislodgementPenalty * dislodged, dislodged, value));
+                        dislodgementPenalty * dislodged, dislodged, value,
+                        shaping.provinceContribution(), shaping.regionalContribution(), augmented, shaping));
 
                 scores.put(scenario.getKey(), value);
 
                 // Equal scenario weights; these are not inferred probabilities.
                 mean += (value - mean) / ++index;
                 worst = Math.min(worst, value);
+                shapedMean += (augmented - shapedMean) / index;
+                shapedWorst = Math.min(shapedWorst, augmented);
 
             }
 
             double combined = (1 - caution) * mean + caution * worst;
+            double shapedScore = (1 - caution) * shapedMean + caution * shapedWorst;
 
             var findings = TacticalBias.inspect(board, plan);
             double penalty = tacticalBiasWeight * findings.size();
-            evaluations.add(new PlanEvaluation(plan, scores, mean, worst, combined - penalty, details,
-                    combined, tacticalBiasWeight, findings.size(), penalty, findings));
+            double humanContribution = scoringConfiguration.humanWeight() * preference.score();
+            double finalScore = shapedScore - penalty + humanContribution;
+            if (!Double.isFinite(finalScore))
+                throw new IllegalArgumentException("Evaluation overflowed; reduce the weights");
+            evaluations.add(new PlanEvaluation(plan, scores, mean, worst, finalScore, details,
+                    combined, tacticalBiasWeight, findings.size(), penalty, findings,
+                    shapedMean, shapedWorst, shapedScore, preference, scoringConfiguration.humanWeight(),
+                    humanContribution, scoringConfiguration));
 
         }
 

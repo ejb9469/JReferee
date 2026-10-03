@@ -2,9 +2,8 @@ package analysis;
 
 import java.util.*;
 
-/** Raw outcome summaries plus a once-per-plan, optional tactical recommendation penalty.
- * {@link #score()} is {@code baseScore - penaltyTotal}; scenario scores, mean and worst
- * remain adjudicated outcome values, not bias-adjusted values.
+/** Raw outcomes remain separate from shaping and once-per-plan preference/bias terms.
+ * {@link #score()} is {@code shapedScore - penaltyTotal + humanContribution}.
  */
 public record PlanEvaluation(
         OrderPlan plan,
@@ -17,8 +16,24 @@ public record PlanEvaluation(
         double penaltyWeight,
         int offendingMoveCount,
         double penaltyTotal,
-        List<TacticalPrinciple.Warning> findings
+        List<TacticalPrinciple.Warning> findings,
+        double shapedMean,
+        double shapedWorst,
+        double shapedScore,
+        HumanPreference humanPreference,
+        double humanWeight,
+        double humanContribution,
+        ScoringConfiguration scoringConfiguration
 ) {
+    public PlanEvaluation(OrderPlan plan, Map<String, Double> scenarioScores,
+                          double mean, double worst, double score,
+                          Map<String, ScenarioEvaluation> scenarioDetails,
+                          double baseScore, double penaltyWeight, int offendingMoveCount,
+                          double penaltyTotal, List<TacticalPrinciple.Warning> findings) {
+        this(plan, scenarioScores, mean, worst, score, scenarioDetails, baseScore, penaltyWeight,
+                offendingMoveCount, penaltyTotal, findings, mean, worst, baseScore,
+                HumanPreference.unavailable(), 0, 0, ScoringConfiguration.defaults());
+    }
     public PlanEvaluation(OrderPlan plan, Map<String, Double> scenarioScores,
                           double mean, double worst, double score) {
         this(plan, scenarioScores, mean, worst, score, Map.of());
@@ -58,11 +73,20 @@ public record PlanEvaluation(
         if (offendingMoveCount < 0 || offendingMoveCount != findings.size()
                 || !Double.isFinite(penaltyTotal) || penaltyTotal < 0
                 || Double.compare(penaltyTotal, penaltyWeight * offendingMoveCount) != 0
-                || Double.compare(score, baseScore - penaltyTotal) != 0)
+                || Double.compare(score, shapedScore - penaltyTotal + humanContribution) != 0)
             throw new IllegalArgumentException("Inconsistent tactical penalty arithmetic");
         if (!Double.isFinite(mean) || !Double.isFinite(worst) || !Double.isFinite(score)
-                || !Double.isFinite(baseScore))
+                || !Double.isFinite(baseScore) || !Double.isFinite(shapedMean)
+                || !Double.isFinite(shapedWorst) || !Double.isFinite(shapedScore))
             throw new IllegalArgumentException("Evaluation scores must be finite");
+        Objects.requireNonNull(humanPreference, "humanPreference");
+        Objects.requireNonNull(scoringConfiguration, "scoringConfiguration");
+        if (!Double.isFinite(humanWeight) || humanWeight < 0
+                || Double.compare(humanWeight, scoringConfiguration.humanWeight()) != 0
+                || (humanWeight > 0 && !humanPreference.available())
+                || !Double.isFinite(humanContribution)
+                || Double.compare(humanContribution, humanWeight * humanPreference.score()) != 0)
+            throw new IllegalArgumentException("Inconsistent human preference arithmetic");
 
         scenarioScores = Collections.unmodifiableMap(copy);
         scenarioDetails = Collections.unmodifiableMap(new LinkedHashMap<>(scenarioDetails));
