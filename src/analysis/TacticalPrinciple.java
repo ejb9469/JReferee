@@ -4,11 +4,11 @@ import game.BoardState;
 import phase.Order;
 import java.util.*;
 
-/** Advisory principles never reject plans or alter numerical ranking. */
+/** Descriptive warnings never reject plans or themselves carry numerical penalties. */
 public interface TacticalPrinciple {
     List<Warning> inspect(BoardState board, OrderPlan plan);
 
-    enum Category { FRIENDLY_CONVOY_FLEET }
+    enum Category { FRIENDLY_CONVOY_FLEET, FRIENDLY_SUPPORT_UNIT }
     enum Severity { WARNING }
     enum EvaluationStatus { NOT_REQUESTED, UNAVAILABLE, INVALID, LIMIT_REACHED, EVALUATED }
 
@@ -28,6 +28,7 @@ public interface TacticalPrinciple {
         public String principleId() {
             return switch (category) {
                 case FRIENDLY_CONVOY_FLEET -> "friendly-convoy-fleet";
+                case FRIENDLY_SUPPORT_UNIT -> "friendly-support-unit";
             };
         }
     }
