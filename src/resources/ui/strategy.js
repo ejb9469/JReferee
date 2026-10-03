@@ -942,6 +942,7 @@ function renderInspector() {
         + `positional choices replenished ${context.pruning.replenishedChoices ?? 0}; `
         + `guidance choices unexamined ${context.pruning.guidanceChoicesUnexamined ?? 0}; `
         + `historical guidance scan cap ${limits.geographicChoiceLimit ?? "unavailable"}/unit; `
+        + `geographic search work budget ${limits.geographicSearchWorkBudget ?? "unavailable"} shaping entries; `
         + `beam truncated ${context.pruning.beamTruncated ?? "unavailable"}; `
         + `dependency search truncated ${context.pruning.dependencySearchTruncated ?? "unavailable"}; `
         + (context.positionOnly === true ? "position-only evidence; no route histories; "
@@ -974,7 +975,11 @@ function renderInspector() {
             : Number(context.tacticalBiasWeight) > 0
             ? "Any positive weight enables count-first coordinated search with bounded "
                 + "max(256, beam width) grouping; penalty magnitude scales with weight. "
-            : "Zero weight retains legacy search ordering. ")
+            : "Zero tactical weight disables collision-first ordering; geographic guidance may still reorder search. ")
+        + `Geography-guided search ${context.pruning.geographyGuided ? "enabled" : "disabled"}; `
+        + `scan cap ${limits.geographicChoiceLimit ?? "unavailable"}/unit; `
+        + `replenished ${context.pruning.replenishedChoices ?? 0}; `
+        + `unexamined ${context.pruning.guidanceChoicesUnexamined ?? 0}. `
         + "Coordination validity is separate from this heuristic; mean, worst, and scenario components remain raw.";
     const human = plan.humanPreference;
     $("#human-summary").textContent =
@@ -1099,9 +1104,11 @@ function renderShaping(plan, scenario) {
         for (const unit of goal.units)
             appendText($("#regional-shaping"), "li",
                 `${unit.identity.unitType} ${unit.identity.origin}: static movement distance `
-                + `${unit.beforeDistance} → ${unit.afterDistance} (−1 = unreachable/lost); `
+                + `${unit.beforeDistance < 0 ? "unreachable" : unit.beforeDistance} → `
+                + `${unit.afterDistance < 0 ? "unreachable" : unit.afterDistance}; `
                 + `potential ${number(unit.beforePotential)} → ${number(unit.afterPotential)}. `
-                + "No convoy or opponent-cooperation assumptions; zero outside horizon.");
+                + "No convoy or opponent-cooperation assumptions; zero outside horizon. "
+                + "Unreachable denotes no applicable static path or a lost unit.");
     }
 }
 

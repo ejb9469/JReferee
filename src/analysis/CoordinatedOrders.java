@@ -83,7 +83,9 @@ public final class CoordinatedOrders {
         long omitted = 0;
         long replenished = 0;
         long guidanceUnexamined = 0;
-        boolean guided = scoringConfiguration.hasGeography(nation);
+        Set<UnitType> ownTypes = EnumSet.noneOf(UnitType.class);
+        units.forEach(unit -> ownTypes.add(unit.unitType()));
+        boolean guided = scoringConfiguration.hasGeography(nation, ownTypes);
         for (UnitId unit : units) {
             RoutePrediction prediction = predictions.get(unit);
             if (prediction == null || prediction.counts().isEmpty())

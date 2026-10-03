@@ -5,6 +5,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
 
@@ -31,6 +32,7 @@ fixture.coordination.replenishedChoices = 2;
 fixture.coordination.guidanceChoicesUnexamined = 3;
 fixture.coordination.geographicChoiceLimit = 64;
 fixture.context.limits.geographicChoiceLimit = 64;
+fixture.context.limits.geographicSearchWorkBudget = 8000000;
 for (const plan of fixture.plans) {
     plan.shapedMean = plan.mean + 1;
     plan.shapedWorst = plan.worst + 1;
@@ -54,7 +56,9 @@ for (const plan of fixture.plans) {
             surviving: true }], objectives: [{ name: config.nationProfiles.ENGLAND.objectives[0].name,
             beforePotential: 0.25, afterPotential: 1, contribution: 0.75,
             units: [{ identity: { unitType: "FLEET", origin: "Lon" }, beforeDistance: 3, afterDistance: 2,
-                beforePotential: 0.25, afterPotential: 1 }] }] };
+                beforePotential: 0.25, afterPotential: 1 },
+                { identity: { unitType: "ARMY", origin: "Wal" }, beforeDistance: -1, afterDistance: -1,
+                    beforePotential: 0, afterPotential: 0 }] }] };
     }
     for (const comparison of plan.comparisons ?? []) {
         comparison.positionalDelta = 0;
@@ -99,7 +103,7 @@ async function action(source) {
 }
 
 async function main() {
-    const scratchParent = path.resolve("out");
+    const scratchParent = os.tmpdir();
     fs.mkdirSync(scratchParent, { recursive: true });
     scratch = fs.mkdtempSync(path.join(scratchParent, "strategy-dom-"));
     server = http.createServer((request, response) => {
@@ -191,6 +195,10 @@ async function main() {
     session = (await command("Target.attachToTarget", { targetId: target.targetId, flatten: true }, null)).sessionId;
     await command("Runtime.enable");
     await wait('document.querySelector("#fields")?.disabled === false');
+    const labels = await evaluate('document.body.textContent.replace(/\\s+/g, " ")');
+    assert.match(labels, /shaped combined score, before the human preference term is added/);
+    assert.match(labels, /first 64 historical observed choices per unit/);
+    assert.match(labels, /Exact fleet coasts such as SpaNC are allowed/);
     assert.equal(await evaluate('document.querySelectorAll(".unit-token").length'), fixture.board.units.length);
     assert.equal(await evaluate('getComputedStyle(document.querySelector("#provinces > #bel")).fill'), "rgb(212, 235, 242)");
     assert.equal(await evaluate('getComputedStyle(document.querySelector("#g5246 circle")).fill'), "rgb(83, 174, 203)");
@@ -222,8 +230,11 @@ async function main() {
         /geography guided: yes; 2 positional choices replenished; 3 guidance choices unexamined/);
     assert.match(await evaluate('document.querySelector("#result-context").textContent'), /historical top K UNION positional top K/);
     assert.match(await evaluate('document.querySelector("#result-context").textContent'), /historical guidance scan cap 64\/unit/);
+    assert.match(await evaluate('document.querySelector("#result-context").textContent'), /geographic search work budget 8000000 shaping entries/);
     assert.match(await evaluate('document.querySelector("#province-shaping").textContent'), /effective province value/);
     assert.match(await evaluate('document.querySelector("#regional-shaping").textContent'), /targets Bel, Hol/);
+    assert.match(await evaluate('document.querySelector("#regional-shaping").textContent'),
+        /static movement distance unreachable → unreachable/);
     assert.equal(await evaluate('document.querySelectorAll("#regional-shaping img").length'), 0);
     assert.match(await evaluate('document.querySelector("#regional-shaping").textContent'), /<img src=x/);
     await action(`document.querySelector("#show-dependencies").checked = true;
@@ -255,10 +266,26 @@ async function main() {
     assert.equal(await evaluate('document.querySelector("#plan-inspector").hidden'), true);
     assert.equal(await evaluate('document.querySelector("#fields").disabled'), false);
     delayed = false;
+    fixture.context.tacticalBiasWeight = 0;
+    for (const plan of fixture.plans) {
+        plan.penaltyWeight = 0;
+        plan.penaltyTotal = 0;
+        plan.score = plan.shapedScore + plan.humanContribution;
+        for (const comparison of plan.comparisons ?? [])
+            if (comparison.status === "EVALUATED") {
+                comparison.penaltyDelta = 0;
+                comparison.adjustedScoreDelta = comparison.scoreDelta;
+            }
+    }
     await action(`const centers = document.querySelector('[name="centers"]'); centers.value = "";
+        document.querySelector('[name="tacticalBiasWeight"]').value = "0";
         centers.dispatchEvent(new Event("input", {bubbles:true}));
         document.querySelector("#editor").requestSubmit();`);
     await wait('document.querySelector("#plan-inspector").hidden === false');
+    assert.match(await evaluate('document.querySelector("#bias-summary").textContent'),
+        /Zero tactical weight disables collision-first ordering; geographic guidance may still reorder search/);
+    assert.match(await evaluate('document.querySelector("#bias-summary").textContent'),
+        /Geography-guided search enabled; scan cap 64\/unit; replenished 2; unexamined 3/);
     assert.equal(await evaluate('getComputedStyle(document.querySelector("#provinces > #bel")).fill'), "rgb(226, 198, 158)");
     assert.notEqual(await evaluate('getComputedStyle(document.querySelector("#g5246 circle")).fill'), "rgb(83, 174, 203)");
     await action('document.querySelector("#reset-position").click();');

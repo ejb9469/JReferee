@@ -37,6 +37,7 @@ import static io.json.JsonEscaper.appendString;
 public final class StrategyBrowserApp {
 
     private static final int MAX_REQUEST_BYTES = 32_768;
+    private static final long MAX_GEOGRAPHIC_SEARCH_WORK = 8_000_000;
 
     private static final Set<String> FORM_FIELDS = Set.of(
             "nation", "year", "phase", "policy", "coordinationMode",
@@ -392,6 +393,21 @@ public final class StrategyBrowserApp {
                 * configuration.scoringConfiguration().profile(nation).objectives().size();
         if (geographyWork > 65_536)
             throw new IllegalArgumentException("Regional work budget exceeded (plans × scenarios × own units × goals ≤65536).");
+        var scoring = configuration.scoringConfiguration();
+        Set<UnitType> ownTypes = EnumSet.noneOf(UnitType.class);
+        locations.keySet().stream().filter(unit -> unit.owner() == nation)
+                .forEach(unit -> ownTypes.add(unit.unitType()));
+        var profile = scoring.profile(nation);
+        boolean activeGeography = scoring.hasGeography(nation, ownTypes);
+        if (configuration.coordinationMode() != CoordinationMode.RAW && activeGeography) {
+            long shapeEntries = ownUnits * ownUnits * (1L + profile.objectives().size());
+            long searchWork = shapeEntries * (Math.max(256, plans) * 2L * choices
+                    + CoordinatedOrders.GEOGRAPHIC_CHOICE_LIMIT);
+            if (searchWork > MAX_GEOGRAPHIC_SEARCH_WORK)
+                throw new IllegalArgumentException(
+                        "Geographic search work budget exceeded: own units² × (1+goals) × "
+                                + "(max(256,plans) × 2 × choices + guidance scan cap) ≤8000000.");
+        }
 
         Map<Province, Nation> centers = new EnumMap<>(Province.class);
 
@@ -412,7 +428,8 @@ public final class StrategyBrowserApp {
 
         for (String row : rows(values.get("objectives"))) {
             String[] fields = fields(row, 2, "PROVINCE VALUE");
-            Province province = scoringProvince(fields[0]);
+            Province province = Province.canonical(
+                    enumValue(Province.class, fields[0]));
             double value = decimal(fields[1], "Objective", -1000, 1000);
 
             if (province == Province.Swi)
@@ -861,6 +878,7 @@ public final class StrategyBrowserApp {
                 + ",\"opponentScenarioLimit\":" + config.opponentScenarioLimit()
                 + ",\"evaluationBudget\":512"
                 + ",\"regionalWorkBudget\":65536"
+                + ",\"geographicSearchWorkBudget\":" + MAX_GEOGRAPHIC_SEARCH_WORK
                 + ",\"geographicChoiceLimit\":" + CoordinatedOrders.GEOGRAPHIC_CHOICE_LIMIT
                 + ",\"comparisonLimit\":" + TacticalAnalysis.MAX_COMPARISONS
                 + ",\"comparisonScenarioEvaluationBudget\":" + TacticalAnalysis.MAX_SCENARIO_EVALUATIONS
@@ -918,7 +936,7 @@ public final class StrategyBrowserApp {
                     + ",\"available\":" + unit.available()
                     + ",\"diagnostic\":" + quote(unit.diagnostic()) + "}");
         return "{\"available\":" + preference.available() + ",\"score\":" + preference.score()
-                + ",\"diagnostic\":" + quote(preference.available() ? "" : "Complete selected evidence unavailable; no inferred frequencies.")
+                + ",\"diagnostic\":" + quote(preference.diagnostic())
                 + ",\"units\":" + units + "}";
     }
 

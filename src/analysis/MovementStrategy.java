@@ -189,7 +189,7 @@ public final class MovementStrategy {
                 candidates.size(), scenarios.size(),
                 List.of(), "Ranked movement plans using the supplied scoring configuration."
                         + (coordination.geographyGuided()
-                        ? " Bounded geographic guidance replenished observed choices; ordered destinations "
+                        ? " Bounded geographic guidance considered observed choices; ordered destinations "
                         + "are optimistic search hints, not adjudicated progress or a global optimum."
                         : "")
                         + (coordination.conditionalPlans().isEmpty() ? ""

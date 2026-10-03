@@ -51,6 +51,23 @@ public final class PreferenceScoringSelfCheck {
                         Map.of(Province.Bur, value(-2)), List.of())));
         require(!cancelled.hasGeography(Nation.FRANCE) && cancelled.hasGeography(Nation.GERMANY),
                 "Effective global/profile cancellation must preserve inactive search");
+        var typedCancellation = new ScoringConfiguration(0, Map.of(Province.Bur, value(2)),
+                Map.of(Nation.FRANCE, new ScoringConfiguration.NationProfile(
+                        Map.of(Province.Bur, new ScoringConfiguration.ProvinceValue(-2,
+                                Set.of(UnitType.ARMY))), List.of())));
+        require(!typedCancellation.hasGeography(Nation.FRANCE, Set.of(UnitType.ARMY))
+                        && typedCancellation.hasGeography(Nation.FRANCE, Set.of(UnitType.FLEET))
+                        && !typedCancellation.hasGeography(Nation.FRANCE, Set.of()),
+                "Typed geography activation must respect effective cancellation and empty type sets");
+        var fleetGoal = new ScoringConfiguration(0, Map.of(), Map.of(Nation.FRANCE,
+                new ScoringConfiguration.NationProfile(Map.of(), List.of(
+                        new ScoringConfiguration.RegionalObjective("fleet", Set.of(Province.ION),
+                                2, Set.of(UnitType.FLEET), 4, 0.5)))));
+        require(!fleetGoal.hasGeography(Nation.FRANCE, Set.of(UnitType.ARMY))
+                        && fleetGoal.hasGeography(Nation.FRANCE, Set.of(UnitType.FLEET))
+                        && !fleetGoal.hasGeography(Nation.GERMANY, BOTH)
+                        && !fleetGoal.hasGeography(Nation.FRANCE, Set.of()),
+                "Typed goal applicability must match search-budget activation");
         Set<UnitType> mutableTypes = new HashSet<>(BOTH);
         Map<Province, ScoringConfiguration.ProvinceValue> global = new HashMap<>();
         global.put(Province.SpaNC, new ScoringConfiguration.ProvinceValue(-2, mutableTypes));
@@ -193,6 +210,9 @@ public final class PreferenceScoringSelfCheck {
         require(!HumanPreference.evaluate(board, hold, Map.of(army,
                 new RoutePrediction("missing order", 0, Map.of(aMove, 1L)),
                 fleet, evidence.get(fleet))).available(), "Absent selected order must be unavailable");
+        rejects(() -> HumanPreference.evaluate(board, hold, Map.of(army,
+                new RoutePrediction("mixed query", 0, Map.of(aHold, 1L, fHold, 99L)),
+                fleet, evidence.get(fleet))));
         OutcomeEvaluator human = new OutcomeEvaluator(0, 0, 0, 0,
                 new ScoringConfiguration(2, Map.of(), Map.of()));
         OrderPlan move = new OrderPlan(Nation.FRANCE, List.of(aMove, fMove), -10000);

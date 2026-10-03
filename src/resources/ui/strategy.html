@@ -185,6 +185,8 @@
                 Everything is editable and disableable. Profiles persist across positions;
                 snapshot objectives do not. Export/import includes all seven countries.
                 Regional work is bounded: plans × scenarios × own units × goals ≤65536;
+                active non-Raw geographic search also requires own units² × (1+goals) ×
+                (max(256,plans) × 2 × choices + 64) ≤8,000,000 shaping entries.
                 the complete URL-encoded request must fit 32 KiB.
                 Guided search retains historical top K UNION positional top K (at most 2K/unit),
                 with a bounded beam and tactical collisions ordered first.
@@ -224,7 +226,8 @@
                     <small>
                         Untuned default 5; 0 disables this heuristic. Each distinct friendly move
                         into a friendly supporter's or convoying fleet's occupied province
-                        subtracts this weight from the base score. This is separate from
+                        subtracts this weight from the shaped combined score, before the human
+                        preference term is added. This is separate from
                         coordination validity and does not change adjudication.
                         Any positive weight enables count-first coordinated search ordering
                         with bounded grouping of max(256, beam width); the numerical
@@ -358,7 +361,8 @@
             <h4>Self-dependency warnings</h4>
             <p class="muted">
                 Warnings are diagnostic, not invalid orders. The separate tactical bias
-                subtracts weight × distinct offending incoming moves from the base score;
+                subtracts weight × distinct offending incoming moves from the shaped combined score,
+                before the human preference term is added;
                 it never changes per-scenario adjudicated outcomes.
             </p>
             <ul id="plan-findings"></ul>

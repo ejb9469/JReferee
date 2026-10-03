@@ -301,6 +301,12 @@ Browser values and human weight are bounded to ±1000 and 0–1000 respectively;
 regional priority is positive up to 1000, horizon 1–12, decay 0–1. Limits
 include 8 goals per country, 32 total goals, 16 targets per goal and 128 total
 targets, a 32 KiB URL-encoded body, and bounded scoring/search work.
+Regional outcome work is capped at
+`plans × scenarios × ownUnits × goals ≤ 65536`; guided search estimates
+`ownUnits² × (1 + goals) × (max(256, plans) × 2 × choices + 64) ≤ 8000000`.
+Search and endpoint budgets use the same nation/unit-type-aware activation
+helper, including effective global-plus-national cancellations. Inapplicable
+types, foreign-only adjustments and zeroed values do not activate guidance.
 The Java configuration API also validates finite, bounded values but permits
 larger programmatic limits documented by its constants.
 
@@ -328,6 +334,8 @@ settings, with identical explicit scenarios. It prints availability, candidate
 cutoffs, common-plan rank changes, latency, full evidence denominators and
 raw-versus-heuristic score differences. Human reference-order agreement is
 **unmeasured** for synthetic fixtures, never inferred from frequency scores.
+Latency is elapsed wall time including JVM warm-up/cache effects, not a
+controlled performance benchmark.
 
 For real positions use `PreferenceAblation.evaluate` with a bounded list of
 fixed `ValidationFixture`s, predictions produced from **TRAINING only**,
@@ -339,6 +347,122 @@ Tuning must use TRAINING/VALIDATION, never reserved TEST, and must not add
 current/future submissions to a model or history. No tuning, real-corpus
 measurement, self-play tournament or playing-strength improvement is claimed
 by this implementation.
+
+#### Validation of this change (2026-10-03)
+
+**Passed:** all 227 Java source files compiled on Java 25, including browser
+and new fixtures. 27 main-based Java self-checks passed across the scoped
+validation runs. The final existing-suite run passed DATC **132/132 cases,
+677/677 orders**, phases **34/34 cases, 163/163 checks**, and parser fixtures
+**2/2 cases, 96/96 checks**, with zero manager warnings. Compilation emitted
+only existing deprecation notes. Both opt-in ablation CLI modes passed; the
+synthetic experiment produced 15 rows with human-reference agreement explicitly
+unmeasured.
+
+The final whole-source/existing-suite commands (consolidated) were:
+
+```sh
+cd /home/runner/work/JReferee/JReferee
+R=/home/runner/work/JReferee/JReferee
+JDK=/usr/lib/jvm/temurin-25-jdk-amd64/bin
+A=/usr/share/gradle-9.8.0/lib/annotations-24.0.1.jar
+B="$R/out/regression-final"
+mkdir -p "$B/classes" "$B/logs" "$B/native"
+find "$R/src" -name '*.java' -print0 |
+  xargs -0 "$JDK/javac" --release 25 -cp "$A" -d "$B/classes" \
+  > "$B/logs/compile.log" 2>&1
+"$JDK/java" -cp "$B/classes" testing.PreferenceSearchSelfCheck
+curl -fsSL https://repo.maven.apache.org/maven2/org/xerial/sqlite-jdbc/3.53.4.0/sqlite-jdbc-3.53.4.0.jar \
+  -o "$B/sqlite-jdbc-3.53.4.0.jar"
+CP="$B/classes:$R/src:$R/src/resources:$A:$B/sqlite-jdbc-3.53.4.0.jar"
+for check in BackendDiagnosticsSelfCheck CandidateSelectionAuditSelfCheck \
+  CoordinatedOrdersSelfCheck FourPolicyEvaluationSelfCheck HeldOutEvaluationSelfCheck \
+  JointOrdersSelfCheck MovementStrategySelfCheck OccupancyRelaxationSelfCheck \
+  OpponentScenariosSelfCheck RouteCorpusSelfCheck RoutePreferencesSelfCheck \
+  ScenarioCoverageSelfCheck ScenarioWidthComparisonSelfCheck StageCoverageSelfCheck \
+  TacticalPrinciplesSelfCheck YearPooledSelectionSelfCheck YearPoolingSelfCheck
+do
+  "$JDK/java" --enable-native-access=ALL-UNNAMED \
+    -Djava.io.tmpdir="$B/native" -Dorg.sqlite.tmpdir="$B/native" \
+    -cp "$CP" "testing.$check" > "$B/logs/testing.$check.log" 2>&1 || exit 1
+done
+for check in parsing.diplobn.DiploBNRecordImporterSelfCheck \
+  performance.PerformanceStatsSelfCheck phase.movement.NormalizedOrderSelfCheck
+do
+  "$JDK/java" --enable-native-access=ALL-UNNAMED \
+    -Djava.io.tmpdir="$B/native" -Dorg.sqlite.tmpdir="$B/native" \
+    -cp "$CP" "$check" > "$B/logs/$check.log" 2>&1 || exit 1
+done
+"$JDK/java" --enable-native-access=ALL-UNNAMED \
+  -Djava.io.tmpdir="$B/native" -Dorg.sqlite.tmpdir="$B/native" \
+  -cp "$CP" _app.TestCaseManager > "$B/logs/TestCaseManager.log" 2>&1
+"$JDK/java" -cp "$CP" _app.PreferenceAblationApp > "$B/logs/ablation-guard.log" 2>&1
+"$JDK/java" -cp "$CP" _app.PreferenceAblationApp --synthetic-validation \
+  > "$B/logs/ablation-synthetic.log" 2>&1
+```
+
+Outputs were logged under `$B/logs`; build/log/native/JDBC scratch was removed
+after validation. The existing pinned SQLite driver was used only for synthetic
+JDBC tests; its advisory check returned no findings and no dependency changed.
+Subagent filesystem restrictions required ignored `out/` scratch during scoped
+runs; no generated data was committed. Ordinary reproductions can set `B` to a
+directory under `/tmp`.
+
+The six separately validated Java checks, accepted without redundant reruns,
+were `PreferenceScoringSelfCheck`, `OutcomeEvaluatorSelfCheck`,
+`TacticalBiasSelfCheck`, `ReferenceFilteringSelfCheck`,
+`StrategyBrowserSelfCheck`, and `StrategyBrowserHttpSelfCheck`. Final core
+checks used Java 25 and the installed annotation jar with `-sourcepath src`.
+The last typed-activation core run used:
+
+```sh
+C="$R/out/scoring-check/classes"
+mkdir -p "$C"
+"$JDK/javac" -cp "$A" -d "$C" -sourcepath "$R/src" \
+  "$R/src/testing/PreferenceScoringSelfCheck.java" \
+  "$R/src/testing/OutcomeEvaluatorSelfCheck.java" \
+  "$R/src/testing/TacticalBiasSelfCheck.java"
+"$JDK/java" -cp "$C" testing.PreferenceScoringSelfCheck
+"$JDK/java" -cp "$C" testing.OutcomeEvaluatorSelfCheck
+"$JDK/java" -cp "$C" testing.TacticalBiasSelfCheck
+```
+
+`ReferenceFilteringSelfCheck` had already passed against the earlier full-source
+core compilation with that same class directory. The final browser Java
+commands were:
+
+```sh
+mkdir -p out/browser-check/classes
+"$JDK/javac" --release 25 -cp "$A" -d out/browser-check/classes -sourcepath src \
+  src/_app/StrategyBrowserApp.java src/testing/StrategyBrowserSelfCheck.java \
+  src/testing/StrategyBrowserHttpSelfCheck.java
+"$JDK/java" -cp "out/browser-check/classes:$A" testing.StrategyBrowserSelfCheck
+"$JDK/java" -cp "out/browser-check/classes:$A" testing.StrategyBrowserHttpSelfCheck
+TMPDIR="$R/out" node "$R/src/testing/StrategyBrowserDomFixture.js"
+```
+
+**Chromium DOM fixture passed**, serving unchanged production HTML/JS/CSS/SVG
+with synthetic API responses. It covers profiles, import/export/reset,
+country isolation, frozen inspector arithmetic, safe text, desktop/mobile
+keyboard inspection, all units/coasts, vacant-center ownership/reset,
+historical-versus-generated and foreign overlays, cancellation/version guards,
+and original openings country/search/navigation/singleton filtering.
+Only native `File.text` is delayed for the stale-upload test; application
+functions are not replaced. Fixture profiles use `os.tmpdir()` (normally
+`/tmp`); the scoped sandbox run explicitly set the permitted `TMPDIR` shown
+above and cleaned every generated profile.
+
+**Failures/unavailable:** an early whole-source compile overlapped unfinished
+browser edits and failed with brace errors; those edits were corrected and all
+later builds passed. Final automated review/CodeQL timed out and tripped its
+circuit breaker, which prohibited retries. Earlier zero-alert scans are
+**not a clean final security scan**. Independent read-only reviews of the
+implementation and final hardening found no significant issues. Changed files
+were secret-scanned before commits.
+
+**Unrun/unmeasured:** database-backed browser startup/E2E, real-corpus ablations,
+human agreement on real games, tuning, playing strength and self-play.
+The local corpus was absent; no private or reserved TEST games were consumed.
 
 The route-based movement strategy is an opt-in API. It composes the existing
 `RoutePreferences` model, one named `PredictionPolicy`, complete national plans,

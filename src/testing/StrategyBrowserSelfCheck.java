@@ -134,6 +134,23 @@ public final class StrategyBrowserSelfCheck {
 
     private static void scoringControls(Method parse, Map<String, String> defaults, Method config)
             throws Exception {
+        Map<String, String> legacy = new LinkedHashMap<>(defaults);
+        legacy.put("objectives", "SpaNC 1");
+        Object coastQuery = parse.invoke(null, legacy);
+        require(method(coastQuery.getClass(), "objectives").invoke(coastQuery)
+                        .equals(Map.of(Province.Spa, 1.0)),
+                "Legacy single-coast snapshot objective no longer canonicalizes");
+        for (String aliases : List.of("SpaNC 1\nSpaSC 2", "Spa 1\nSpaNC 2")) {
+            legacy.put("objectives", aliases);
+            try {
+                parse.invoke(null, legacy);
+                throw new AssertionError("Duplicate legacy objective coast aliases accepted");
+            } catch (java.lang.reflect.InvocationTargetException expected) {
+                require(expected.getCause() instanceof IllegalArgumentException
+                                && expected.getCause().getMessage().contains("Repeated objective"),
+                        "Unexpected legacy coast-alias validation error");
+            }
+        }
         Map<String, String> form = new LinkedHashMap<>(defaults);
         form.put("humanWeight", "2");
         form.put("globalValues", "MAO=3/FLEET\nION=2/FLEET");
@@ -206,6 +223,63 @@ public final class StrategyBrowserSelfCheck {
             require(expected.getCause() instanceof IllegalArgumentException
                             && expected.getCause().getMessage().contains("work budget"),
                     "Regional work budget not enforced");
+        }
+        searchBudgets(parse, form);
+    }
+
+    private static void searchBudgets(Method parse, Map<String, String> defaults) throws Exception {
+        Map<String, String> form = new LinkedHashMap<>(defaults);
+        form.put("plans", "1");
+        form.put("scenarios", "1");
+        form.put("coordinationMode", "STRICT");
+        form.put("regions.ENGLAND", "north Bel 1 ARMY,FLEET 4 0.5\nsouth Mar 1 ARMY,FLEET 4 0.5");
+        form.put("choices", "4");
+        form.put("units", ownUnits(17));
+        parse.invoke(null, form);
+        form.put("choices", "8");
+        form.put("units", ownUnits(25)); // 7,800,000 estimated entries, inside the budget.
+        parse.invoke(null, form);
+        form.put("units", ownUnits(26)); // 8,436,480 estimated entries, outside the budget.
+        expectSearchBudget(parse, form);
+        form.put("units", ownUnits(75));
+        form.put("regions.ENGLAND", String.join("\n", java.util.stream.IntStream.range(0, 8)
+                .mapToObj(index -> "goal" + index + " Bel 1 ARMY,FLEET 4 0.5").toList()));
+        expectSearchBudget(parse, form);
+        form.put("coordinationMode", "RAW");
+        parse.invoke(null, form);
+        form.put("coordinationMode", "STRICT");
+        form.put("globalValues", "");
+        form.put("adjustments.ENGLAND", "");
+        form.put("regions.ENGLAND", "");
+        parse.invoke(null, form); // Foreign-only profiles cannot trigger the advised-country budget.
+        form.put("globalValues", "NTH=0/ARMY,FLEET");
+        form.put("adjustments.ENGLAND", "Pru=-0/ARMY,FLEET");
+        parse.invoke(null, form); // Zero-valued settings keep exact inactive/legacy search.
+        form.put("units", String.join("\n", Arrays.stream(Province.values())
+                .filter(province -> province != Province.Swi && Province.canonical(province) == province
+                        && province.geography != domain.Geography.WATER)
+                .limit(45).map(province -> "ENGLAND ARMY " + province).toList()));
+        form.put("globalValues", "Pru=1/ARMY\nMAO=1/FLEET");
+        form.put("adjustments.ENGLAND", "Pru=-1/ARMY");
+        parse.invoke(null, form); // Cancelled army values and unmatched fleet values are inactive.
+    }
+
+    private static String ownUnits(int count) {
+        return String.join("\n", Arrays.stream(Province.values())
+                .filter(province -> province != Province.Swi && Province.canonical(province) == province)
+                .limit(count).map(province -> "ENGLAND "
+                        + (province.geography == domain.Geography.WATER ? "FLEET" : "ARMY")
+                        + " " + province).toList());
+    }
+
+    private static void expectSearchBudget(Method parse, Map<String, String> form) throws Exception {
+        try {
+            parse.invoke(null, form);
+            throw new AssertionError("Excessive geographic search work accepted");
+        } catch (java.lang.reflect.InvocationTargetException expected) {
+            require(expected.getCause() instanceof IllegalArgumentException
+                            && expected.getCause().getMessage().contains("Geographic search work budget"),
+                    "Unexpected search budget failure");
         }
     }
 

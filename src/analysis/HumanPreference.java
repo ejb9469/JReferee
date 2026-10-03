@@ -65,6 +65,13 @@ public record HumanPreference(boolean available, double score, List<UnitPreferen
         Objects.requireNonNull(board, "board");
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(evidence, "evidence");
+        for (var entry : evidence.entrySet()) {
+            UnitId query = Objects.requireNonNull(entry.getKey(), "evidence query");
+            RoutePrediction prediction = Objects.requireNonNull(entry.getValue(), "prediction");
+            for (Order observed : prediction.counts().keySet())
+                if (!observed.unit().equals(query))
+                    throw new IllegalArgumentException("Evidence orders must belong to their query unit");
+        }
         Map<UnitId, Order> chosen = new HashMap<>();
         for (Order order : plan.orders())
             chosen.put(order.unit(), order);

@@ -114,6 +114,26 @@ public final class StrategyBrowserHttpSelfCheck {
                 form.put("regions." + nation, "north Bel,Hol 2 ARMY 4 0.5");
             }
             form.put("regions.ENGLAND", "coast SpaNC 2 FLEET 4 0.5");
+            Map<String, String> excessiveWork = new LinkedHashMap<>(form);
+            excessiveWork.put("plans", "1");
+            excessiveWork.put("scenarios", "1");
+            excessiveWork.put("choices", "8");
+            excessiveWork.put("units", String.join("\n", java.util.Arrays.stream(domain.Province.values())
+                    .filter(province -> province != domain.Province.Swi
+                            && domain.Province.canonical(province) == province)
+                    .limit(75).map(province -> "ENGLAND "
+                            + (province.geography == domain.Geography.WATER ? "FLEET" : "ARMY")
+                            + " " + province).toList()));
+            excessiveWork.put("regions.ENGLAND", String.join("\n", java.util.stream.IntStream.range(0, 8)
+                    .mapToObj(index -> "goal" + index + " Bel 1 ARMY,FLEET 4 0.5").toList()));
+            Response budgetResponse = request(server, "POST", "/api/generate", authority, headers, encoded(excessiveWork));
+            require(budgetResponse.status() == 400 && budgetResponse.body().contains("Geographic search work budget"),
+                    "HTTP did not reject excessive geographic search before generation");
+            form.put("objectives", "SpaNC 1");
+            Map<String, String> duplicateAliases = new LinkedHashMap<>(form);
+            duplicateAliases.put("objectives", "SpaNC 1\nSpaSC 2");
+            require(request(server, "POST", "/api/generate", authority, headers, encoded(duplicateAliases)).status() == 400,
+                    "HTTP accepted duplicate legacy snapshot coast aliases");
             for (String comparison : new String[]{"false", "true"}) {
                 form.put("compareAlternatives", comparison);
                 form.put("tacticalBiasWeight", comparison.equals("true") ? "0" : "5");
@@ -121,6 +141,10 @@ public final class StrategyBrowserHttpSelfCheck {
                 require(response.status() == 200, "Corpus-free generation failed: " + response.body());
                 Map<?, ?> result = object(JsonReader.read(response.body()));
                 Map<?, ?> board = object(result.get("board"));
+                Map<?, ?> snapshotObjectives = object(object(result.get("context")).get("objectives"));
+                require(snapshotObjectives.size() == 1 && snapshotObjectives.get("Spa") instanceof Number value
+                                && value.doubleValue() == 1,
+                        "HTTP did not preserve canonical legacy single-coast snapshot objective");
                 Map<?, ?> scoring = object(object(result.get("context")).get("scoringConfiguration"));
                 require(((Number) scoring.get("humanWeight")).doubleValue() == 2
                                 && object(scoring.get("nationProfiles")).size() == 7

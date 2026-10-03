@@ -17,6 +17,7 @@ public final class PreferenceSearchSelfCheck {
     public static void main(String[] args) {
         rareRecovery();
         boundedGuidance();
+        typedInactiveGeography();
         hardCoordination();
         configurationMismatch();
         humanNearOutcomeReordering();
@@ -170,6 +171,41 @@ public final class PreferenceSearchSelfCheck {
         PreferenceAblation.print(results, new PrintStream(bytes, true, StandardCharsets.UTF_8));
         require(bytes.toString(StandardCharsets.UTF_8).contains("guidanceUnexamined=" + unexamined),
                 "Ablation report omitted bounded guidance diagnostic");
+    }
+
+    private static void typedInactiveGeography() {
+        UnitId par = unit(Nation.FRANCE, UnitType.ARMY, Province.Par);
+        UnitId mar = unit(Nation.FRANCE, UnitType.ARMY, Province.Mar);
+        BoardState board = new BoardState(Map.of(par, Province.Par, mar, Province.Mar),
+                Map.of(Province.Par, Nation.FRANCE, Province.Mar, Nation.FRANCE));
+        var evidence = Map.of(
+                par, new RoutePrediction("TRAINING", 0,
+                        Map.of(Order.hold(par), 99L, Order.move(par, Province.Pic), 1L)),
+                mar, new RoutePrediction("TRAINING", 0,
+                        Map.of(Order.hold(mar), 99L, Order.move(mar, Province.Gas), 1L)));
+        var baseline = new CoordinatedOrders(1, 1, 5).generate(
+                board, Nation.FRANCE, evidence, CoordinationMode.STRICT);
+        Set<UnitType> fleets = Set.of(UnitType.FLEET);
+        Set<UnitType> armies = Set.of(UnitType.ARMY);
+        var fleetGoal = new ScoringConfiguration.RegionalObjective(
+                "Fleet-only sea access", Set.of(Province.MAO), 10, fleets, 4, 0.5);
+        for (var configuration : List.of(
+                new ScoringConfiguration(0, Map.of(Province.Pic,
+                        new ScoringConfiguration.ProvinceValue(10, fleets)), Map.of(Nation.FRANCE,
+                        new ScoringConfiguration.NationProfile(Map.of(), List.of(fleetGoal)))),
+                new ScoringConfiguration(0, Map.of(
+                        Province.Pic, new ScoringConfiguration.ProvinceValue(10, armies),
+                        Province.NWG, new ScoringConfiguration.ProvinceValue(10, fleets)),
+                        Map.of(Nation.FRANCE, new ScoringConfiguration.NationProfile(Map.of(
+                                Province.Pic, new ScoringConfiguration.ProvinceValue(-10, armies)),
+                                List.of(fleetGoal)))))) {
+            require(!configuration.hasGeography(Nation.FRANCE, armies),
+                    "Unmatched fleet values/goals or cancelled army values activated all-army guidance");
+            var generated = new CoordinatedOrders(1, 1, 5, configuration).generate(
+                    board, Nation.FRANCE, evidence, CoordinationMode.STRICT);
+            require(generated.equals(baseline),
+                    "Typed inactive geography must preserve the entire legacy all-army Result");
+        }
     }
 
     private static void configurationMismatch() {

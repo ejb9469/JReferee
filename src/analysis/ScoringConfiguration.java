@@ -115,12 +115,18 @@ public record ScoringConfiguration(double humanWeight,
     }
 
     public boolean hasGeography(Nation nation) {
+        return hasGeography(nation, EnumSet.allOf(UnitType.class));
+    }
+
+    public boolean hasGeography(Nation nation, Set<UnitType> unitTypes) {
         NationProfile profile = profile(nation);
-        if (!profile.objectives().isEmpty())
+        Set<UnitType> applicable = Set.copyOf(Objects.requireNonNull(unitTypes, "unitTypes"));
+        if (profile.objectives().stream()
+                .anyMatch(objective -> objective.unitTypes().stream().anyMatch(applicable::contains)))
             return true;
         for (Province province : Province.values())
             if (province.parent == null)
-                for (UnitType type : UnitType.values())
+                for (UnitType type : applicable)
                     if (effectiveValue(nation, type, province) != 0)
                         return true;
         return false;
