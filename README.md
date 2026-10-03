@@ -147,9 +147,18 @@ planning/value**, not a set of published province weights:
   and board-context motivation. We import neither its models nor its dataset.
 
 The official project READMEs and CICERO model card were read for this change.
-Direct arXiv/OpenReview access may be unavailable in the task environment;
-paper access and validation results are recorded separately below rather than
-claiming those algorithms were replicated. CICERO's main code is MIT with
+The piKL paper was read via its
+[official PMLR mirror](https://raw.githubusercontent.com/mlresearch/v162/gh-pages/jacob22a/jacob22a.pdf)
+(particularly sections 4.2–4.3: regularized utility, regret minimization and
+candidate action/value search). DipNet was read via its
+[project paper mirror](https://raw.githubusercontent.com/diplomacy/research/master/neurips_paper_v1.pdf)
+(sections 4.1–4.3: board/previous-order inputs, adjacency encoder and sequential
+order decoder). Direct arXiv/OpenReview endpoints were unavailable; the
+Diplodocus paper's full text was not accessible, so its anchor/value separation
+is grounded instead in the official
+[anchor policy](https://github.com/facebookresearch/diplomacy_cicero/blob/main/model_cards/no_press_human_imitation_policy.md)
+and [value model](https://github.com/facebookresearch/diplomacy_cicero/blob/main/model_cards/diplodocus_high_rl_value_function.md)
+cards, not a claim to have reproduced unread methods. CICERO's main code is MIT with
 separately licensed external utilities and noncommercial model weights; DipNet
 also separates code licensing from restrictions on weights and data. **No code,
 assets, weights, or datasets from either project are reused.** No external API,
@@ -162,6 +171,174 @@ regions are user heuristics, not learned values or historical national goals.
 The opt-in example (German Prussia negative; global MAO/ION fleet values
 positive) is editable, removable, experimental, and **untuned**. None is a
 prohibition: actual outcomes and tactical needs can outweigh positional wishes.
+
+#### Layer arithmetic and evidence
+
+For each explicit, equally weighted opponent scenario:
+
+```text
+legacyScenario = legacy objective delta + center-position delta − dislodgement penalty
+augmentedScenario = legacyScenario + provinceContribution + regionalContribution
+baseScore = (1 − caution) × rawMean + caution × rawWorst
+shapedScore = (1 − caution) × shapedMean + caution × shapedWorst
+H = average over active own units of log(selectedOrderCount / selectedDistributionTotal)
+finalScore = shapedScore − tacticalWeight × offendingMoves + humanWeight × H
+```
+
+`PlanEvaluation.mean`, `worst`, `baseScore`, `scenarioScores`, and
+`ScenarioEvaluation.score` retain **raw** meanings. New `shapedMean`,
+`shapedWorst`, `shapedScore`, `augmentedScore`, and contributions are separate.
+The shaped worst is the minimum of **complete augmented scenario scores**,
+never a sum of component minima from different scenarios. Tactical penalties
+and the human term are applied once per plan, not once per scenario.
+
+Human evidence uses the actual selected prediction distribution: year-pooling
+or other selection happens first, reference filtering (if selected) then
+conditions that distribution, and the denominator sums **all its surviving
+counts before top-K truncation**. It is not an unfiltered population frequency.
+There is no smoothing, confidence attenuation, or fabricated unseen count.
+Average logs prevent automatically penalizing larger nations. The raw summed
+`OrderPlan.logPreference` remains available and remains a final tie-breaker.
+Individual order independence is an approximation, not a learned joint policy.
+Unavailable evidence is explicit, with finite placeholders and per-unit
+diagnostics; positive human weight requires complete evidence and rejects
+invalid scorer input. Zero-weight legacy direct APIs still accept manually
+constructed plans without evidence. Evidence-aware calls can expose additional
+metadata at weight zero without changing legacy numeric scores or ranks.
+
+#### Province profiles and regional potentials
+
+`ScoringConfiguration` is an immutable value passed to both strategy and
+evaluator; mismatched configurations are rejected. All seven nation profiles
+exist, even when empty. Effective occupation value is
+**global value + advised nation's adjustment**, each subject to its own unit-type
+applicability. Territory valuations canonicalize coasts and reject duplicate
+aliases; movement locations retain exact fleet coasts. A user's negative
+German Prussia adjustment has no effect on Russia or other nations.
+
+Province contribution sums effective-value differences from actual before and
+after locations of surviving own units. Bounces therefore yield zero progress.
+Dislodged/missing units contribute zero to both new layers: loss cannot earn
+positive “escape” from a negative square, and the separate legacy
+dislodgement penalty remains visible. These are occupation values, not claimed
+supply-center captures.
+
+Named regions have explicit targets, applicable unit types, positive priority,
+distance horizon, and nonnegative exponential decay. For each applicable unit:
+`potential = priority × exp(−decay × distance)` within the horizon, otherwise
+zero. Unreachable distance is `−1` with zero potential. A region's potential is
+the **maximum** over its surviving applicable units, not their sum; each
+objective is bounded by its priority and attracting extra units gives no extra
+reward when one is already closer. Contributions sum independently across
+named regions as `potential(after) − potential(before)`. Approach can earn
+reward before arrival; equal distance or staying inside earns zero, moving
+away can be negative, and round trips telescope to zero for a fixed profile
+and surviving cohort. Removing an objective disables it.
+
+Static distances use shortest paths on unit-appropriate engine geography.
+Armies use land-only movement, **not convoy reachability**. Fleets use exact
+coastal connectivity, preserving split coasts; a canonical region target can
+match either coast, while an explicit coast target remains specific.
+Static unreachable diagnostics are limitations, not assertions that a convoy
+could never reach a region. Actual adjudicated convoy arrivals can change
+potential, but search hints do not assume arbitrary convoy routes.
+This is bounded regional positional shaping, not multi-turn planning.
+
+#### Bounded availability and comparisons
+
+With geographic features enabled, coordinated search retains the union of
+historical top-K and up to K positional observed choices from the first
+64 historically ranked choices per own unit
+(at most 2K), then uses the existing bounded beam and hard coordination checks.
+The search hint is optimistic direct-move shaping plus
+`(1 + humanWeight / ownUnitCount) × partial.logPreference`; PR9's positive
+tactical-bias collision ordering and dependency grouping take precedence.
+Hint values are **pre-adjudication**, not final scores. Counts and historical
+log preferences are never replaced with hint scores.
+
+Zero/empty geographic settings use legacy search; RAW always uses historical
+generation. Replenished, omitted, and guidance-unexamined choices, beam/dependency cutoffs, and
+unreachable objectives are reported. Evidence absent from the supplied
+distribution cannot be recovered, and a bounded beam can still miss a better
+plan. No global optimum or exhaustive enumeration is claimed.
+
+Alternative comparisons use the same frozen evaluator, evidence and explicit
+opponent scenarios for original and replacement. Raw outcome delta,
+`(shapedScore − baseScore)` delta, human contribution delta, and tactical
+penalty delta remain separate; their sum (subtracting the penalty delta)
+reconciles the final-score difference without double counting. A heuristic
+ranking gain is not proof of tactical improvement or playing strength.
+
+#### Browser profile controls
+
+The scoring editor stores reusable adjustments and regions independently for
+all seven countries; changing the advised nation loads its own profile.
+Global values apply to all countries. The editable text formats are:
+
+```text
+# Province values (omit this comment when pasting):
+MAO=1/FLEET
+ION=1/FLEET
+
+# Germany's adjustments:
+Pru=-1/ARMY,FLEET
+
+# Germany's named regions: NAME TARGETS PRIORITY TYPES HORIZON DECAY
+north Bel,Hol 2 ARMY 4 0.5
+```
+
+Names in the browser contain letters/digits/underscore/hyphen. Type filters
+are optional for valuations (default both types), mandatory for regions.
+Deleting a row deletes that value/goal. Delete-country-profile and
+disable/reset-all controls are explicit; export/import JSON contains exactly
+seven reusable nation profiles. Canonical values and exact-coast region
+targets have distinct parsing rules. The Java endpoint validates the complete
+profile, including unknown names, duplicate territory aliases, finite values,
+body size, goal/target counts and estimated work; HTML validation alone is
+not trusted.
+
+Browser values and human weight are bounded to ±1000 and 0–1000 respectively;
+regional priority is positive up to 1000, horizon 1–12, decay 0–1. Limits
+include 8 goals per country, 32 total goals, 16 targets per goal and 128 total
+targets, a 32 KiB URL-encoded body, and bounded scoring/search work.
+The Java configuration API also validates finite, bounded values but permits
+larger programmatic limits documented by its constants.
+
+Legacy snapshot objectives remain separate from reusable profiles and are
+cleared on country changes and game/phase imports. Reusable profiles persist
+deliberately, with that behavior labelled in the editor. Results retain their
+own immutable Java configuration and serialized provenance; changing settings
+invalidates displayed results rather than retroactively changing their score.
+Human evidence, effective before/after province values, per-region distances
+and potentials, raw/shaped means and worst values, and the once-per-plan terms
+are visible in the inspector. No region layer replaces recorded ownership
+tint, historical submissions, or foreign-assumption overlays.
+
+#### Opt-in ablation, not a strength benchmark
+
+```sh
+java -cp "$CP" _app.PreferenceAblationApp
+java -cp "$CP" _app.PreferenceAblationApp --synthetic-validation
+```
+
+The no-argument command does not load data or start an experiment. The
+explicit synthetic command runs fixed illustrations for tactical-5 baseline,
+human-only addition, province-only addition, region-only addition and combined
+settings, with identical explicit scenarios. It prints availability, candidate
+cutoffs, common-plan rank changes, latency, full evidence denominators and
+raw-versus-heuristic score differences. Human reference-order agreement is
+**unmeasured** for synthetic fixtures, never inferred from frequency scores.
+
+For real positions use `PreferenceAblation.evaluate` with a bounded list of
+fixed `ValidationFixture`s, predictions produced from **TRAINING only**,
+explicit scenarios, and optional VALIDATION reference-order labels. Reference
+labels are only measured after ranking; they never enter features or search.
+The harness caps fixtures, units, evidence choices, scenarios, beam width and
+total candidate/scenario evaluations. It opens no database implicitly.
+Tuning must use TRAINING/VALIDATION, never reserved TEST, and must not add
+current/future submissions to a model or history. No tuning, real-corpus
+measurement, self-play tournament or playing-strength improvement is claimed
+by this implementation.
 
 The route-based movement strategy is an opt-in API. It composes the existing
 `RoutePreferences` model, one named `PredictionPolicy`, complete national plans,
@@ -345,7 +522,7 @@ It loads TRAINING only, requests empty histories, and neither writes the
 database nor executes orders against the edited position. Opening-browser
 assets, navigation, singleton filtering, and maps are not replaced.
 
-### Soft-bias validation and limitations
+### Previous soft-bias validation and limitations (PR #9)
 
 All Java sources, including `StrategyBrowserApp`, compiled with
 `/usr/lib/jvm/temurin-25-jdk-amd64/bin/javac --release 25` and the existing

@@ -99,6 +99,21 @@ public final class StrategyBrowserHttpSelfCheck {
             require(request(server, "POST", "/api/generate", authority, headers, encoded(form)).status() == 400,
                     "Missing required tactical bias accepted");
             form.put("tacticalBiasWeight", "5");
+            for (var entry : Map.of("humanWeight", "NaN", "globalValues", "SpaNC=1",
+                    "regions.GERMANY", "north Bel 0 ARMY 4 0.5",
+                    "adjustments.UNKNOWN", "Pru=1").entrySet()) {
+                Map<String, String> bad = new LinkedHashMap<>(form);
+                bad.put(entry.getKey(), entry.getValue());
+                require(request(server, "POST", "/api/generate", authority, headers, encoded(bad)).status() == 400,
+                        "HTTP accepted invalid profile: " + entry.getKey());
+            }
+            form.put("humanWeight", "2");
+            form.put("globalValues", "MAO=1/FLEET\nION=1/FLEET");
+            for (domain.Nation nation : domain.Nation.values()) {
+                form.put("adjustments." + nation, "Pru=-1/ARMY");
+                form.put("regions." + nation, "north Bel,Hol 2 ARMY 4 0.5");
+            }
+            form.put("regions.ENGLAND", "coast SpaNC 2 FLEET 4 0.5");
             for (String comparison : new String[]{"false", "true"}) {
                 form.put("compareAlternatives", comparison);
                 form.put("tacticalBiasWeight", comparison.equals("true") ? "0" : "5");
@@ -106,6 +121,15 @@ public final class StrategyBrowserHttpSelfCheck {
                 require(response.status() == 200, "Corpus-free generation failed: " + response.body());
                 Map<?, ?> result = object(JsonReader.read(response.body()));
                 Map<?, ?> board = object(result.get("board"));
+                Map<?, ?> scoring = object(object(result.get("context")).get("scoringConfiguration"));
+                require(((Number) scoring.get("humanWeight")).doubleValue() == 2
+                                && object(scoring.get("nationProfiles")).size() == 7
+                                && object(scoring.get("globalValues")).size() == 2,
+                        "HTTP lost frozen all-country profiles on abstention");
+                Map<?, ?> english = object(object(scoring.get("nationProfiles")).get("ENGLAND"));
+                require(object(((java.util.List<?>) english.get("objectives")).getFirst())
+                                .get("targets").equals(java.util.List.of("SpaNC")),
+                        "HTTP collapsed explicit regional coast targets");
                 require(((Number) object(result.get("context")).get("tacticalBiasWeight")).doubleValue()
                                 == Double.parseDouble(form.get("tacticalBiasWeight")),
                         "HTTP response lost result-time tactical bias weight");

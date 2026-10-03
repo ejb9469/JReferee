@@ -238,6 +238,8 @@ function clearResults() {
 }
 
 function invalidate(event) {
+    if (event.target?.id !== "scoring-file")
+        ++scoringReadVersion;
     cancelGeneration();
 
     clearResults();
@@ -276,6 +278,7 @@ function rememberBoard(board, label) {
 }
 
 function restoreStartingPosition() {
+    ++scoringReadVersion;
     cancelGeneration();
 
     for (const [name, value] of Object.entries(bootstrap.defaults))
@@ -496,6 +499,8 @@ function importSelectedPhase() {
 
     if (!activeNations.has($("#nation").value) && activeNations.size)
         $("#nation").value = activeNations.values().next().value;
+    ++scoringReadVersion;
+    loadProfile();
 
     clearResults();
     $("#error").textContent = "";
@@ -589,6 +594,7 @@ async function generate(event) {
 
     if (busy || !form.reportValidity())
         return;
+    ++scoringReadVersion;
 
     // Only the editor's named position/configuration controls are submitted.
     // Imported source orders and metadata are outside this form.
