@@ -229,8 +229,10 @@ Selecting a plan (including keyboard selection) opens a persistent inspector.
 It freezes result-time settings and source metadata, shows explicit evaluated
 opponent orders, and reconciles objective/center-position/dislodgement components
 with equally weighted scenario scores, mean, worst, and
-`combined=(1-caution)*mean+caution*worst`. `logPreference` remains a historical
-frequency tiebreaker, not a probability of success. Empty objectives are shown
+`baseCombined=(1-caution)*mean+caution*worst`. The recommendation score is
+`adjusted=baseCombined-tacticalBiasWeight*offendingMoveCount`; the inspector
+and list show both scores and the separate penalty. `logPreference` remains a
+historical frequency tiebreaker, not a probability of success. Empty objectives are shown
 as empty rather than replaced with hidden goals.
 
 Conditional dependencies are immutable, signature-keyed alternative assumption
@@ -241,19 +243,57 @@ Coverage is not probability or a confirmed commitment. Conditional ranking can
 include scenarios that do not satisfy any reported set. RAW means unchecked,
 not dependency-free; STRICT means self-contained, not guaranteed success.
 
-The first `TacticalPrinciple` warns about a move into a friendly convoying fleet.
-It does not reject or penalize the plan, reinforce convoy defense, or imply that
-an unsuccessful friendly attack disrupts the convoy. Legal support-hold is a
-candidate to investigate, not a universally superior order. Stationary support
-and convoy orders may receive hold support; intentional self-bounces remain
-allowed.
+### Focused friendly support/convoy soft bias
+
+The browser now explicitly opts into a **strong, untuned heuristic**: default
+`tacticalBiasWeight=5` outcome-score points per distinct incoming MOVE, compared
+with the default center weight of 1. This implements the requested preference
+against moving into a different friendly unit's occupied province when its
+**selected own order** is SUPPORT (hold or move support) or CONVOY, rather than
+the earlier warning-only policy. Current board locations are compared as canonical
+territories; exact coasts remain intact for order legality and support matching.
+Supporting or convoying a foreign unit does not exempt the incoming friendly move.
+
+The incoming MOVE is penalized once, not the stationary support/convoy instruction.
+Ordinary holds, friendly units moving away, empty destinations, attacks on foreign
+supporters/convoy fleets, and legitimate support orders are outside this pattern.
+Findings are explanations, not legality rules: no assertion that the move cuts own
+support, self-dislodges, or automatically disrupts a convoy. A flagged-only candidate
+set remains available, and sufficiently better adjudicated outcome scores can
+outweigh the finite penalty. Self-bounces and tactical sacrifices are not banned.
+
+Weight **0** disables the bias exactly. Legacy API constructors and experiment
+configurations default to 0; imported historical submissions and RAW historical
+generation remain unpenalized. Coordination mode is a separate hard-consistency
+setting, not a switch for this heuristic. Explicit nonzero evaluator configuration
+can still rank RAW candidates by adjusted score, without changing RAW generation.
+`MovementStrategy` requires matching configuration and evaluator bias weights,
+rejecting inconsistent search/ranking settings rather than silently mixing policies.
+The browser's inspector freezes the result-time weight and explains base versus
+adjusted ranks; changing the form invalidates prior recommendations.
+
+For **any positive weight**, coordinated beam search prefers fewer known selected collisions
+before truncation, then uses the unchanged historical log preference and stable
+signature. This is a search-order heuristic, **not** subtraction of outcome points
+from log probabilities. Related own units are expanded as deterministic dependency
+groups, with potential stationary collision targets assigned first, so the
+relevant selections can be assessed before the requested beam cutoff.
+Intermediate groups retain at most `max(256, beamWidth)`
+partials; earlier internal pruning is still possible and reported as beam truncation.
+Unassigned orders are not violations. The bounded search still uses observed
+retained domains only: no invented Edinburgh–NWG choice,
+synthesized hold, fabricated frequency, or widened evidence. Cutoffs and pruning
+remain visible; this is not a global-optimum or tactical-strength claim.
 
 **Compare observed alternatives** is opt-in and defaults off. Only a suggested
 support-hold actually present in selected route evidence can be compared; missing,
 invalid, or budget-limited alternatives are explicitly unevaluated. A replacement
 must be structurally/geographically coordinated, retain real observation counts
 and provenance, and be evaluated against the identical explicit opponent scenarios
-and scoring settings. The request has separate fixed caps of eight comparisons
+and scoring settings, including the same tactical-bias weight. Raw scenario,
+mean, worst, and base combined deltas are reported separately from the adjusted
+recommendation delta and penalty change. Removing a penalty can improve heuristic
+preference without improving an adjudicated outcome. The request has separate fixed caps of eight comparisons
 and 128 paired scenario adjudications; it does not widen the frequency-ranked
 search or rewrite recommendations. Better/equal/worse deltas are conditional on
 these scenarios, never a claim of universal superiority.
@@ -264,9 +304,46 @@ It loads TRAINING only, requests empty histories, and neither writes the
 database nor executes orders against the edited position. Opening-browser
 assets, navigation, singleton filtering, and maps are not replaced.
 
-### Browser-improvement validation and remaining work
+### Soft-bias validation and limitations
 
-Actual commands run for this change from the repository root (existing
+All Java sources, including `StrategyBrowserApp`, compiled with
+`/usr/lib/jvm/temurin-25-jdk-amd64/bin/javac --release 25` and the existing
+`/usr/share/gradle-9.8.0/lib/annotations-24.0.1.jar`. No project dependency was
+added. Java 25 ran these corpus-free main-based checks:
+
+- `TacticalBiasSelfCheck`, `CoordinatedOrdersSelfCheck`, `MovementStrategySelfCheck`,
+  `TacticalPrinciplesSelfCheck`, `BackendDiagnosticsSelfCheck`
+- `JointOrdersSelfCheck`, `OpponentScenariosSelfCheck`, `OutcomeEvaluatorSelfCheck`
+- `StrategyBrowserSelfCheck`, `StrategyBrowserHttpSelfCheck`
+- `ReferenceFilteringSelfCheck`, `YearPooledSelectionSelfCheck`,
+  `FourPolicyEvaluationSelfCheck`, `RoutePreferencesSelfCheck`, `YearPoolingSelfCheck`,
+  `OccupancyRelaxationSelfCheck`, `CandidateSelectionAuditSelfCheck`,
+  `StageCoverageSelfCheck`, `HeldOutEvaluationSelfCheck`, `ScenarioCoverageSelfCheck`,
+  `ScenarioWidthComparisonSelfCheck`
+
+All passed. `_app.TestCaseManager` also passed DATC (132/132 cases, 677/677 orders),
+phase checks (34/34 cases, 163/163 checks), and parser fixtures (2/2 cases, 96/96 checks).
+`node --input-type=module --check` validated the strategy module.
+
+Actual Chromium DOM/SVG checks used the committed synthetic fixtures and a mocked
+API, through Node's native WebSocket CDP client because Playwright's transport was
+unavailable. Checks covered default and zero weights, list/inspector agreement,
+support/convoy flags, raw/adjusted comparisons, safe warning text, all countries'
+units and exact coasts, ownership tint, plan/scenario/dependency switching,
+reset/invalidation/import/history, a delayed cancelled response, 390px mobile
+layout, and original openings navigation/singleton filtering. These are renderer
+checks, not a real-corpus end-to-end test. Compilation/browser scratch files were
+removed; no private corpus, reserved TEST records, or extra training was used.
+
+The bias does not solve missing evidence, choices omitted before the beam, large
+dependency groups pruned at their internal bound, opponent-model uncertainty, or
+multi-turn strategy. It implements the requested preference, not a calibrated
+measure or a tactical-strength improvement.
+
+### Previous warning-only browser-improvement validation (PR #8)
+
+The following is the validation record for PR #8, not a record of the later
+soft-bias implementation. Commands run from the repository root (existing
 annotations jar downloaded to `/tmp`; no new project dependencies):
 
 ```sh
@@ -355,8 +432,9 @@ Compatibility/UI review checklist for these improvements:
   mutate training, or write the corpus database.
 - [x] Opening-browser country/search/navigation and **Hide single-entry
   openings** remain available.
-- [x] Tactical warnings have zero rejection/penalty; comparison requires explicit
-  opt-in, observed evidence, coordinated geometry, and fixed paired-work limits.
+- [x] Warning metadata never rejects orders. The separate opt-in tactical bias
+  adjusts recommendation scores; comparison requires explicit opt-in, observed
+  evidence, coordinated geometry, and fixed paired-work limits.
 - [ ] Database-backed startup and real-corpus experiments: unavailable because
   the ignored local corpus is absent. Synthetic results are not strength evidence.
 - [ ] Final PR-wide automated review/security scan: unavailable due to exhausted

@@ -30,6 +30,7 @@ public final class StrategyBrowserSelfCheck {
         object(initial.get("defaults")).forEach((key, value) ->
                 form.put((String) key, (String) value));
         require(form.get("coordinationMode").equals("STRICT"), "Browser default is not strict");
+        require(form.get("tacticalBiasWeight").equals("5"), "Browser bias default is not explicitly 5");
         Method parse = method(app, "parseQuery", Map.class);
         Object query = parse.invoke(null, form);
         Method json = method(app, "resultJson", query.getClass(),
@@ -38,6 +39,19 @@ public final class StrategyBrowserSelfCheck {
         require(((MovementStrategy.Configuration) config.invoke(query)).coordinationMode()
                         == CoordinationMode.STRICT,
                 "Browser mode not passed to strategy configuration");
+        require(((MovementStrategy.Configuration) config.invoke(query)).tacticalBiasWeight() == 5,
+                "Browser bias not passed to strategy configuration");
+        for (String invalid : List.of("-1", "NaN", "Infinity", "1001", "")) {
+            form.put("tacticalBiasWeight", invalid);
+            try {
+                parse.invoke(null, form);
+                throw new AssertionError("Invalid tactical bias accepted: " + invalid);
+            } catch (java.lang.reflect.InvocationTargetException expected) {
+                require(expected.getCause() instanceof IllegalArgumentException,
+                        "Unexpected bias validation error");
+            }
+        }
+        form.put("tacticalBiasWeight", "5");
 
         String reason = "Fleet/army destination mismatch: \"Bel\" versus Nwy.\nNo fallback.";
         var diagnostics = new CoordinatedOrders.Diagnostics(
@@ -62,14 +76,17 @@ public final class StrategyBrowserSelfCheck {
         require(context.get("positionOnly").equals(true)
                         && context.get("equalScenarioWeights").equals(true)
                         && context.get("coordinationMode").equals("STRICT")
+                        && number(context.get("tacticalBiasWeight")) == 5
                         && object(context.get("objectives")).isEmpty()
                         && ((Number) context.get("year")).intValue() == 1901
                         && ((List<?>) object(response.get("board")).get("units")).size() == 22,
                 "Abstention lost immutable settings, empty objectives or full validated board");
         form.put("year", "1902");
         form.put("centerWeight", "7");
+        form.put("tacticalBiasWeight", "2");
         require(((Number) context.get("year")).intValue() == 1901
-                        && ((Number) context.get("centerWeight")).doubleValue() == 1,
+                        && ((Number) context.get("centerWeight")).doubleValue() == 1
+                        && number(context.get("tacticalBiasWeight")) == 5,
                 "Edited controls changed result-time context");
         form.put("compareAlternatives", "on");
         Object comparisonQuery = parse.invoke(null, form);
@@ -97,11 +114,17 @@ public final class StrategyBrowserSelfCheck {
         require(((MovementStrategy.Configuration) config.invoke(query)).coordinationMode()
                         == CoordinationMode.RAW,
                 "Legacy browser selection ignored");
-        detailedResults(parse, json, form);
+        for (String weight : List.of("5", "0")) {
+            form.put("tacticalBiasWeight", weight);
+            detailedResults(parse, json, form, false);
+            detailedResults(parse, json, form, true);
+        }
+        fixtureContract();
         System.out.println("StrategyBrowser JSON contract checks passed.");
     }
 
-    private static void detailedResults(Method parse, Method json, Map<String, String> defaults)
+    private static void detailedResults(Method parse, Method json, Map<String, String> defaults,
+                                        boolean support)
             throws Exception {
         Map<String, String> form = new LinkedHashMap<>(defaults);
         form.put("units", "ENGLAND FLEET Edi\nENGLAND FLEET NTH\n"
@@ -116,7 +139,8 @@ public final class StrategyBrowserSelfCheck {
         UnitId edi = unit(board, Province.Edi), nth = unit(board, Province.NTH);
         UnitId yor = unit(board, Province.Yor), eng = unit(board, Province.ENG);
         var orders = List.of(Order.move(edi, Province.NTH),
-                Order.convoy(nth, Province.Yor, Province.Bel), Order.move(yor, Province.Bel));
+                support ? Order.supportHold(nth, Province.Yor) : Order.convoy(nth, Province.Yor, Province.Bel),
+                support ? Order.hold(yor) : Order.move(yor, Province.Bel));
         Map<UnitId, RoutePrediction> predictions = Map.of(
                 edi, new RoutePrediction("synthetic-fixture", 0,
                         Map.of(orders.get(0), 4L, Order.supportHold(edi, Province.NTH), 2L)),
@@ -126,7 +150,8 @@ public final class StrategyBrowserSelfCheck {
                 .generate(board, Nation.ENGLAND, predictions, CoordinationMode.STRICT);
         Map<String, List<Order>> scenarios = Map.of(
                 "hold", List.of(Order.hold(eng)), "attack", List.of(Order.move(eng, Province.NTH)));
-        var evaluations = new OutcomeEvaluator(7, 3, 0.5).rank(
+        double weight = Double.parseDouble(form.get("tacticalBiasWeight"));
+        var evaluations = new OutcomeEvaluator(7, 3, 0.5, weight).rank(
                 board, moment, generation.plans(), scenarios, Map.of(Province.Bel, 5.0),
                 new MovementProcessor());
         var recommendation = new MovementStrategy.Recommendation(
@@ -157,7 +182,11 @@ public final class StrategyBrowserSelfCheck {
             }
             require(number(plan.get("mean")) == total / 2
                             && number(plan.get("worst")) == worst
-                            && number(plan.get("score")) == (total / 2 + worst) / 2,
+                            && number(plan.get("baseScore")) == (total / 2 + worst) / 2
+                            && number(plan.get("penaltyWeight")) == weight
+                            && number(plan.get("penaltyTotal")) == weight * number(plan.get("offendingMoveCount"))
+                            && number(plan.get("score")) == number(plan.get("baseScore")) - number(plan.get("penaltyTotal"))
+                            && number(plan.get("baseRank")) >= 1,
                     "Equal-weight aggregate formula changed");
             require(object(plan.get("dependencySets")).get("checked").equals(true),
                     "Strict dependency check omitted");
@@ -171,9 +200,66 @@ public final class StrategyBrowserSelfCheck {
                 require(object(comparison.get("provenance")).get("basis").equals("synthetic-fixture")
                                 && ((List<?>) comparison.get("scenarioDeltas")).size() == 2,
                         "Comparison lost evidence provenance or paired scenarios");
+                require(number(comparison.get("adjustedScoreDelta"))
+                               == number(comparison.get("scoreDelta")) - number(comparison.get("penaltyDelta")),
+                        "Raw comparison delta confused with heuristic-adjusted delta");
+                if (weight == 0)
+                    require(number(plan.get("score")) == number(plan.get("baseScore"))
+                                   && number(comparison.get("penaltyDelta")) == 0,
+                           "Zero weight does not exactly disable the heuristic");
+                else
+                    require(number(plan.get("offendingMoveCount")) == 1
+                                   && number(comparison.get("penaltyDelta")) == -weight,
+                           "Comparison evaluator did not use recommendation bias weight");
             }
         }
-        require(warningFound, "Convoy-fleet tactical warning omitted from JSON");
+        require(warningFound, (support ? "Support-unit" : "Convoy-fleet") + " warning omitted from JSON");
+    }
+
+    private static void fixtureContract() throws Exception {
+        var ui = java.nio.file.Path.of("src", "resources", "ui");
+        Map<?, ?> fixture = object(JsonReader.read(java.nio.file.Files.readString(
+                ui.resolve("fixtures/strategy-response.json"))));
+        require(number(object(fixture.get("context")).get("tacticalBiasWeight")) == 5,
+                "Fixture result-time weight absent");
+        Set<String> categories = new HashSet<>();
+        Map<String, Object> sampledOrders = new HashMap<>();
+        boolean reordered = false;
+        for (Object value : (List<?>) fixture.get("plans")) {
+            Map<?, ?> plan = object(value);
+            require(number(plan.get("score")) == number(plan.get("baseScore")) - number(plan.get("penaltyTotal"))
+                            && number(plan.get("penaltyTotal")) == number(plan.get("penaltyWeight"))
+                            * number(plan.get("offendingMoveCount")),
+                    "Synthetic score metadata inconsistent");
+            reordered |= number(plan.get("baseRank")) != number(plan.get("rank"));
+            for (Object valueScenario : (List<?>) plan.get("scenarios")) {
+                Map<?, ?> scenario = object(valueScenario);
+                Object previous = sampledOrders.putIfAbsent(
+                        (String) scenario.get("name"), scenario.get("opponentOrders"));
+                require(previous == null || previous.equals(scenario.get("opponentOrders")),
+                        "Fixture plans do not share identical named opponent scenarios");
+            }
+            for (Object finding : (List<?>) plan.get("findings"))
+                categories.add((String) object(finding).get("category"));
+            for (Object valueComparison : (List<?>) plan.get("comparisons")) {
+                Map<?, ?> comparison = object(valueComparison);
+                if (comparison.get("status").equals("EVALUATED"))
+                    require(number(comparison.get("adjustedScoreDelta")) == number(comparison.get("scoreDelta"))
+                                    - number(comparison.get("penaltyDelta")),
+                            "Fixture comparison conflates heuristic and outcome gains");
+            }
+        }
+        require(reordered && categories.containsAll(Set.of("FRIENDLY_CONVOY_FLEET", "FRIENDLY_SUPPORT_UNIT")),
+                "Fixture lacks support/convoy findings or visible base-rank reordering");
+        String html = java.nio.file.Files.readString(ui.resolve("strategy.html"));
+        String js = java.nio.file.Files.readString(ui.resolve("strategy.js"));
+        require(html.contains("name=\"tacticalBiasWeight\"") && html.contains("id=\"bias-summary\"")
+                        && html.contains("Untuned default 5")
+                        && html.contains("count-first coordinated search ordering")
+                        && js.contains("scoreSummary(plan)") && js.contains("FLAGGED INCOMING MOVE")
+                        && js.contains("raw outcome/base score Δ") && js.contains("bias-adjusted score Δ")
+                        && js.contains("raw historical orders are unpenalized"),
+                "Browser UI score, flags, comparison or historical labels missing");
     }
 
     private static UnitId unit(BoardState board, Province province) {
