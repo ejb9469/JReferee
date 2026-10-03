@@ -27,7 +27,7 @@ public final class TacticalBias {
                 var category = occurrence.category();
                 String principle = principleId(category);
             findings.add(new TacticalPrinciple.Warning(
-                        principle + ":" + Classifier.signature(board, List.of(move, related)),
+                            findingId(board, principle, occurrence),
                         category, TacticalPrinciple.Severity.WARNING, List.of(move, related),
                         explanation(category), suggestedAlternative(board, occurrence),
                         TacticalPrinciple.EvaluationStatus.NOT_REQUESTED));
@@ -171,6 +171,13 @@ public final class TacticalBias {
                 case FRIENDLY_HOLD_UNIT -> "friendly-hold-unit";
                 case FRIENDLY_PROVINCE_ATTACK -> "friendly-province-attack";
             };
+        }
+
+        private static String findingId(BoardState board, String principle, Occurrence occurrence) {
+            List<Order> identity = occurrence.category()
+                    == TacticalPrinciple.Category.FRIENDLY_PROVINCE_ATTACK
+                    ? List.of(occurrence.move()) : List.of(occurrence.move(), occurrence.related());
+            return principle + ":" + Classifier.signature(board, identity);
         }
 
         private record Occurrence(Order move, Order related, TacticalPrinciple.Category category) { }

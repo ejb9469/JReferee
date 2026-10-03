@@ -218,7 +218,16 @@ public final class CoordinatedOrders {
                 if (order.target() == null)
                     continue;
                 for (UnitId other : units) {
-                    if (unit.equals(other) || Province.canonical(order.target())
+                    if (unit.equals(other))
+                        continue;
+                    boolean foreignAttack = order.orderType() == OrderType.MOVE
+                            && domains.get(other).stream().anyMatch(candidate ->
+                            TacticalBias.foreignAttackPair(board, order, candidate));
+                    if (foreignAttack) {
+                        edges.get(unit).add(other);
+                        edges.get(other).add(unit);
+                    }
+                    if (Province.canonical(order.target())
                             != Province.canonical(board.locationOf(other)))
                         continue;
                     boolean reference = order.orderType() == OrderType.SUPPORT
@@ -226,12 +235,9 @@ public final class CoordinatedOrders {
                     boolean tactical = order.orderType() == OrderType.MOVE
                             && domains.get(other).stream().anyMatch(candidate ->
                             TacticalBias.stationaryCollision(board, order, candidate));
-                    boolean foreignAttack = order.orderType() == OrderType.MOVE
-                            && domains.get(other).stream().anyMatch(candidate ->
-                            TacticalBias.foreignAttackPair(board, order, candidate));
                     if (tactical)
                         stationaryTargets.add(other);
-                    if (reference || tactical || foreignAttack) {
+                    if (reference || tactical) {
                         edges.get(unit).add(other);
                         edges.get(other).add(unit);
                     }

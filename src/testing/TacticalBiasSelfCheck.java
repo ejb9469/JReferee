@@ -98,6 +98,8 @@ public final class TacticalBiasSelfCheck {
                                 && finding.suggestedAlternative() != null
                                 && finding.suggestedAlternative().orderType() == OrderType.SUPPORT
                                 && finding.suggestedAlternative().auxiliaryTarget() == Province.Bur)
+                        && foreignAttackFindings.stream().map(TacticalPrinciple.Warning::id).distinct()
+                                .count() == 2
                         && TacticalBias.offendingMoveCount(foreignAttackBoard,
                         plan(parAttack, picAttack)) == 2,
                 "Distinct convergent attacks on a foreign unit were not detected");
@@ -391,15 +393,15 @@ public final class TacticalBiasSelfCheck {
         UnitId pic = own(UnitType.ARMY, Province.Pic);
         UnitId foreignBur = unit(Nation.FRANCE, UnitType.ARMY, Province.Bur);
         Order attack = Order.move(par, Province.Bur);
-        Order support = Order.supportMove(par, Province.Pic, Province.Bur);
+        Order alternative = Order.hold(par);
         Order peer = Order.move(pic, Province.Bur);
         BoardState board = board(par, pic, foreignBur);
         var result = new CoordinatedOrders(2, 1, 1).generate(board, Nation.ENGLAND,
-                weighted(predictions(attack, support, peer), attack, 9), CoordinationMode.STRICT);
-        require(result.plans().size() == 1 && result.plans().getFirst().orders().contains(support)
+                weighted(predictions(attack, alternative, peer), attack, 9), CoordinationMode.STRICT);
+        require(result.plans().size() == 1 && result.plans().getFirst().orders().contains(alternative)
                         && TacticalBias.offendingMoveCount(board, result.plans().getFirst()) == 0
                         && result.diagnostics().beamTruncated(),
-                "Narrow foreign-attack group lost a support-move alternative before cutoff");
+                "Narrow foreign-attack group lost a conflict-free alternative before cutoff");
     }
 
     private static Map<UnitId, RoutePrediction> weighted(Map<UnitId, RoutePrediction> evidence,
