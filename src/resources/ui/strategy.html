@@ -92,6 +92,19 @@
                     </option>
                 </select>
             </label>
+            <label>
+                Coordination mode
+                <select name="coordinationMode">
+                    <option value="STRICT" selected>Strict — coordinated plans only</option>
+                    <option value="CONDITIONAL">Conditional — allow external dependencies</option>
+                    <option value="RAW">Raw — uncoordinated combinations</option>
+                </select>
+                <small>
+                    Strict is the browser default. Conditional plans may require
+                    another country's orders; dependencies are not promises.
+                    Raw preserves independent order combinations.
+                </small>
+            </label>
         </div>
 
         <div class="editor-grid text-fields">
@@ -176,6 +189,7 @@
         </div>
     </fieldset>
 
+    <button id="cancel-generation" type="button" disabled>Cancel generation</button>
     <p id="error" role="alert"></p>
 </form>
 
@@ -215,12 +229,22 @@
         </p>
 
         <p id="plan-metrics"></p>
+        <ul id="plan-dependencies" aria-live="polite"></ul>
         <p id="map-warning" role="status"></p>
         <p id="province-details" aria-live="polite"></p>
     </section>
 </main>
 
 <footer class="secondary-panels">
+    <details class="diagnostics" open>
+        <summary>Coordination and bounded search</summary>
+        <p id="coordination-summary">No generation yet.</p>
+        <ul id="coordination-list"></ul>
+        <p class="muted">
+            Search limits can omit choices or truncate the beam. Recommendations
+            are bounded-search candidates, not an exhaustive ranking.
+        </p>
+    </details>
     <details id="historical-panel">
         <summary>Imported historical submissions — comparison only</summary>
         <div class="details-content">

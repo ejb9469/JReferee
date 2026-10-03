@@ -20,6 +20,8 @@ let result = null;
 let filtered = [];
 let selectedIndex = -1;
 let busy = false;
+let generationVersion = 0;
+let generationController = null;
 
 let importedGame = null;
 let importedPhase = null;
@@ -50,6 +52,7 @@ async function start() {
     form.addEventListener("input", invalidate);
     form.addEventListener("change", invalidate);
     form.addEventListener("submit", generate);
+    $("#cancel-generation").addEventListener("click", invalidate);
 
     $("#reset-position").addEventListener("click", restoreStartingPosition);
     $("#search").addEventListener("input", renderList);
@@ -76,6 +79,9 @@ function clearResults() {
     $("#list-title").textContent = "Ranked plans";
     $("#selection-title").textContent = "Position";
     $("#plan-metrics").textContent = "";
+    $("#plan-dependencies").replaceChildren();
+    $("#coordination-summary").textContent = "No current generation.";
+    $("#coordination-list").replaceChildren();
     $("#position").textContent = "0 / 0";
 
     $("#previous").disabled = true;
@@ -85,8 +91,7 @@ function clearResults() {
 }
 
 function invalidate(event) {
-    if (busy)
-        return;
+    cancelGeneration();
 
     clearResults();
     $("#error").textContent = "";
@@ -111,8 +116,7 @@ function invalidate(event) {
 }
 
 function restoreStartingPosition() {
-    if (busy)
-        return;
+    cancelGeneration();
 
     for (const [name, value] of Object.entries(bootstrap.defaults))
         form.elements.namedItem(name).value = value;
@@ -409,6 +413,7 @@ function showHistorical() {
 
     $("#plan-metrics").textContent =
         "Comparison overlay only. Click a ranked plan to return to generated recommendations.";
+    $("#plan-dependencies").replaceChildren();
 
     map.show(importedPhase.board, bootstrap.colors, nation, { nation, orders });
 }
@@ -426,11 +431,10 @@ async function generate(event) {
     for (const [key, value] of new FormData(form))
         body.append(key, String(value));
 
-    busy = true;
-    $("#fields").disabled = true;
-    $("#import-fields").disabled = true;
-    $("#show-historical").disabled = true;
-    $("#editor").setAttribute("aria-busy", "true");
+    const version = ++generationVersion;
+    const controller = new AbortController();
+    generationController = controller;
+    setGenerating(true);
 
     clearResults();
     map.clear();
@@ -438,14 +442,19 @@ async function generate(event) {
     $("#summary").textContent = "Generating and evaluating movement plans…";
 
     try {
-        result = await fetch("/api/generate", {
+        const response = await fetch("/api/generate", {
             method: "POST",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
                 "X-Strategy-Token": bootstrap.token
             },
-            body
+            body,
+            signal: controller.signal
         }).then(responseJson);
+
+        if (version !== generationVersion)
+            return;
+        result = response;
 
         $("#summary").textContent = result.settings;
         $("#search").disabled = result.plans.length === 0;
@@ -459,9 +468,26 @@ async function generate(event) {
             $("#diagnostic-list").append(item);
         }
 
+        const coordination = result.coordination;
+        $("#coordination-summary").textContent =
+            `${coordination.mode}: ${coordination.expandedCandidates} expanded; `
+            + `${coordination.rejectedCandidates} rejected; `
+            + `${coordination.omittedChoices} choices omitted; `
+            + `beam truncated: ${coordination.beamTruncated ? "yes" : "no"}; `
+            + `${coordination.dependencyAssignmentsExamined} foreign-assignment nodes `
+            + `(limit ${coordination.foreignAssignmentLimit} per check); `
+            + `dependency search truncated: ${coordination.dependencySearchTruncated ? "yes" : "no"}.`;
+        for (const reason of coordination.reasons) {
+            const item = document.createElement("li");
+            item.textContent = reason;
+            $("#coordination-list").append(item);
+        }
+
         renderList();
 
     } catch (error) {
+        if (version !== generationVersion)
+            return;
         console.error(error);
         clearResults();
         map.clear();
@@ -469,12 +495,28 @@ async function generate(event) {
         $("#summary").textContent =
             "Generation failed. No previous recommendation is being displayed.";
     } finally {
-        busy = false;
-        $("#fields").disabled = false;
-        $("#import-fields").disabled = false;
-        $("#editor").setAttribute("aria-busy", "false");
-        refreshHistorical();
+        if (version === generationVersion) {
+            generationController = null;
+            setGenerating(false);
+        }
     }
+}
+
+function setGenerating(value) {
+    busy = value;
+    $("#fields").disabled = value;
+    $("#import-fields").disabled = value;
+    $("#cancel-generation").disabled = !value;
+    $("#editor").setAttribute("aria-busy", String(value));
+    refreshHistorical();
+}
+
+function cancelGeneration() {
+    ++generationVersion;
+    generationController?.abort();
+    generationController = null;
+    if (busy)
+        setGenerating(false);
 }
 
 function renderList() {
@@ -504,7 +546,8 @@ function renderList() {
         heading.className = "opening-count";
         heading.textContent =
             `Rank ${plan.rank} · score ${number(plan.score)} · `
-            + `mean ${number(plan.mean)} · worst ${number(plan.worst)}`;
+            + `mean ${number(plan.mean)} · worst ${number(plan.worst)}`
+            + (plan.dependencies.length ? " · CONDITIONAL" : "");
         button.append(heading);
 
         for (const order of plan.orders) {
@@ -524,7 +567,7 @@ function renderList() {
         const message = document.createElement("p");
         message.textContent = result.plans.length
             ? "No plans match the search."
-            : "No recommendation. Inspect the prediction evidence.";
+            : "No recommendation. Inspect coordination diagnostics and prediction evidence.";
         $("#opening-list").append(message);
     }
 
@@ -555,6 +598,20 @@ function select(index) {
         ? `Score ${number(plan.score)}; mean ${number(plan.mean)}; `
           + `worst ${number(plan.worst)}; log preference ${number(plan.logPreference)}.`
         : "";
+
+    $("#plan-dependencies").replaceChildren();
+    if (plan) {
+        const dependencies = plan.dependencies.length
+            ? plan.dependencies.map(message => "External dependency: " + message)
+            : [result.coordination.mode === "RAW"
+                ? "Raw mode: coordination and external dependencies are not checked."
+                : "No external dependencies reported."];
+        for (const message of dependencies) {
+            const item = document.createElement("li");
+            item.textContent = message;
+            $("#plan-dependencies").append(item);
+        }
+    }
 
     map.show(result.board, bootstrap.colors, result.nation, plan);
 }

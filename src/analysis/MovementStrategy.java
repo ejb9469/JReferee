@@ -38,6 +38,9 @@ public final class MovementStrategy {
         Objects.requireNonNull(evaluator, "evaluator");
         Objects.requireNonNull(processor, "processor");
 
+        CoordinatedOrders.Diagnostics coordination = new CoordinatedOrders.Diagnostics(
+                configuration.coordinationMode(), 0, 0, 0, false, List.of(), Map.of());
+
         if (!moment.gamePhase().isMovement())
             throw new IllegalArgumentException(
                     "Movement strategy supports Spring and Fall movement only");
@@ -57,7 +60,7 @@ public final class MovementStrategy {
         if (ownUnits.isEmpty())
             return Recommendation.abstain(
                     configuration.policy(), Status.NATION_ABSENT, Map.of(), 0, 0,
-                    List.of(), "The requested nation has no active units.");
+                    List.of(), "The requested nation has no active units.", coordination);
 
         Map<UnitId, RoutePrediction> original = new LinkedHashMap<>();
         Map<UnitId, RoutePrediction> selected = new LinkedHashMap<>();
@@ -108,7 +111,7 @@ public final class MovementStrategy {
             return Recommendation.abstain(
                     configuration.policy(), Status.OWN_EVIDENCE_INSUFFICIENT,
                     evidence, 0, 0, missingOwn,
-                    "One or more own units have no qualifying route evidence.");
+                    "One or more own units have no qualifying route evidence.", coordination);
 
         List<UnitId> filteredOwn = ownUnits.stream()
                 .filter(unit -> selected.get(unit).counts().isEmpty())
@@ -118,20 +121,32 @@ public final class MovementStrategy {
             return Recommendation.abstain(
                     configuration.policy(), Status.OWN_CANDIDATES_FILTERED,
                     evidence, 0, 0, filteredOwn,
-                    "The selected policy leaves one or more own units without candidates.");
+                    "The selected policy leaves one or more own units without candidates.", coordination);
 
-        JointOrders ownSearch = new JointOrders(
+        CoordinatedOrders ownSearch = new CoordinatedOrders(
                 configuration.choicesPerUnit(),
                 configuration.nationalPlanLimit());
 
-        List<OrderPlan> candidates =
-                ownSearch.generate(board, nation, selected);
+        CoordinatedOrders.Result generation = ownSearch.generate(
+                board, nation, selected, configuration.coordinationMode());
+        List<OrderPlan> candidates = generation.plans();
+        coordination = generation.diagnostics();
 
         if (candidates.isEmpty())
             return Recommendation.abstain(
-                    configuration.policy(), Status.OWN_EVIDENCE_INSUFFICIENT,
+                    configuration.policy(),
+                    configuration.coordinationMode() == CoordinationMode.RAW
+                            ? Status.OWN_EVIDENCE_INSUFFICIENT
+                            : generation.exhaustedRetainedDomains()
+                            ? Status.OWN_COORDINATION_REJECTED
+                            : Status.OWN_COORDINATION_LIMIT_REACHED,
                     evidence, 0, 0, List.of(),
-                    "No complete national candidate plan could be generated.");
+                    configuration.coordinationMode() == CoordinationMode.RAW
+                            ? "No complete national candidate plan could be generated."
+                            : generation.exhaustedRetainedDomains()
+                            ? "No plan satisfies the requested coordination mode in the supplied candidate domains."
+                            : "No coherent plan within current limits; omitted choices or beam pruning prevent a proof of impossibility.",
+                    coordination);
 
         List<UnitId> opponents = active.stream()
                 .filter(unit -> unit.owner() != nation)
@@ -146,7 +161,7 @@ public final class MovementStrategy {
             return Recommendation.abstain(
                     configuration.policy(), Status.OPPONENT_EVIDENCE_INSUFFICIENT,
                     evidence, candidates.size(), 0, missingOpponents,
-                    "One or more opposing units have no qualifying route evidence.");
+                    "One or more opposing units have no qualifying route evidence.", coordination);
 
         OpponentScenarios scenarioSearch = new OpponentScenarios(
                 configuration.choicesPerUnit(),
@@ -167,7 +182,10 @@ public final class MovementStrategy {
                 configuration.policy(), Status.RANKED,
                 ranked, evidence,
                 candidates.size(), scenarios.size(),
-                List.of(), "Ranked movement plans using the supplied scoring configuration.");
+                List.of(), "Ranked movement plans using the supplied scoring configuration."
+                        + (coordination.conditionalPlans().isEmpty() ? ""
+                        : " Some plans require explicit foreign cooperation; convoy routes are not guaranteed successful."),
+                coordination);
 
     }
 
@@ -184,10 +202,19 @@ public final class MovementStrategy {
             long minimumObservations,
             int choicesPerUnit,
             int nationalPlanLimit,
-            int opponentScenarioLimit) {
+            int opponentScenarioLimit,
+            CoordinationMode coordinationMode) {
+
+        public Configuration(PredictionPolicy policy, long minimumObservations,
+                             int choicesPerUnit, int nationalPlanLimit,
+                             int opponentScenarioLimit) {
+            this(policy, minimumObservations, choicesPerUnit, nationalPlanLimit,
+                    opponentScenarioLimit, CoordinationMode.RAW);
+        }
 
         public Configuration {
             Objects.requireNonNull(policy, "policy");
+            Objects.requireNonNull(coordinationMode, "coordinationMode");
 
             if (minimumObservations < 1
                     || choicesPerUnit < 1
@@ -224,7 +251,18 @@ public final class MovementStrategy {
             int candidatePlanCount,
             int opponentScenarioCount,
             List<UnitId> insufficientUnits,
-            String diagnostic) {
+            String diagnostic,
+            CoordinatedOrders.Diagnostics coordination) {
+
+        public Recommendation(PredictionPolicy policy, Status status,
+                              List<PlanEvaluation> rankedPlans,
+                              Map<UnitId, UnitEvidence> evidence,
+                              int candidatePlanCount, int opponentScenarioCount,
+                              List<UnitId> insufficientUnits, String diagnostic) {
+            this(policy, status, rankedPlans, evidence, candidatePlanCount,
+                    opponentScenarioCount, insufficientUnits, diagnostic,
+                    CoordinatedOrders.Diagnostics.raw());
+        }
 
         public Recommendation {
             Objects.requireNonNull(policy, "policy");
@@ -235,6 +273,7 @@ public final class MovementStrategy {
             insufficientUnits = List.copyOf(
                     Objects.requireNonNull(insufficientUnits, "insufficientUnits"));
             Objects.requireNonNull(diagnostic, "diagnostic");
+            Objects.requireNonNull(coordination, "coordination");
 
             if (candidatePlanCount < 0 || opponentScenarioCount < 0)
                 throw new IllegalArgumentException("Candidate counts must not be negative");
@@ -251,10 +290,11 @@ public final class MovementStrategy {
                 int candidates,
                 int scenarios,
                 List<UnitId> insufficient,
-                String diagnostic) {
+                String diagnostic,
+                CoordinatedOrders.Diagnostics coordination) {
             return new Recommendation(
                     policy, status, List.of(), evidence,
-                    candidates, scenarios, insufficient, diagnostic);
+                    candidates, scenarios, insufficient, diagnostic, coordination);
         }
 
         public boolean hasRecommendation() {
@@ -269,6 +309,8 @@ public final class MovementStrategy {
         NATION_ABSENT,
         OWN_EVIDENCE_INSUFFICIENT,
         OWN_CANDIDATES_FILTERED,
+        OWN_COORDINATION_REJECTED,
+        OWN_COORDINATION_LIMIT_REACHED,
         OPPONENT_EVIDENCE_INSUFFICIENT
     }
 
