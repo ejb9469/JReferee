@@ -10,8 +10,8 @@
     "ruleset": "fixture-only", "positionOnly": true,
     "policy": "REFERENCE_FILTERED", "coordinationMode": "CONDITIONAL",
     "objectives": {"NTH": 2}, "centerWeight": 1, "dislodgementPenalty": 3,
-    "caution": 0.5, "equalScenarioWeights": true,
-    "formula": "combined=(1-caution)*mean+caution*worst",
+    "caution": 0.5, "tacticalBiasWeight": 5, "equalScenarioWeights": true,
+    "formula": "base=(1-caution)*mean+caution*worst; adjusted=base-weight*offendingMoveCount",
     "limits": {"minimumObservations": 3, "choicesPerUnit": 4, "nationalPlanLimit": 8,
       "opponentScenarioLimit": 2, "evaluationBudget": 512, "comparisonLimit": 8,
       "comparisonScenarioEvaluationBudget": 128, "foreignAssignmentLimit": 4096},
@@ -22,6 +22,10 @@
     "phase": "SPRING_MOVEMENT",
     "units": [
       {"nation": "ENGLAND", "type": "FLEET", "province": "Lon"},
+      {"nation": "ENGLAND", "type": "FLEET", "province": "Edi"},
+      {"nation": "ENGLAND", "type": "FLEET", "province": "NTH"},
+      {"nation": "ENGLAND", "type": "ARMY", "province": "Yor"},
+      {"nation": "ENGLAND", "type": "ARMY", "province": "Wal"},
       {"nation": "FRANCE", "type": "FLEET", "province": "ENG"},
       {"nation": "FRANCE", "type": "FLEET", "province": "SpaSC"},
       {"nation": "RUSSIA", "type": "FLEET", "province": "StpNC"},
@@ -38,7 +42,14 @@
   "plans": [
     {
       "rank": 1, "score": 0.5, "mean": 1, "worst": 0, "logPreference": -0.2,
-      "orders": [{"type": "MOVE", "origin": "Lon", "target": "NTH", "auxiliaryTarget": null, "text": "F Lon-NTH"}],
+      "baseScore": 0.5, "baseRank": 2, "penaltyWeight": 5, "offendingMoveCount": 0, "penaltyTotal": 0,
+      "orders": [
+        {"type": "MOVE", "origin": "Lon", "target": "NTH", "auxiliaryTarget": null, "text": "F Lon-NTH"},
+        {"type": "MOVE", "origin": "NTH", "target": "Nwy", "auxiliaryTarget": null, "text": "F NTH-Nwy"},
+        {"type": "HOLD", "origin": "Edi", "target": null, "auxiliaryTarget": null, "text": "F Edi H"},
+        {"type": "HOLD", "origin": "Yor", "target": null, "auxiliaryTarget": null, "text": "A Yor H"},
+        {"type": "HOLD", "origin": "Wal", "target": null, "auxiliaryTarget": null, "text": "A Wal H"}
+      ],
       "dependencies": ["F ENG S Lon-NTH"],
       "dependencySets": {
         "checked": true, "confirmed": false, "truncated": false,
@@ -56,40 +67,52 @@
         {"name": "Scenario 1", "score": 2, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 2, "dislodgedUnits": 0, "opponentOrders": [{"unit": "fixture-eng-fleet", "nation": "FRANCE", "type": "SUPPORT", "origin": "ENG", "target": "Lon", "auxiliaryTarget": "NTH", "text": "F ENG S Lon-NTH"}]},
         {"name": "Scenario 2", "score": 0, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 0, "dislodgedUnits": 0, "opponentOrders": [{"nation": "FRANCE", "type": "HOLD", "origin": "ENG", "target": null, "auxiliaryTarget": null, "text": "F ENG H"}]}
       ],
-      "findings": [{"id": "fixture-warning", "principleId": "friendly-convoy-fleet", "category": "FRIENDLY_CONVOY_FLEET", "severity": "WARNING", "explanation": "Fixture <img src=x onerror=alert(1)> warning; advisory only", "orders": [{"text": "F Lon-NTH"}], "penalty": 0, "rejected": false, "suggestedAlternative": {"text": "F Lon H"}, "evaluatedStatus": "EVALUATED"}],
+      "findings": [], "comparisons": []
+    },
+    {
+      "rank": 2, "score": -8.5, "baseScore": 1.5, "baseRank": 1,
+      "penaltyWeight": 5, "offendingMoveCount": 2, "penaltyTotal": 10,
+      "mean": 3, "worst": 0, "logPreference": -1,
+      "orders": [
+        {"type": "MOVE", "origin": "Edi", "target": "NTH", "auxiliaryTarget": null, "text": "F Edi-NTH"},
+        {"type": "CONVOY", "origin": "NTH", "target": "Yor", "auxiliaryTarget": "Bel", "text": "F NTH C Yor-Bel"},
+        {"type": "MOVE", "origin": "Yor", "target": "Bel", "auxiliaryTarget": null, "text": "A Yor-Bel"},
+        {"type": "MOVE", "origin": "Wal", "target": "Lon", "auxiliaryTarget": null, "text": "A Wal-Lon"},
+        {"type": "SUPPORT", "origin": "Lon", "target": "NTH", "auxiliaryTarget": null, "text": "F Lon S NTH"}
+      ],
+      "dependencies": [], "dependencySets": {"checked": true, "alternatives": [], "confirmed": false},
+      "scenarios": [
+        {"name": "Scenario 1", "score": 6, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 6, "dislodgedUnits": 0, "opponentOrders": [{"unit": "fixture-eng-fleet", "nation": "FRANCE", "type": "SUPPORT", "origin": "ENG", "target": "Lon", "auxiliaryTarget": "NTH", "text": "F ENG S Lon-NTH"}]},
+        {"name": "Scenario 2", "score": 0, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 0, "dislodgedUnits": 0, "opponentOrders": [{"nation": "FRANCE", "type": "HOLD", "origin": "ENG", "target": null, "auxiliaryTarget": null, "text": "F ENG H"}]}
+      ],
+      "findings": [
+        {"id": "fixture-warning", "principleId": "friendly-convoy-fleet", "category": "FRIENDLY_CONVOY_FLEET", "severity": "WARNING", "explanation": "Fixture <img src=x onerror=alert(1)>: Edi moves into friendly convoying fleet NTH; that fleet remains stationary. Diagnostic only; weight applies once to the incoming move.", "orders": [{"type": "MOVE", "origin": "Edi", "target": "NTH", "text": "F Edi-NTH"}, {"type": "CONVOY", "origin": "NTH", "text": "F NTH C Yor-Bel"}], "penalty": 0, "rejected": false, "suggestedAlternative": {"text": "F Edi S NTH"}, "evaluatedStatus": "EVALUATED"},
+        {"id": "fixture-support", "principleId": "friendly-support-unit", "category": "FRIENDLY_SUPPORT_UNIT", "severity": "WARNING", "explanation": "Wal moves into friendly supporting fleet Lon; that fleet remains stationary.", "orders": [{"type": "MOVE", "origin": "Wal", "target": "Lon", "text": "A Wal-Lon"}, {"type": "SUPPORT", "origin": "Lon", "text": "F Lon S NTH"}], "penalty": 0, "rejected": false, "suggestedAlternative": {"text": "A Wal S Lon"}, "evaluatedStatus": "EVALUATED"}
+      ],
       "comparisons": [
         {
           "findingId": "fixture-warning", "status": "EVALUATED", "diagnostic": "Limited evidence-backed fixture alternative",
           "provenance": {"basis": "FIXTURE", "observations": 3, "orderCount": 2},
-          "alternativeOrders": [{"text": "F Lon H"}],
-          "logPreference": -1, "meanDelta": -1,
-          "worstDelta": 0, "scoreDelta": -0.5,
+          "alternativeOrders": [{"text": "F Edi S NTH"}, {"text": "F NTH C Yor-Bel"}, {"text": "A Yor-Bel"}, {"text": "A Wal-Lon"}, {"text": "F Lon S NTH"}],
+          "logPreference": -1, "meanDelta": -3,
+          "worstDelta": 0, "scoreDelta": -1.5, "adjustedScoreDelta": 3.5, "penaltyDelta": -5,
           "scenarioDeltas": [
-            {"name": "Scenario 1", "original": 2, "alternative": 0, "delta": -2, "relation": "WORSE"},
+            {"name": "Scenario 1", "original": 6, "alternative": 0, "delta": -6, "relation": "WORSE"},
             {"name": "Scenario 2", "original": 0, "alternative": 0, "delta": 0, "relation": "EQUAL"}
           ]
         },
         {
-          "findingId": "fixture-warning", "status": "EVALUATED",
+          "findingId": "fixture-support", "status": "EVALUATED",
           "diagnostic": "Second limited evidence-backed fixture alternative",
           "provenance": {"basis": "FIXTURE", "observations": 3, "orderCount": 1},
-          "alternativeOrders": [{"text": "F Lon-ENG"}],
-          "logPreference": -1.2, "meanDelta": 0.5, "worstDelta": 0, "scoreDelta": 0.25,
+          "alternativeOrders": [{"text": "F Edi-NTH"}, {"text": "F NTH C Yor-Bel"}, {"text": "A Yor-Bel"}, {"text": "A Wal S Lon"}, {"text": "F Lon S NTH"}],
+          "logPreference": -1.2, "meanDelta": 0.5, "worstDelta": 0, "scoreDelta": 0.25, "adjustedScoreDelta": 5.25, "penaltyDelta": -5,
           "scenarioDeltas": [
-            {"name": "Scenario 1", "original": 2, "alternative": 3, "delta": 1, "relation": "BETTER"},
+            {"name": "Scenario 1", "original": 6, "alternative": 7, "delta": 1, "relation": "BETTER"},
             {"name": "Scenario 2", "original": 0, "alternative": 0, "delta": 0, "relation": "EQUAL"}
           ]
         },
         {"status": "UNAVAILABLE", "diagnostic": "No additional evidence-backed candidate"}
-      ]
-    },
-    {
-      "rank": 2, "score": 0, "mean": 0, "worst": 0, "logPreference": -1,
-      "orders": [{"type": "HOLD", "origin": "Lon", "target": null, "auxiliaryTarget": null, "text": "F Lon H"}],
-      "dependencies": [], "dependencySets": {"checked": true, "alternatives": [], "confirmed": false}, "findings": [], "comparisons": [],
-      "scenarios": [
-        {"name": "Scenario 1", "score": 0, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 0, "dislodgedUnits": 0, "opponentOrders": []},
-        {"name": "Scenario 2", "score": 0, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 0, "dislodgedUnits": 0, "opponentOrders": []}
       ]
     }
   ]

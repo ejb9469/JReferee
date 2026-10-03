@@ -13,30 +13,9 @@ public final class TacticalAnalysis {
     public static final int MAX_COMPARISONS = 8;
     public static final int MAX_SCENARIO_EVALUATIONS = 128;
 
-    public static final TacticalPrinciple FRIENDLY_CONVOY_FLEET = (board, plan) -> {
-        List<TacticalPrinciple.Warning> warnings = new ArrayList<>();
-        for (Order move : plan.orders()) {
-            if (move.orderType() != OrderType.MOVE)
-                continue;
-            for (Order convoy : plan.orders()) {
-                if (convoy.orderType() != OrderType.CONVOY
-                        || Province.canonical(move.target())
-                        != Province.canonical(board.locationOf(convoy.unit())))
-                    continue;
-                warnings.add(new TacticalPrinciple.Warning(
-                        "friendly-convoy-fleet:" + Classifier.signature(board, List.of(move, convoy)),
-                        TacticalPrinciple.Category.FRIENDLY_CONVOY_FLEET,
-                        TacticalPrinciple.Severity.WARNING, List.of(move, convoy),
-                        "The move targets a friendly convoying fleet's occupied province; "
-                                + "it does not reinforce convoy defense and may waste an order. "
-                                + "An unsuccessful friendly move does not itself disrupt the convoy. "
-                                + "Supporting the stationary fleet may be worth comparing.",
-                        Order.supportHold(move.unit(), board.locationOf(convoy.unit())),
-                        TacticalPrinciple.EvaluationStatus.NOT_REQUESTED));
-            }
-        }
-        return List.copyOf(warnings);
-    };
+    public static final TacticalPrinciple FRIENDLY_CONVOY_FLEET = (board, plan) ->
+            TacticalBias.inspect(board, plan).stream().filter(warning ->
+                    warning.category() == TacticalPrinciple.Category.FRIENDLY_CONVOY_FLEET).toList();
 
     public record Provenance(String basis, long observations, long orderCount) {
         public Provenance {
@@ -55,6 +34,14 @@ public final class TacticalAnalysis {
             Objects.requireNonNull(warning);
             scenarioDeltas = Collections.unmodifiableMap(new LinkedHashMap<>(scenarioDeltas));
             Objects.requireNonNull(diagnostic);
+        }
+        public Double adjustedScoreDelta() {
+            return baselineEvaluation == null ? null
+                    : alternativeEvaluation.score() - baselineEvaluation.score();
+        }
+        public Double penaltyDelta() {
+            return baselineEvaluation == null ? null
+                    : alternativeEvaluation.penaltyTotal() - baselineEvaluation.penaltyTotal();
         }
     }
 
@@ -77,7 +64,7 @@ public final class TacticalAnalysis {
         List<Comparison> results = new ArrayList<>();
         int compared = 0, work = 0;
         boolean truncated = false;
-        for (var warning : FRIENDLY_CONVOY_FLEET.inspect(board, plan)) {
+        for (var warning : TacticalBias.inspect(board, plan)) {
             var status = TacticalPrinciple.EvaluationStatus.NOT_REQUESTED;
             OrderPlan alternative = null;
             Provenance provenance = null;
@@ -155,7 +142,7 @@ public final class TacticalAnalysis {
             results.add(new Comparison(updated, alternative, provenance, baseline, replacement,
                     deltas, baseline == null ? null : replacement.mean() - baseline.mean(),
                     baseline == null ? null : replacement.worst() - baseline.worst(),
-                    baseline == null ? null : replacement.score() - baseline.score(), diagnostic));
+                    baseline == null ? null : replacement.baseScore() - baseline.baseScore(), diagnostic));
         }
         return new Result(results, compared, work, truncated);
     }

@@ -162,6 +162,21 @@
                            min="0" max="1" step="any" required>
                 </label>
                 <label>
+                    Tactical bias weight
+                    <input name="tacticalBiasWeight" type="number"
+                           min="0" max="1000" step="any" required>
+                    <small>
+                        Untuned default 5; 0 disables this heuristic. Each distinct friendly move
+                        into a friendly supporter's or convoying fleet's occupied province
+                        subtracts this weight from the base score. This is separate from
+                        coordination validity and does not change adjudication.
+                        Any positive weight enables count-first coordinated search ordering
+                        with bounded grouping of max(256, beam width); the numerical
+                        outcome-score penalty scales with the weight. Raw generation
+                        is not reordered, but its evaluated ranking still applies the weight.
+                    </small>
+                </label>
+                <label>
                     Minimum observations
                     <input name="minimum" type="number"
                            min="1" max="10000" required>
@@ -250,6 +265,7 @@
             <h3 id="inspector-title">Selected plan inspector</h3>
             <p id="result-context"></p>
             <p id="scoring-context"></p>
+            <p id="bias-summary" role="status"></p>
             <label for="scenario-selector">Opponent scenario</label>
             <select id="scenario-selector"></select>
             <p id="scenario-metrics" role="status"></p>
@@ -273,7 +289,11 @@
             <ul id="structured-dependencies" aria-live="polite"></ul>
             <p id="requirement-details" role="status"></p>
             <h4>Self-dependency warnings</h4>
-            <p class="muted">Advisory only: findings do not penalize or change the plan's score.</p>
+            <p class="muted">
+                Warnings are diagnostic, not invalid orders. The separate tactical bias
+                subtracts weight × distinct offending incoming moves from the base score;
+                it never changes per-scenario adjudicated outcomes.
+            </p>
             <ul id="plan-findings"></ul>
             <h4>Limited alternative comparison</h4>
             <p class="muted">

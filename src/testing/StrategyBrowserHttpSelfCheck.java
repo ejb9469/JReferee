@@ -26,6 +26,7 @@ public final class StrategyBrowserHttpSelfCheck {
         Map<?, ?> defaults = object(object(JsonReader.read(initial)).get("defaults"));
         Map<String, String> form = new LinkedHashMap<>();
         defaults.forEach((key, value) -> form.put((String) key, (String) value));
+        require(form.get("tacticalBiasWeight").equals("5"), "HTTP bootstrap lost bias default");
         form.put("units", "FRANCE ARMY Par");
         form.put("centers", "Bel FRANCE");
         Method handle = method("handle", HttpExchange.class, String.class, String.class,
@@ -89,12 +90,25 @@ public final class StrategyBrowserHttpSelfCheck {
             } finally {
                 generation.release();
             }
+            for (String invalid : new String[]{"-1", "NaN", "Infinity", "1001", ""}) {
+                form.put("tacticalBiasWeight", invalid);
+                require(request(server, "POST", "/api/generate", authority, headers, encoded(form)).status() == 400,
+                        "HTTP accepted invalid bias: " + invalid);
+            }
+            form.remove("tacticalBiasWeight");
+            require(request(server, "POST", "/api/generate", authority, headers, encoded(form)).status() == 400,
+                    "Missing required tactical bias accepted");
+            form.put("tacticalBiasWeight", "5");
             for (String comparison : new String[]{"false", "true"}) {
                 form.put("compareAlternatives", comparison);
+                form.put("tacticalBiasWeight", comparison.equals("true") ? "0" : "5");
                 Response response = request(server, "POST", "/api/generate", authority, headers, encoded(form));
                 require(response.status() == 200, "Corpus-free generation failed: " + response.body());
                 Map<?, ?> result = object(JsonReader.read(response.body()));
                 Map<?, ?> board = object(result.get("board"));
+                require(((Number) object(result.get("context")).get("tacticalBiasWeight")).doubleValue()
+                                == Double.parseDouble(form.get("tacticalBiasWeight")),
+                        "HTTP response lost result-time tactical bias weight");
                 require(result.get("status").equals("NATION_ABSENT")
                                 && ((java.util.List<?>) result.get("plans")).isEmpty()
                                 && ((java.util.List<?>) board.get("units")).size() == 1
