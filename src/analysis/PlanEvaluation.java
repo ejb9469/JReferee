@@ -2,18 +2,33 @@ package analysis;
 
 import java.util.*;
 
-
+/** Raw outcome summaries plus a once-per-plan, optional tactical recommendation penalty.
+ * {@link #score()} is {@code baseScore - penaltyTotal}; scenario scores, mean and worst
+ * remain adjudicated outcome values, not bias-adjusted values.
+ */
 public record PlanEvaluation(
         OrderPlan plan,
         Map<String, Double> scenarioScores,
         double mean,
         double worst,
         double score,
-        Map<String, ScenarioEvaluation> scenarioDetails
+        Map<String, ScenarioEvaluation> scenarioDetails,
+        double baseScore,
+        double penaltyWeight,
+        int offendingMoveCount,
+        double penaltyTotal,
+        List<TacticalPrinciple.Warning> findings
 ) {
     public PlanEvaluation(OrderPlan plan, Map<String, Double> scenarioScores,
                           double mean, double worst, double score) {
         this(plan, scenarioScores, mean, worst, score, Map.of());
+    }
+
+    public PlanEvaluation(OrderPlan plan, Map<String, Double> scenarioScores,
+                          double mean, double worst, double score,
+                          Map<String, ScenarioEvaluation> scenarioDetails) {
+        this(plan, scenarioScores, mean, worst, score, scenarioDetails,
+                score, 0, 0, 0, List.of());
     }
 
     public PlanEvaluation {
@@ -38,7 +53,15 @@ public record PlanEvaluation(
 
         }
 
-        if (!Double.isFinite(mean) || !Double.isFinite(worst) || !Double.isFinite(score))
+        TacticalBias.validateWeight(penaltyWeight);
+        findings = List.copyOf(findings);
+        if (offendingMoveCount < 0 || offendingMoveCount != findings.size()
+                || !Double.isFinite(penaltyTotal) || penaltyTotal < 0
+                || Double.compare(penaltyTotal, penaltyWeight * offendingMoveCount) != 0
+                || Double.compare(score, baseScore - penaltyTotal) != 0)
+            throw new IllegalArgumentException("Inconsistent tactical penalty arithmetic");
+        if (!Double.isFinite(mean) || !Double.isFinite(worst) || !Double.isFinite(score)
+                || !Double.isFinite(baseScore))
             throw new IllegalArgumentException("Evaluation scores must be finite");
 
         scenarioScores = Collections.unmodifiableMap(copy);

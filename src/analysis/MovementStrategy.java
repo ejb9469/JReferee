@@ -37,6 +37,8 @@ public final class MovementStrategy {
         Objects.requireNonNull(configuration, "configuration");
         Objects.requireNonNull(evaluator, "evaluator");
         Objects.requireNonNull(processor, "processor");
+        if (configuration.tacticalBiasWeight() != evaluator.tacticalBiasWeight())
+            throw new IllegalArgumentException("Strategy and evaluator tactical bias weights must match");
 
         CoordinatedOrders.Diagnostics coordination = new CoordinatedOrders.Diagnostics(
                 configuration.coordinationMode(), 0, 0, 0, false, List.of(), Map.of());
@@ -125,7 +127,7 @@ public final class MovementStrategy {
 
         CoordinatedOrders ownSearch = new CoordinatedOrders(
                 configuration.choicesPerUnit(),
-                configuration.nationalPlanLimit());
+                configuration.nationalPlanLimit(), configuration.tacticalBiasWeight());
 
         CoordinatedOrders.Result generation = ownSearch.generate(
                 board, nation, selected, configuration.coordinationMode());
@@ -197,13 +199,17 @@ public final class MovementStrategy {
     }
 
 
+    /** Search configuration and final-scoring evaluator tactical weights must match.
+     * RAW ignores this weight during generation, but evaluation still applies it.
+     */
     public record Configuration(
             PredictionPolicy policy,
             long minimumObservations,
             int choicesPerUnit,
             int nationalPlanLimit,
             int opponentScenarioLimit,
-            CoordinationMode coordinationMode) {
+            CoordinationMode coordinationMode,
+            double tacticalBiasWeight) {
 
         public Configuration(PredictionPolicy policy, long minimumObservations,
                              int choicesPerUnit, int nationalPlanLimit,
@@ -212,9 +218,17 @@ public final class MovementStrategy {
                     opponentScenarioLimit, CoordinationMode.RAW);
         }
 
+        public Configuration(PredictionPolicy policy, long minimumObservations,
+                             int choicesPerUnit, int nationalPlanLimit,
+                             int opponentScenarioLimit, CoordinationMode coordinationMode) {
+            this(policy, minimumObservations, choicesPerUnit, nationalPlanLimit,
+                    opponentScenarioLimit, coordinationMode, 0);
+        }
+
         public Configuration {
             Objects.requireNonNull(policy, "policy");
             Objects.requireNonNull(coordinationMode, "coordinationMode");
+            TacticalBias.validateWeight(tacticalBiasWeight);
 
             if (minimumObservations < 1
                     || choicesPerUnit < 1

@@ -18,9 +18,15 @@ public class OutcomeEvaluator {
     private final double centerWeight;
     private final double dislodgementPenalty;
     private final double caution;
+    private final double tacticalBiasWeight;
 
 
     public OutcomeEvaluator(double centerWeight, double dislodgementPenalty, double caution) {
+        this(centerWeight, dislodgementPenalty, caution, 0);
+    }
+
+    public OutcomeEvaluator(double centerWeight, double dislodgementPenalty, double caution,
+                            double tacticalBiasWeight) {
 
         if (!Double.isFinite(centerWeight) || centerWeight < 0)
             throw new IllegalArgumentException("Center weight must be finite and non-negative");
@@ -34,7 +40,18 @@ public class OutcomeEvaluator {
         this.centerWeight = centerWeight;
         this.dislodgementPenalty = dislodgementPenalty;
         this.caution = caution;
+        TacticalBias.validateWeight(tacticalBiasWeight);
+        this.tacticalBiasWeight = tacticalBiasWeight;
 
+    }
+
+    public double tacticalBiasWeight() { return tacticalBiasWeight; }
+
+    /** Preserve raw outcome settings while explicitly selecting a recommendation bias. */
+    public OutcomeEvaluator withTacticalBiasWeight(double weight) {
+        TacticalBias.validateWeight(weight);
+        return weight == tacticalBiasWeight ? this
+                : new OutcomeEvaluator(centerWeight, dislodgementPenalty, caution, weight);
     }
 
 
@@ -117,7 +134,10 @@ public class OutcomeEvaluator {
 
             double combined = (1 - caution) * mean + caution * worst;
 
-            evaluations.add(new PlanEvaluation(plan, scores, mean, worst, combined, details));
+            var findings = TacticalBias.inspect(board, plan);
+            double penalty = tacticalBiasWeight * findings.size();
+            evaluations.add(new PlanEvaluation(plan, scores, mean, worst, combined - penalty, details,
+                    combined, tacticalBiasWeight, findings.size(), penalty, findings));
 
         }
 

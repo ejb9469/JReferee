@@ -12,6 +12,12 @@ import java.util.*;
 /**
  * Own-country beam search. Retained domains contain only observed orders;
  * forward checks are optimistic until all participating units are assigned.
+ * Positive tactical bias sorts by selected offending MOVE count before historical
+ * preference. Potential stationary collision targets are assigned first within
+ * related-unit groups, expanded together before the requested beam cutoff;
+ * intermediate groups retain at most max(256, beamWidth) partials. This bounded
+ * lookahead is not exhaustive and cannot recover omitted domain choices.
+ * RAW always uses historical generation, even with an explicit positive bias.
  */
 public final class CoordinatedOrders {
 
@@ -19,12 +25,19 @@ public final class CoordinatedOrders {
 
     private final int choicesPerUnit;
     private final int beamWidth;
+    private final double tacticalBiasWeight;
 
     public CoordinatedOrders(int choicesPerUnit, int beamWidth) {
+        this(choicesPerUnit, beamWidth, 0);
+    }
+
+    public CoordinatedOrders(int choicesPerUnit, int beamWidth, double tacticalBiasWeight) {
         if (choicesPerUnit < 1 || beamWidth < 1)
             throw new IllegalArgumentException("Search limits must be positive");
         this.choicesPerUnit = choicesPerUnit;
         this.beamWidth = beamWidth;
+        TacticalBias.validateWeight(tacticalBiasWeight);
+        this.tacticalBiasWeight = tacticalBiasWeight;
     }
 
     /** Exact complete-plan check; does not manufacture route evidence. */
@@ -80,6 +93,12 @@ public final class CoordinatedOrders {
         Comparator<OrderPlan> ranking = Comparator
                 .comparingDouble(OrderPlan::logPreference).reversed()
                 .thenComparing(plan -> Classifier.signature(board, plan.orders()));
+        Set<UnitId> groupEnds = new HashSet<>();
+        if (tacticalBiasWeight > 0) {
+            ranking = Comparator.comparingInt((OrderPlan plan) ->
+                    TacticalBias.offendingMoveCount(board, plan)).thenComparing(ranking);
+            units = dependencyOrder(board, units, domains, groupEnds);
+        }
         long expandedCount = 0;
         long rejected = 0;
         boolean truncated = false;
@@ -108,11 +127,14 @@ public final class CoordinatedOrders {
                 }
             }
             expanded.sort(ranking);
-            truncated |= expanded.size() > beamWidth;
-            beam = List.copyOf(expanded.subList(0, Math.min(beamWidth, expanded.size())));
+            int retainedWidth = tacticalBiasWeight > 0 && !groupEnds.contains(unit)
+                    ? Math.max(256, beamWidth) : beamWidth;
+            truncated |= expanded.size() > retainedWidth;
+            beam = List.copyOf(expanded.subList(0, Math.min(retainedWidth, expanded.size())));
             if (beam.isEmpty())
                 break;
         }
+
         Map<String, List<String>> conditional = new LinkedHashMap<>();
         Map<String, ForeignDependencies> structured = new LinkedHashMap<>();
         List<OrderPlan> complete = new ArrayList<>();
@@ -139,6 +161,59 @@ public final class CoordinatedOrders {
                 complete.isEmpty() && omitted == 0 && !truncated && !dependencyTruncated);
     }
 
+    private static List<UnitId> dependencyOrder(BoardState board, List<UnitId> units,
+                                                Map<UnitId, List<Order>> domains,
+                                                Set<UnitId> groupEnds) {
+        Map<UnitId, Set<UnitId>> edges = new LinkedHashMap<>();
+        Set<UnitId> stationaryTargets = new HashSet<>();
+        for (UnitId unit : units)
+            edges.put(unit, new HashSet<>());
+        for (UnitId unit : units) {
+            for (Order order : domains.get(unit)) {
+                if (order.target() == null)
+                    continue;
+                for (UnitId other : units) {
+                    if (unit.equals(other) || Province.canonical(order.target())
+                            != Province.canonical(board.locationOf(other)))
+                        continue;
+                    boolean reference = order.orderType() == OrderType.SUPPORT
+                            || order.orderType() == OrderType.CONVOY;
+                    boolean tactical = order.orderType() == OrderType.MOVE
+                            && domains.get(other).stream().anyMatch(candidate ->
+                            candidate.orderType() == OrderType.SUPPORT
+                                    || candidate.orderType() == OrderType.CONVOY);
+                    if (tactical)
+                        stationaryTargets.add(other);
+                    if (reference || tactical) {
+                        edges.get(unit).add(other);
+                        edges.get(other).add(unit);
+                    }
+                }
+            }
+        }
+        List<UnitId> ordered = new ArrayList<>();
+        Set<UnitId> visited = new HashSet<>();
+        for (UnitId start : units) {
+            if (!visited.add(start))
+                continue;
+            Set<UnitId> component = new HashSet<>();
+            Deque<UnitId> pending = new ArrayDeque<>();
+            pending.add(start);
+            while (!pending.isEmpty()) {
+                UnitId next = pending.removeFirst();
+                component.add(next);
+                for (UnitId neighbor : edges.get(next))
+                    if (visited.add(neighbor))
+                        pending.addLast(neighbor);
+            }
+            List<UnitId> group = units.stream().filter(component::contains)
+                    .sorted(Comparator.comparing((UnitId unit) -> !stationaryTargets.contains(unit))
+                            .thenComparing(unitOrder(board))).toList();
+            ordered.addAll(group);
+            groupEnds.add(group.getLast());
+        }
+        return List.copyOf(ordered);
+    }
     private static Check check(BoardState board, Nation nation, List<Order> partial,
                                Map<UnitId, List<Order>> domains, CoordinationMode mode) {
         Map<UnitId, Order> assigned = new HashMap<>();
