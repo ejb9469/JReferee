@@ -59,6 +59,14 @@ export class BoardMap {
         this.warning = warning;
         this.board = null;
         this.plan = null;
+        this.baseline = new Map();
+        for (const element of root.querySelectorAll("#provinces > path[id], circle")) {
+            this.baseline.set(element, {
+                fill: element.style.getPropertyValue("fill"),
+                priority: element.style.getPropertyPriority("fill"),
+                style: element.getAttribute("style")
+            });
+        }
 
         root.querySelector("#units")?.replaceChildren();
 
@@ -66,7 +74,8 @@ export class BoardMap {
             id: "opening-orders", "pointer-events": "none"
         });
         this.units = svgElement("g", { id: "opening-units" });
-        root.append(this.orders, this.units);
+        this.dependencies = svgElement("g", { id: "plan-requirements" });
+        root.append(this.orders, this.units, this.dependencies);
 
         for (const path of root.querySelectorAll("#provinces > path[id]")) {
             if (path.id === "path4603")
@@ -92,6 +101,7 @@ export class BoardMap {
         this.plan = null;
         this.units.replaceChildren();
         this.orders.replaceChildren();
+        this.dependencies.replaceChildren();
         this.warning.textContent = "";
         this.details.textContent = "Generate or load a position to inspect it.";
         this.clearSelection();
@@ -108,6 +118,7 @@ export class BoardMap {
         this.plan = plan;
         this.units.replaceChildren();
         this.orders.replaceChildren();
+        this.dependencies.replaceChildren();
         this.clearSelection();
         this.details.textContent = "Select a province to inspect it.";
         this.warning.textContent = "";
@@ -121,8 +132,14 @@ export class BoardMap {
                 const token = svgElement("g", {
                     class: "unit-token",
                     transform: `translate(${point.x} ${point.y})`,
-                    opacity: unit.nation === nation ? 1 : 0.3
+                    tabindex: "0", role: "button",
+                    "aria-label": `${unit.nation} ${unit.type} in ${unit.province}`
                 });
+                if (unit.nation === nation)
+                    token.append(svgElement("circle", {
+                        class: "advised-halo", r: 2.3, fill: "none",
+                        stroke: "#172033", "stroke-width": 0.45
+                    }));
                 const title = svgElement("title");
                 title.textContent =
                     `${unit.nation} ${unit.type} in ${unit.province}`;
@@ -143,6 +160,12 @@ export class BoardMap {
 
                 token.append(title, circle, label);
                 token.addEventListener("click", () => this.inspect(unit.province));
+                token.addEventListener("keydown", event => {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        this.inspect(unit.province);
+                    }
+                });
                 this.units.append(token);
             } catch (error) {
                 errors.push(`${unit.province}: ${error.message}`);
@@ -163,18 +186,99 @@ export class BoardMap {
     }
 
     paintCenters(owners, colors = {}) {
+        const ownership = Object.fromEntries(Object.entries(owners ?? {})
+            .map(([province, owner]) => [canonical(province).toLowerCase(), owner]));
         for (const [province, id] of Object.entries(CENTERS)) {
+            const color = colors[ownership[province.toLowerCase()]];
+            const path = this.root.querySelector(
+                `#provinces > path#${province.toLowerCase()}`);
+            if (path) {
+                const baseline = this.baseline.get(path);
+                if (color) {
+                    path.style.setProperty("fill", this.tint(color), baseline.priority);
+                } else if (baseline.fill) {
+                    path.style.setProperty("fill", baseline.fill, baseline.priority);
+                } else {
+                    path.style.removeProperty("fill");
+                }
+            }
             const circles = this.root.querySelector(
                 `#${CSS.escape(id)}`)?.querySelectorAll("circle");
 
             if (!circles || circles.length < 2)
                 continue;
 
-            circles[0].style.fill = colors[owners[province]] ?? "#ffffff";
-            circles[0].style.stroke = "#111827";
-            circles[1].style.fill = "#ffffff";
-            circles[1].style.stroke = "none";
+            for (const circle of circles) {
+                const style = this.baseline.get(circle).style;
+                if (style === null)
+                    circle.removeAttribute("style");
+                else
+                    circle.setAttribute("style", style);
+            }
+            if (color) {
+                circles[0].style.setProperty("fill", color,
+                    this.baseline.get(circles[0]).priority);
+                circles[0].style.stroke = "#111827";
+                circles[1].style.fill = "#ffffff";
+                circles[1].style.stroke = "none";
+            }
         }
+    }
+
+    tint(color) {
+        const probe = document.createElement("span");
+        probe.style.color = color;
+        this.details.append(probe);
+        const rgb = getComputedStyle(probe).color.match(/\d+(?:\.\d+)?/g);
+        probe.remove();
+        if (!rgb || rgb.length < 3)
+            return color;
+        return `rgb(${rgb.slice(0, 3).map(value => Math.round(Number(value) * 0.25 + 255 * 0.75)).join(", ")})`;
+    }
+
+    showRequirements(requirements, colors, onInspect) {
+        this.dependencies.replaceChildren();
+        const errors = [];
+        for (const [index, requirement] of requirements.entries()) {
+            try {
+                const order = requirement.order ?? requirement;
+                const point = this.anchor(order.origin);
+                const color = colors[requirement.nation ?? order.nation] ?? "#172033";
+                this.drawOrder(order, color, this.dependencies, "dependency-order");
+                const marker = svgElement("g", {
+                    class: "requirement-marker", tabindex: "0", role: "button",
+                    transform: `translate(${point.x + 2.5} ${point.y - 2.5})`,
+                    "aria-label": `Assumed requirement ${index + 1}: ${order.text}. Unconfirmed foreign order.`
+                });
+                marker.append(svgElement("rect", {
+                    x: -1.4, y: -1.4, width: 2.8, height: 2.8,
+                    fill: "#ffffff", stroke: color, "stroke-width": 0.5,
+                    "stroke-dasharray": "0.6 0.35"
+                }));
+                const label = svgElement("text", {
+                    "text-anchor": "middle", "dominant-baseline": "central",
+                    "font-size": 1.8, fill: "#172033", "pointer-events": "none"
+                });
+                label.textContent = String(index + 1);
+                marker.append(label);
+                const inspect = () => {
+                    this.inspect(order.origin);
+                    onInspect(requirement, index);
+                };
+                marker.addEventListener("click", inspect);
+                marker.addEventListener("keydown", event => {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        inspect();
+                    }
+                });
+                this.dependencies.append(marker);
+            } catch (error) {
+                errors.push(error.message);
+            }
+        }
+        if (errors.length)
+            this.warning.textContent = "Some requirements could not be drawn: " + errors.join(" ");
     }
 
     inspect(province) {
@@ -187,7 +291,7 @@ export class BoardMap {
             path.classList.toggle("selected", path.id === key);
 
         const owner = Object.entries(this.board.supplyCenterOwners)
-            .find(([location]) => location.toLowerCase() === key)?.[1];
+            .find(([location]) => canonical(location).toLowerCase() === key)?.[1];
 
         const units = this.board.units.filter(unit =>
             canonical(unit.province).toLowerCase() === key);
@@ -241,8 +345,8 @@ export class BoardMap {
         return this.rootPoint(path, box.x + box.width / 2, box.y + box.height / 2);
     }
 
-    drawOrder(order, color) {
-        const group = svgElement("g");
+    drawOrder(order, color, host = this.orders, className = "") {
+        const group = svgElement("g", { class: className, "pointer-events": "none" });
         const origin = this.anchor(order.origin);
 
         if (order.type === "HOLD") {
@@ -271,7 +375,7 @@ export class BoardMap {
             group.append(label);
         }
 
-        this.orders.append(group);
+        host.append(group);
     }
 
     line(group, from, to, color, dash, arrow) {

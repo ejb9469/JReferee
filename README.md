@@ -215,13 +215,56 @@ ignores stale responses. Generated overlays and imported historical submission
 overlays remain separate. Imports are comparison/position input only, never
 current-turn evidence or additions to training.
 
+All active units remain fully visible; an outline emphasizes the advised
+country. The map retains its last validated position while generation is
+pending, cancelled, or invalidated. Edited position input is explicitly labelled
+unvalidated until a successful response; imported source snapshots are displayed
+immediately and labelled as source data. Ownership tinting uses only recorded
+`supplyCenterOwners`, including vacant centers: pale territories, saturated center
+markers, and restoration of the SVG's original inline fill/priority on removal or
+clear. Spring occupation is not capture, and Fall movement with unresolved
+retreats is not final ownership. No capture history is inferred.
+
+Selecting a plan (including keyboard selection) opens a persistent inspector.
+It freezes result-time settings and source metadata, shows explicit evaluated
+opponent orders, and reconciles objective/center-position/dislodgement components
+with equally weighted scenario scores, mean, worst, and
+`combined=(1-caution)*mean+caution*worst`. `logPreference` remains a historical
+frequency tiebreaker, not a probability of success. Empty objectives are shown
+as empty rather than replaced with hidden goals.
+
+Conditional dependencies are immutable, signature-keyed alternative assumption
+sets: alternatives are **OR**, requirements within each set are **AND**. Exact
+origins, split coasts, endpoints, affected friendly orders, and whole-conjunction
+scenario coverage are inspectable in a separate dashed owner-color map layer.
+Coverage is not probability or a confirmed commitment. Conditional ranking can
+include scenarios that do not satisfy any reported set. RAW means unchecked,
+not dependency-free; STRICT means self-contained, not guaranteed success.
+
+The first `TacticalPrinciple` warns about a move into a friendly convoying fleet.
+It does not reject or penalize the plan, reinforce convoy defense, or imply that
+an unsuccessful friendly attack disrupts the convoy. Legal support-hold is a
+candidate to investigate, not a universally superior order. Stationary support
+and convoy orders may receive hold support; intentional self-bounces remain
+allowed.
+
+**Compare observed alternatives** is opt-in and defaults off. Only a suggested
+support-hold actually present in selected route evidence can be compared; missing,
+invalid, or budget-limited alternatives are explicitly unevaluated. A replacement
+must be structurally/geographically coordinated, retain real observation counts
+and provenance, and be evaluated against the identical explicit opponent scenarios
+and scoring settings. The request has separate fixed caps of eight comparisons
+and 128 paired scenario adjudications; it does not widen the frequency-ranked
+search or rewrite recommendations. Better/equal/worse deltas are conditional on
+these scenarios, never a claim of universal superiority.
+
 The server still binds to `127.0.0.1`, validates Host/origin/per-start token,
 bounds request bodies and search sizes, and uses one generation semaphore.
 It loads TRAINING only, requests empty histories, and neither writes the
 database nor executes orders against the edited position. Opening-browser
 assets, navigation, singleton filtering, and maps are not replaced.
 
-### Coordination validation and remaining work
+### Browser-improvement validation and remaining work
 
 Actual commands run for this change from the repository root (existing
 annotations jar downloaded to `/tmp`; no new project dependencies):
@@ -230,16 +273,19 @@ annotations jar downloaded to `/tmp`; no new project dependencies):
 JDK=/usr/lib/jvm/temurin-25-jdk-amd64/bin
 ANNOTATIONS_JAR=/tmp/jreferee-deps/annotations-26.0.2.jar
 "$JDK/javac" --release 25 -cp "$ANNOTATIONS_JAR" -d /tmp/jreferee-classes \
-  $(find /home/runner/work/JReferee/JReferee/src -name '*.java' \
-      ! -name 'StrategyBrowserApp.java')
-CP="/tmp/jreferee-classes:$ANNOTATIONS_JAR"
+  $(find /home/runner/work/JReferee/JReferee/src -name '*.java')
+CP="/tmp/jreferee-classes:/home/runner/work/JReferee/JReferee/src:$ANNOTATIONS_JAR"
 for check in CoordinatedOrdersSelfCheck JointOrdersSelfCheck \
   OpponentScenariosSelfCheck OutcomeEvaluatorSelfCheck MovementStrategySelfCheck \
-  ReferenceFilteringSelfCheck YearPooledSelectionSelfCheck FourPolicyEvaluationSelfCheck
+  StrategyBrowserSelfCheck ReferenceFilteringSelfCheck \
+  YearPooledSelectionSelfCheck FourPolicyEvaluationSelfCheck \
+  BackendDiagnosticsSelfCheck TacticalPrinciplesSelfCheck StrategyBrowserHttpSelfCheck \
+  RoutePreferencesSelfCheck YearPoolingSelfCheck OccupancyRelaxationSelfCheck \
+  CandidateSelectionAuditSelfCheck StageCoverageSelfCheck HeldOutEvaluationSelfCheck \
+  ScenarioCoverageSelfCheck ScenarioWidthComparisonSelfCheck
 do
   "$JDK/java" -cp "$CP" "testing.$check" || exit 1
 done
-"$JDK/java" -cp "$CP" _app.MovementStrategyDemoApp
 "$JDK/java" -cp "$CP" _app.TestCaseManager
 ```
 
@@ -249,22 +295,72 @@ regressions cover the exact NTH/Yor mismatch, connected/disconnected routes,
 assigned incompatible fleets, adjacent moves, stationary support, explicit
 coasts, later assignments, cutoff/beam/foreign-budget exhaustion, conflicting
 foreign assumptions, stable insertion/UUID behavior, immutable inputs, legacy
-generation, and strategy-to-ranking orchestration. Initial CodeQL reported zero
-Java and JavaScript alerts. After the joint-assumption fixes, final JavaScript
-analysis reported zero alerts, but Java analysis timed out; final Java security
-validation remains incomplete. The automated review executable was unavailable; a
-separate read-only review found three defects, now fixed and re-reviewed.
+generation, and strategy-to-ranking orchestration.
 
-Backend-only compilation was run. Browser application compilation, the added
-corpus-free `testing.StrategyBrowserSelfCheck` JSON adapter check, and live UI
-checks were **not run**. After full compilation using the commands below,
-run that check and manually verify strict abstention, conditional dependency
-display, cancellation/invalidation during a pending request, switching between
-generated and historical overlays, and unchanged opening-browser navigation.
+For this browser-improvements PR, final full compilation (including
+`StrategyBrowserApp`) and all 20 listed corpus-free self-checks passed, together
+with the DATC, phase, and parser totals above. Compilation emitted only existing
+deprecation notes. `RouteCorpusSelfCheck` was not run because the SQLite JDBC jar
+was unavailable; no new dependency or database was added. The updated adapter's fixtures also exercise
+immutable settings, explicit scenario/component JSON, warning-only findings,
+evidence-backed comparison provenance, and opt-in validation.
+`StrategyBrowserHttpSelfCheck` exercises the real handler without a corpus:
+Host/origin/token rejection, method/content-type checks, unknown/duplicate fields,
+32 KiB body bounds, the generation semaphore, security headers, opt-in parsing,
+and abstention retaining foreign units and a vacant recorded center.
+
+Real headless Chromium exercised the DOM and SVG against the committed synthetic
+JSON fixtures under `src/resources/ui/fixtures/`. Playwright's transport was
+unavailable; the browser check instead used the installed Chromium and Node's
+native WebSocket CDP client, with an inline fixture HTTP server and no new
+dependencies or helper files:
+
+```sh
+node --input-type=module
+# Inline fixture harness launched the existing browser with:
+chromium --headless --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --remote-debugging-port=9224 --user-data-dir=<temporary-profile>
+```
+
+The CDP harness used `Runtime.evaluate`, `DOM.setFileInputFiles`,
+`Emulation.setDeviceMetricsOverride`, and `Page.captureScreenshot`. Assertions
+covered all 34 center resets/markers and original `!important` priority, unchanged
+SVG geometry, split coasts, foreign visibility, import/historical switching,
+retained boards and cancelled/stale responses, accessible scenario/requirement
+switching, safe `textContent`, frozen source/settings, mobile layout, and the
+opening-browser search/navigation/single-entry filter. Screenshots were captured
+and kept outside tracked files. These are real renderer tests with **mocked API
+results**, not a database-backed browser end-to-end or tactical-strength test.
+Changed files passed secret scanning before each commit. A separate read-only
+review reported no significant issues. Earlier CodeQL runs reported zero alerts,
+but a later Java scan timed out; the final PR-wide automated review/security
+request could not run because the validation time budget was exhausted. Final
+automated security validation therefore remains outstanding, not a clean result.
 The ignored local SQLite database is absent, so corpus recall experiments and
 database-backed browser startup remain unverified. Reserved TEST games were
 not used. Exact submitted-order recall is separate from coherence and tactical
 strength; no imitation, later-game, or strength improvements are claimed.
+
+Compatibility/UI review checklist for these improvements:
+
+- [x] Legacy constructors, five-argument RAW configuration, numerical score
+  accumulation, frequency tiebreakers, and intentional self-bounces retained.
+- [x] Recorded vacant-center ownership and exact unit coasts remain separate;
+  SVG geometry and baseline fill priorities are preserved.
+- [x] All countries' units remain visible; clearing recommendations retains the
+  loaded board and labels unvalidated position edits.
+- [x] Plan/scenario/assumption switching uses accessible controls and clears old
+  dependency layers; historical overlays remain separately labelled.
+- [x] Imports never send historical orders or source labels to generation,
+  mutate training, or write the corpus database.
+- [x] Opening-browser country/search/navigation and **Hide single-entry
+  openings** remain available.
+- [x] Tactical warnings have zero rejection/penalty; comparison requires explicit
+  opt-in, observed evidence, coordinated geometry, and fixed paired-work limits.
+- [ ] Database-backed startup and real-corpus experiments: unavailable because
+  the ignored local corpus is absent. Synthetic results are not strength evidence.
+- [ ] Final PR-wide automated review/security scan: unavailable due to exhausted
+  validation time budget.
 
 ### Four-policy experiment
 

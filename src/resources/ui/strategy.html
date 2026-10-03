@@ -6,6 +6,7 @@
     <title>JReferee Movement Strategy</title>
     <link rel="stylesheet" href="/ui/openings.css">
     <link rel="stylesheet" href="/ui/browser-controls.css">
+    <link rel="stylesheet" href="/ui/strategy.css">
     <script type="module" src="/ui/strategy.js"></script>
 </head>
 <body>
@@ -184,6 +185,10 @@
         </details>
 
         <div class="editor-actions">
+            <label class="comparison-choice">
+                <input name="compareAlternatives" type="checkbox" value="true">
+                Compare limited evidence-backed alternatives (opt in)
+            </label>
             <button id="generate" type="submit">Generate</button>
             <button id="reset-position" type="button">Restore starting position</button>
         </div>
@@ -222,16 +227,61 @@
         </p>
 
         <div id="map-host"></div>
+        <p id="board-status" role="status"></p>
 
         <p class="legend">
             Solid arrow: move · Ring: hold · Dashed line: support ·
             Dotted line: convoy
+            · All countries' units are fully visible; outlined halo: advised country.
+            Owned center territories: 75% white tint; center markers: saturated owner color.
+        </p>
+        <p class="legend" id="ownership-legend">
+            Recorded ownership, not movement-end capture; Spring occupation does not
+            capture; Fall ownership requires resolved retreats. Prior ownership changes
+            unavailable unless a known prior source snapshot exists.
+            This map shows recorded input ownership only, with no hypothetical ownership preview.
         </p>
 
         <p id="plan-metrics"></p>
         <ul id="plan-dependencies" aria-live="polite"></ul>
         <p id="map-warning" role="status"></p>
         <p id="province-details" aria-live="polite"></p>
+        <section id="plan-inspector" aria-labelledby="inspector-title" hidden>
+            <h3 id="inspector-title">Selected plan inspector</h3>
+            <p id="result-context"></p>
+            <p id="scoring-context"></p>
+            <label for="scenario-selector">Opponent scenario</label>
+            <select id="scenario-selector"></select>
+            <p id="scenario-metrics" role="status"></p>
+            <ul id="scenario-orders"></ul>
+            <h4>External assumptions — not confirmed promises</h4>
+            <label for="dependency-set">Alternative conjunction set</label>
+            <select id="dependency-set"></select>
+            <label class="comparison-choice">
+                <input id="show-dependencies" type="checkbox">
+                Show selected requirement set on map
+            </label>
+            <p class="muted">
+                Each set is a separate alternative; all requirements within the selected
+                set must hold together. Dashed square and number: required foreign order;
+                owner color identifies its country. Click or press Enter/Space to inspect.
+                Individual requirement presence and whole-set satisfaction are separate:
+                one missing conjunct makes the set unsatisfied, not every requirement absent.
+                Satisfaction in a sampled scenario is not confirmation.
+            </p>
+            <ul id="dependency-legend"></ul>
+            <ul id="structured-dependencies" aria-live="polite"></ul>
+            <p id="requirement-details" role="status"></p>
+            <h4>Self-dependency warnings</h4>
+            <p class="muted">Advisory only: findings do not penalize or change the plan's score.</p>
+            <ul id="plan-findings"></ul>
+            <h4>Limited alternative comparison</h4>
+            <p class="muted">
+                Same sampled opponent scenarios and scoring settings; only limited,
+                evidence-backed alternatives. Not an exhaustive search or a causal guarantee.
+            </p>
+            <div id="plan-comparisons"></div>
+        </section>
     </section>
 </main>
 

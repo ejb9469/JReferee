@@ -86,6 +86,7 @@ public class OutcomeEvaluator {
                 throw new IllegalArgumentException("Rank plans for one nation at a time");
 
             Map<String, Double> scores = new LinkedHashMap<>();
+            Map<String, ScenarioEvaluation> details = new LinkedHashMap<>();
             double mean = 0;
             double worst = Double.POSITIVE_INFINITY;
             int index = 0;
@@ -96,6 +97,15 @@ public class OutcomeEvaluator {
                         board, plan, scenario.getValue(), processor);
 
                 double value = score(board, nation, outcome, targets);
+                double objectiveDelta = objectiveValue(nation, outcome.finalLocations(), targets)
+                        - objectiveValue(nation, board.locations(), targets);
+                double centerDelta = positionValue(board, nation, outcome.finalLocations(), Map.of())
+                        - positionValue(board, nation, board.locations(), Map.of());
+                long dislodged = outcome.dislodgements().keySet().stream()
+                        .filter(unit -> unit.owner() == plan.nation()).count();
+                details.put(scenario.getKey(), new ScenarioEvaluation(scenario.getKey(),
+                        scenario.getValue(), objectiveDelta, centerDelta,
+                        dislodgementPenalty * dislodged, dislodged, value));
 
                 scores.put(scenario.getKey(), value);
 
@@ -107,7 +117,7 @@ public class OutcomeEvaluator {
 
             double combined = (1 - caution) * mean + caution * worst;
 
-            evaluations.add(new PlanEvaluation(plan, scores, mean, worst, combined));
+            evaluations.add(new PlanEvaluation(plan, scores, mean, worst, combined, details));
 
         }
 
@@ -173,6 +183,15 @@ public class OutcomeEvaluator {
 
         return value;
 
+    }
+
+    private static double objectiveValue(Nation nation, Map<UnitId, Province> positions,
+                                         Map<Province, Double> objectives) {
+        double value = 0;
+        for (var entry : positions.entrySet())
+            if (entry.getKey().owner() == nation)
+                value += objectives.getOrDefault(Province.canonical(entry.getValue()), 0.0);
+        return value;
     }
 
     private static Map<Province, Double> canonicalObjectives(Map<Province, Double> objectives) {

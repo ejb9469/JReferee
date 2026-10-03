@@ -102,6 +102,16 @@ fieldset:disabled {
     opacity: 0.65;
 }
 
+.comparison-choice {
+    display: flex !important;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.comparison-choice input {
+    width: auto;
+}
+
 @media (max-width: 600px) {
     .position-editor {
         margin: 0.75rem;

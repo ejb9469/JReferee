@@ -1,0 +1,43 @@
+{
+  "token": "browser-fixture",
+  "ruleset": "fixture-only",
+  "trainingGames": 0,
+  "colors": {
+    "ENGLAND": "#2244cc",
+    "FRANCE": "#cc2244",
+    "GERMANY": "#ccaa22",
+    "RUSSIA": "#228844",
+    "ITALY": "#8844aa",
+    "AUSTRIA": "#aa4422",
+    "TURKEY": "#22aaaa"
+  },
+  "defaults": {
+    "nation": "ENGLAND",
+    "year": "1901",
+    "phase": "SPRING_MOVEMENT",
+    "policy": "REFERENCE_FILTERED",
+    "coordinationMode": "CONDITIONAL",
+    "units": "ENGLAND FLEET Lon\nFRANCE FLEET ENG\nFRANCE FLEET SpaSC\nRUSSIA FLEET StpNC\nTURKEY FLEET BulEC",
+    "centers": "Lon ENGLAND\nSpaSC FRANCE\nStpNC RUSSIA\nBulEC TURKEY",
+    "objectives": "NTH 2",
+    "centerWeight": "1",
+    "dislodgementPenalty": "3",
+    "caution": "0.5",
+    "minimum": "3",
+    "choices": "4",
+    "plans": "8",
+    "scenarios": "2"
+  },
+  "board": {
+    "year": 1901,
+    "phase": "SPRING_MOVEMENT",
+    "units": [
+      {"nation": "ENGLAND", "type": "FLEET", "province": "Lon"},
+      {"nation": "FRANCE", "type": "FLEET", "province": "ENG"},
+      {"nation": "FRANCE", "type": "FLEET", "province": "SpaSC"},
+      {"nation": "RUSSIA", "type": "FLEET", "province": "StpNC"},
+      {"nation": "TURKEY", "type": "FLEET", "province": "BulEC"}
+    ],
+    "supplyCenterOwners": {"Lon": "ENGLAND", "SpaSC": "FRANCE", "StpNC": "RUSSIA", "BulEC": "TURKEY"}
+  }
+}
