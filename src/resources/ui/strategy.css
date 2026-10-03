@@ -224,6 +224,70 @@ input:disabled {
     cursor: pointer;
 }
 
+.unit-token:focus-visible circle,
+.requirement-marker:focus-visible rect {
+    stroke: #2563eb;
+    stroke-width: 0.8;
+}
+
+.requirement-marker {
+    cursor: pointer;
+}
+
+.dependency-order line,
+.dependency-order circle {
+    stroke-dasharray: 0.6 0.6;
+}
+
+#plan-inspector {
+    border-top: 1px solid #cbd5e1;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    overflow-wrap: anywhere;
+}
+
+#plan-inspector select {
+    max-width: 100%;
+}
+
+.owner-swatch {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 3px dashed;
+    margin-right: 0.5rem;
+    vertical-align: middle;
+}
+
+.finding-warning {
+    color: #9a3412;
+}
+
+#board-status {
+    border-left: 3px solid #64748b;
+    padding-left: 0.75rem;
+}
+
+.comparison-table-scroll {
+    overflow-x: auto;
+}
+
+#plan-comparisons table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#plan-comparisons th,
+#plan-comparisons td {
+    border-bottom: 1px solid #cbd5e1;
+    padding: 0.5rem;
+    text-align: left;
+}
+
+#plan-comparisons caption {
+    text-align: left;
+}
+
 #province-details {
     min-height: 3rem;
     margin-bottom: 0;

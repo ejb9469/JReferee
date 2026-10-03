@@ -1,0 +1,96 @@
+{
+  "settings": "Synthetic browser fixture, not a recommendation",
+  "nation": "ENGLAND",
+  "status": "SUCCESS",
+  "diagnostic": "Fixture <script>must remain text</script>",
+  "candidateCount": 2,
+  "scenarioCount": 2,
+  "context": {
+    "year": 1901, "phase": "SPRING_MOVEMENT", "nation": "ENGLAND",
+    "ruleset": "fixture-only", "positionOnly": true,
+    "policy": "REFERENCE_FILTERED", "coordinationMode": "CONDITIONAL",
+    "objectives": {"NTH": 2}, "centerWeight": 1, "dislodgementPenalty": 3,
+    "caution": 0.5, "equalScenarioWeights": true,
+    "formula": "combined=(1-caution)*mean+caution*worst",
+    "limits": {"minimumObservations": 3, "choicesPerUnit": 4, "nationalPlanLimit": 8,
+      "opponentScenarioLimit": 2, "evaluationBudget": 512, "comparisonLimit": 8,
+      "comparisonScenarioEvaluationBudget": 128, "foreignAssignmentLimit": 4096},
+    "compareAlternatives": true
+  },
+  "board": {
+    "year": 1901,
+    "phase": "SPRING_MOVEMENT",
+    "units": [
+      {"nation": "ENGLAND", "type": "FLEET", "province": "Lon"},
+      {"nation": "FRANCE", "type": "FLEET", "province": "ENG"},
+      {"nation": "FRANCE", "type": "FLEET", "province": "SpaSC"},
+      {"nation": "RUSSIA", "type": "FLEET", "province": "StpNC"},
+      {"nation": "TURKEY", "type": "FLEET", "province": "BulEC"}
+    ],
+    "supplyCenterOwners": {"Lon": "ENGLAND", "SpaSC": "FRANCE", "StpNC": "RUSSIA", "BulEC": "TURKEY"}
+  },
+  "diagnostics": ["Fixture evidence only"],
+  "coordination": {
+    "mode": "CONDITIONAL", "expandedCandidates": 2, "rejectedCandidates": 0,
+    "omittedChoices": 0, "beamTruncated": false, "dependencyAssignmentsExamined": 2,
+    "foreignAssignmentLimit": 4096, "dependencySearchTruncated": false, "reasons": []
+  },
+  "plans": [
+    {
+      "rank": 1, "score": 0.5, "mean": 1, "worst": 0, "logPreference": -0.2,
+      "orders": [{"type": "MOVE", "origin": "Lon", "target": "NTH", "auxiliaryTarget": null, "text": "F Lon-NTH"}],
+      "dependencies": ["F ENG S Lon-NTH"],
+      "dependencySets": {
+        "checked": true, "confirmed": false, "truncated": false,
+        "satisfyingScenarios": ["Scenario 1"], "satisfiedCount": 1, "scenarioCount": 2,
+        "alternatives": [
+          {"requirements": [{"nation": "FRANCE", "unitType": "FLEET", "constraint": "EXACT_ORDER", "type": "SUPPORT", "origin": "ENG", "target": "Lon", "auxiliaryTarget": "NTH", "phase": "SPRING_MOVEMENT", "affectedFriendlyOrders": [{"text": "F Lon-NTH"}]}], "satisfyingScenarios": ["Scenario 1"]},
+          {"requirements": [{"nation": "FRANCE", "unitType": "FLEET", "constraint": "STATIONARY", "type": null, "origin": "SpaSC", "target": null, "auxiliaryTarget": null, "phase": "SPRING_MOVEMENT", "affectedFriendlyOrders": [{"text": "F Lon-NTH"}]}], "satisfyingScenarios": []},
+          {"requirements": [
+            {"unit": "fixture-eng-fleet", "nation": "FRANCE", "unitType": "FLEET", "constraint": "EXACT_ORDER", "type": "SUPPORT", "origin": "ENG", "target": "Lon", "auxiliaryTarget": "NTH", "phase": "SPRING_MOVEMENT", "affectedFriendlyOrders": [{"text": "F Lon-NTH"}]},
+            {"unit": "fixture-spa-fleet", "nation": "FRANCE", "unitType": "FLEET", "constraint": "STATIONARY", "type": null, "origin": "SpaSC", "target": null, "auxiliaryTarget": null, "phase": "SPRING_MOVEMENT", "affectedFriendlyOrders": [{"text": "F Lon-NTH"}]}
+          ], "satisfyingScenarios": []}
+        ]
+      },
+      "scenarios": [
+        {"name": "Scenario 1", "score": 2, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 2, "dislodgedUnits": 0, "opponentOrders": [{"unit": "fixture-eng-fleet", "nation": "FRANCE", "type": "SUPPORT", "origin": "ENG", "target": "Lon", "auxiliaryTarget": "NTH", "text": "F ENG S Lon-NTH"}]},
+        {"name": "Scenario 2", "score": 0, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 0, "dislodgedUnits": 0, "opponentOrders": [{"nation": "FRANCE", "type": "HOLD", "origin": "ENG", "target": null, "auxiliaryTarget": null, "text": "F ENG H"}]}
+      ],
+      "findings": [{"id": "fixture-warning", "principleId": "friendly-convoy-fleet", "category": "FRIENDLY_CONVOY_FLEET", "severity": "WARNING", "explanation": "Fixture <img src=x onerror=alert(1)> warning; advisory only", "orders": [{"text": "F Lon-NTH"}], "penalty": 0, "rejected": false, "suggestedAlternative": {"text": "F Lon H"}, "evaluatedStatus": "EVALUATED"}],
+      "comparisons": [
+        {
+          "findingId": "fixture-warning", "status": "EVALUATED", "diagnostic": "Limited evidence-backed fixture alternative",
+          "provenance": {"basis": "FIXTURE", "observations": 3, "orderCount": 2},
+          "alternativeOrders": [{"text": "F Lon H"}],
+          "logPreference": -1, "meanDelta": -1,
+          "worstDelta": 0, "scoreDelta": -0.5,
+          "scenarioDeltas": [
+            {"name": "Scenario 1", "original": 2, "alternative": 0, "delta": -2, "relation": "WORSE"},
+            {"name": "Scenario 2", "original": 0, "alternative": 0, "delta": 0, "relation": "EQUAL"}
+          ]
+        },
+        {
+          "findingId": "fixture-warning", "status": "EVALUATED",
+          "diagnostic": "Second limited evidence-backed fixture alternative",
+          "provenance": {"basis": "FIXTURE", "observations": 3, "orderCount": 1},
+          "alternativeOrders": [{"text": "F Lon-ENG"}],
+          "logPreference": -1.2, "meanDelta": 0.5, "worstDelta": 0, "scoreDelta": 0.25,
+          "scenarioDeltas": [
+            {"name": "Scenario 1", "original": 2, "alternative": 3, "delta": 1, "relation": "BETTER"},
+            {"name": "Scenario 2", "original": 0, "alternative": 0, "delta": 0, "relation": "EQUAL"}
+          ]
+        },
+        {"status": "UNAVAILABLE", "diagnostic": "No additional evidence-backed candidate"}
+      ]
+    },
+    {
+      "rank": 2, "score": 0, "mean": 0, "worst": 0, "logPreference": -1,
+      "orders": [{"type": "HOLD", "origin": "Lon", "target": null, "auxiliaryTarget": null, "text": "F Lon H"}],
+      "dependencies": [], "dependencySets": {"checked": true, "alternatives": [], "confirmed": false}, "findings": [], "comparisons": [],
+      "scenarios": [
+        {"name": "Scenario 1", "score": 0, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 0, "dislodgedUnits": 0, "opponentOrders": []},
+        {"name": "Scenario 2", "score": 0, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 0, "dislodgedUnits": 0, "opponentOrders": []}
+      ]
+    }
+  ]
+}

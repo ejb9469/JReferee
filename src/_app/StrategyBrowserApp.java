@@ -43,6 +43,7 @@ public final class StrategyBrowserApp {
             "units", "centers", "objectives",
             "centerWeight", "dislodgementPenalty", "caution",
             "minimum", "choices", "plans", "scenarios");
+    private static final Set<String> OPTIONAL_FORM_FIELDS = Set.of("compareAlternatives");
 
     private StrategyBrowserApp() { }
 
@@ -71,6 +72,8 @@ public final class StrategyBrowserApp {
                 asset(ui.resolve("openings.css"), "text/css"),
                 "/ui/browser-controls.css",
                 asset(ui.resolve("browser-controls.css"), "text/css"),
+                "/ui/strategy.css",
+                asset(ui.resolve("strategy.css"), "text/css"),
                 "/ui/maps/standard.svg",
                 asset(ui.resolve("maps/standard.svg"), "image/svg+xml"));
 
@@ -297,14 +300,14 @@ public final class StrategyBrowserApp {
             String value = URLDecoder.decode(
                     pair.substring(separator + 1), StandardCharsets.UTF_8);
 
-            if (!FORM_FIELDS.contains(key))
+            if (!FORM_FIELDS.contains(key) && !OPTIONAL_FORM_FIELDS.contains(key))
                 throw new IllegalArgumentException("Unknown form field: " + key);
 
             if (values.putIfAbsent(key, value) != null)
                 throw new IllegalArgumentException("Duplicate form field: " + key);
         }
 
-        if (!values.keySet().equals(FORM_FIELDS))
+        if (!values.keySet().containsAll(FORM_FIELDS))
             throw new IllegalArgumentException("Form is missing required fields.");
 
         return values;
@@ -406,7 +409,8 @@ public final class StrategyBrowserApp {
                 moment, nation, Map.copyOf(objectives), configuration,
                 decimal(values.get("centerWeight"), "Center weight", 0, 1000),
                 decimal(values.get("dislodgementPenalty"), "Dislodgement penalty", 0, 1000),
-                decimal(values.get("caution"), "Caution", 0, 1));
+                decimal(values.get("caution"), "Caution", 0, 1),
+                booleanValue(values.getOrDefault("compareAlternatives", "false")));
 
     }
 
@@ -484,6 +488,7 @@ public final class StrategyBrowserApp {
 
         StringBuilder out = new StringBuilder("{\"settings\":")
                 .append(quote(settings))
+                .append(",\"context\":").append(contextJson(query, ruleset))
                 .append(",\"nation\":").append(quote(query.nation().name()))
                 .append(",\"status\":").append(quote(recommendation.status().name()))
                 .append(",\"diagnostic\":").append(quote(recommendation.diagnostic()))
@@ -543,12 +548,23 @@ public final class StrategyBrowserApp {
                 .append("],\"plans\":[");
 
         int rank = 0;
+        int comparisonsRemaining = TacticalAnalysis.MAX_COMPARISONS;
+        int comparisonWorkRemaining = TacticalAnalysis.MAX_SCENARIO_EVALUATIONS;
 
         for (PlanEvaluation evaluation : recommendation.rankedPlans()) {
             if (rank > 0)
                 out.append(',');
 
             String signature = Classifier.signature(query.board(), evaluation.plan().orders());
+            var tactical = TacticalAnalysis.analyze(
+                    query.board(), query.moment(), evaluation.plan(),
+                    recommendation.selectedPredictions(), recommendation.scenarioOrders(),
+                    query.objectives(), new OutcomeEvaluator(query.centerWeight(),
+                            query.dislodgementPenalty(), query.caution()),
+                    new MovementProcessor(), query.compareAlternatives(),
+                    comparisonsRemaining, comparisonWorkRemaining);
+            comparisonsRemaining -= tactical.comparisonsEvaluated();
+            comparisonWorkRemaining -= tactical.scenarioEvaluations();
             out.append("{\"rank\":").append(++rank)
                     .append(",\"nation\":").append(quote(query.nation().name()))
                     .append(",\"signature\":").append(quote(signature))
@@ -558,32 +574,172 @@ public final class StrategyBrowserApp {
                     .append(",\"mean\":").append(evaluation.mean())
                     .append(",\"worst\":").append(evaluation.worst())
                     .append(",\"logPreference\":").append(evaluation.plan().logPreference())
-                    .append(",\"orders\":[");
-
-            boolean first = true;
-            for (Order order : evaluation.plan().orders()) {
-                if (!first)
-                    out.append(',');
-                first = false;
-
-                out.append("{\"text\":").append(quote(
-                                OrderForm.format(order, query.board().locationOf(order.unit()))))
-                        .append(",\"origin\":").append(
-                                quote(query.board().locationOf(order.unit()).name()))
-                        .append(",\"type\":").append(quote(order.orderType().name()))
-                        .append(",\"target\":").append(provinceJson(order.target()))
-                        .append(",\"auxiliaryTarget\":")
-                        .append(provinceJson(order.auxiliaryTarget()))
-                        .append('}');
-            }
-
-            out.append("]}");
+                    .append(",\"orders\":").append(ordersJson(query.board(), evaluation.plan().orders()))
+                    .append(",\"scenarios\":").append(scenariosJson(query.board(), evaluation))
+                    .append(",\"dependencySets\":").append(dependenciesJson(query, recommendation, signature))
+                    .append(",\"findings\":").append(findingsJson(query.board(), tactical))
+                    .append(",\"comparisons\":").append(comparisonsJson(query.board(), tactical))
+                    .append('}');
         }
 
         return out.append("]}").toString();
 
     }
 
+
+    private static String ordersJson(BoardState board, List<Order> orders) {
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (Order order : orders)
+            out.add(orderJson(board, order));
+        return out.toString();
+    }
+
+    private static String findingsJson(BoardState board, TacticalAnalysis.Result result) {
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (var comparison : result.comparisons()) {
+            var warning = comparison.warning();
+            out.add("{\"id\":" + quote(warning.id())
+                    + ",\"principleId\":" + quote(warning.principleId())
+                    + ",\"category\":" + quote(warning.category().name())
+                    + ",\"severity\":" + quote(warning.severity().name())
+                    + ",\"orders\":" + ordersJson(board, warning.orders())
+                    + ",\"explanation\":" + quote(warning.explanation())
+                    + ",\"rejected\":" + warning.rejected()
+                    + ",\"penalty\":" + warning.penalty()
+                    + ",\"suggestedAlternative\":" + (warning.suggestedAlternative() == null
+                    ? "null" : orderJson(board, warning.suggestedAlternative()))
+                    + ",\"evaluatedStatus\":" + quote(warning.evaluatedStatus().name()) + "}");
+        }
+        return out.toString();
+    }
+
+    private static String comparisonsJson(BoardState board, TacticalAnalysis.Result result) {
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (var comparison : result.comparisons()) {
+            var provenance = comparison.provenance();
+            StringJoiner deltas = new StringJoiner(",", "[", "]");
+            comparison.scenarioDeltas().forEach((name, delta) ->
+                    deltas.add("{\"name\":" + quote(name) + ",\"delta\":" + delta
+                            + ",\"relation\":" + quote(delta > 0 ? "BETTER" : delta < 0 ? "WORSE" : "EQUAL")
+                            + ",\"original\":" + comparison.baselineEvaluation().scenarioScores().get(name)
+                            + ",\"alternative\":" + comparison.alternativeEvaluation().scenarioScores().get(name) + "}"));
+            out.add("{\"findingId\":" + quote(comparison.warning().id())
+                    + ",\"status\":" + quote(comparison.warning().evaluatedStatus().name())
+                    + ",\"diagnostic\":" + quote(comparison.diagnostic())
+                    + ",\"alternativeOrders\":" + (comparison.alternative() == null ? "null"
+                    : ordersJson(board, comparison.alternative().orders()))
+                    + ",\"logPreference\":" + (comparison.alternative() == null ? "null"
+                    : comparison.alternative().logPreference())
+                    + ",\"provenance\":" + (provenance == null ? "null"
+                    : "{\"basis\":" + quote(provenance.basis())
+                    + ",\"observations\":" + provenance.observations()
+                    + ",\"orderCount\":" + provenance.orderCount() + "}")
+                    + ",\"scenarioDeltas\":" + deltas
+                    + ",\"meanDelta\":" + comparison.meanDelta()
+                    + ",\"worstDelta\":" + comparison.worstDelta()
+                    + ",\"scoreDelta\":" + comparison.scoreDelta() + "}");
+        }
+        return out.toString();
+    }
+
+    private static String orderJson(BoardState board, Order order) {
+        return "{\"text\":" + quote(OrderForm.format(order, board.locationOf(order.unit())))
+                + ",\"unit\":" + quote(order.unit().value().toString())
+                + ",\"nation\":" + quote(order.unit().owner().name())
+                + ",\"unitType\":" + quote(order.unitType().name())
+                + ",\"origin\":" + quote(board.locationOf(order.unit()).name())
+                + ",\"type\":" + quote(order.orderType().name())
+                + ",\"target\":" + provinceJson(order.target())
+                + ",\"auxiliaryTarget\":" + provinceJson(order.auxiliaryTarget()) + "}";
+    }
+
+    private static String scenariosJson(BoardState board, PlanEvaluation evaluation) {
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (ScenarioEvaluation scenario : evaluation.scenarioDetails().values())
+            out.add("{\"name\":" + quote(scenario.name())
+                    + ",\"opponentOrders\":" + ordersJson(board, scenario.opponentOrders())
+                    + ",\"objectiveDelta\":" + scenario.objectiveDelta()
+                    + ",\"centerPositionDelta\":" + scenario.centerPositionDelta()
+                    + ",\"dislodgementPenalty\":" + scenario.dislodgementPenalty()
+                    + ",\"dislodgedUnits\":" + scenario.dislodgedUnits()
+                    + ",\"score\":" + scenario.score() + "}");
+        return out.toString();
+    }
+
+    private static String dependenciesJson(
+            Query query, MovementStrategy.Recommendation recommendation, String signature) {
+        ForeignDependencies dependencies = recommendation.coordination()
+                .foreignDependencies().get(signature);
+        if (dependencies == null)
+            return "{\"checked\":false,\"alternatives\":[],\"confirmed\":false}";
+        var coverage = dependencies.coverage(recommendation.scenarioOrders());
+        StringJoiner alternatives = new StringJoiner(",", "[", "]");
+        for (var conjunction : dependencies.alternatives()) {
+            StringJoiner requirements = new StringJoiner(",", "[", "]");
+            for (var requirement : conjunction)
+                requirements.add("{\"unit\":" + quote(requirement.unit().value().toString())
+                        + ",\"nation\":" + quote(requirement.unit().owner().name())
+                        + ",\"unitType\":" + quote(requirement.unit().unitType().name())
+                        + ",\"origin\":" + quote(requirement.origin().name())
+                        + ",\"constraint\":" + quote(requirement.constraint().name())
+                        + ",\"type\":" + (requirement.orderType() == null ? "null"
+                        : quote(requirement.orderType().name()))
+                        + ",\"target\":" + provinceJson(requirement.target())
+                        + ",\"auxiliaryTarget\":" + provinceJson(requirement.auxiliaryTarget())
+                        + ",\"affectedFriendlyOrders\":" + ordersJson(query.board(), requirement.affectedFriendlyOrders())
+                        + ",\"phase\":" + quote(query.moment().gamePhase().name()) + "}");
+            List<String> satisfying = new TreeMap<>(recommendation.scenarioOrders()).entrySet().stream()
+                    .filter(entry -> conjunction.stream().allMatch(
+                            requirement -> requirement.satisfiedBy(entry.getValue())))
+                    .map(Map.Entry::getKey).toList();
+            alternatives.add("{\"requirements\":" + requirements
+                    + ",\"satisfyingScenarios\":" + stringsJson(satisfying) + "}");
+        }
+        return "{\"checked\":true,\"alternatives\":" + alternatives
+                + ",\"truncated\":" + dependencies.truncated()
+                + ",\"satisfyingScenarios\":" + stringsJson(coverage.satisfyingScenarios())
+                + ",\"scenarioCount\":" + coverage.scenarioCount()
+                + ",\"satisfiedCount\":" + coverage.satisfiedCount()
+                + ",\"confirmed\":false}";
+    }
+
+    private static String contextJson(Query query, String ruleset) {
+        var config = query.configuration();
+        StringJoiner objectives = new StringJoiner(",", "{", "}");
+        query.objectives().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> objectives.add(quote(entry.getKey().name()) + ":" + entry.getValue()));
+        return "{\"year\":" + query.moment().year()
+                + ",\"phase\":" + quote(query.moment().gamePhase().name())
+                + ",\"nation\":" + quote(query.nation().name())
+                + ",\"ruleset\":" + quote(ruleset)
+                + ",\"positionOnly\":true"
+                + ",\"policy\":" + quote(config.policy().name())
+                + ",\"coordinationMode\":" + quote(config.coordinationMode().name())
+                + ",\"objectives\":" + objectives
+                + ",\"centerWeight\":" + query.centerWeight()
+                + ",\"dislodgementPenalty\":" + query.dislodgementPenalty()
+                + ",\"caution\":" + query.caution()
+                + ",\"equalScenarioWeights\":true"
+                + ",\"formula\":\"combined=(1-caution)*mean+caution*worst\""
+                + ",\"limits\":{\"minimumObservations\":" + config.minimumObservations()
+                + ",\"choicesPerUnit\":" + config.choicesPerUnit()
+                + ",\"nationalPlanLimit\":" + config.nationalPlanLimit()
+                + ",\"opponentScenarioLimit\":" + config.opponentScenarioLimit()
+                + ",\"evaluationBudget\":512"
+                + ",\"comparisonLimit\":" + TacticalAnalysis.MAX_COMPARISONS
+                + ",\"comparisonScenarioEvaluationBudget\":" + TacticalAnalysis.MAX_SCENARIO_EVALUATIONS
+                + ",\"foreignAssignmentLimit\":" + CoordinatedOrders.FOREIGN_ASSIGNMENT_LIMIT + "}"
+                + ",\"compareAlternatives\":" + query.compareAlternatives() + "}";
+    }
+
+    private static boolean booleanValue(String value) {
+        return switch (value) {
+            case "true", "on" -> true;
+            case "false" -> false;
+            default -> throw new IllegalArgumentException("Expected a boolean comparison option.");
+        };
+    }
 
     private static List<String> rows(String text) {
         return Arrays.stream(text.split("[;\\r\\n]+"))
@@ -689,6 +845,7 @@ public final class StrategyBrowserApp {
             MovementStrategy.Configuration configuration,
             double centerWeight,
             double dislodgementPenalty,
-            double caution) { }
+            double caution,
+            boolean compareAlternatives) { }
 
 }
