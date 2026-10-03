@@ -225,11 +225,34 @@ public final class CoordinatedOrders {
                             || order.orderType() == OrderType.CONVOY;
                     boolean tactical = order.orderType() == OrderType.MOVE
                             && domains.get(other).stream().anyMatch(candidate ->
-                            candidate.orderType() == OrderType.SUPPORT
+                            candidate.orderType() == OrderType.HOLD
+                                    || candidate.orderType() == OrderType.SUPPORT
                                     || candidate.orderType() == OrderType.CONVOY);
                     if (tactical)
                         stationaryTargets.add(other);
                     if (reference || tactical) {
+                        edges.get(unit).add(other);
+                        edges.get(other).add(unit);
+                    }
+                }
+                if (order.orderType() == OrderType.MOVE && order.target() != null) {
+                    for (UnitId other : units) {
+                        if (unit.equals(other) || domains.get(other).stream().noneMatch(candidate ->
+                                TacticalBias.supportsForeignMoveTo(board, candidate, order.target())))
+                            continue;
+                        stationaryTargets.add(other);
+                        edges.get(unit).add(other);
+                        edges.get(other).add(unit);
+                    }
+                } else if (order.orderType() == OrderType.SUPPORT
+                        && TacticalBias.supportsForeignMoveTo(board, order, order.auxiliaryTarget())) {
+                    for (UnitId other : units) {
+                        if (unit.equals(other) || domains.get(other).stream().noneMatch(candidate ->
+                                candidate.orderType() == OrderType.MOVE && candidate.target() != null
+                                        && Province.canonical(candidate.target())
+                                        == Province.canonical(order.auxiliaryTarget())))
+                            continue;
+                        stationaryTargets.add(unit);
                         edges.get(unit).add(other);
                         edges.get(other).add(unit);
                     }

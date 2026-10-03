@@ -5,9 +5,9 @@ import domain.OrderType;
 import domain.Province;
 import game.BoardState;
 import phase.Order;
+import phase.UnitId;
 
 import java.util.*;
-import java.util.function.BiConsumer;
 
 /** Selected-order warnings, independent of adjudication and never hard constraints. */
 public final class TacticalBias {
@@ -20,25 +20,11 @@ public final class TacticalBias {
 
     public static List<TacticalPrinciple.Warning> inspect(BoardState board, OrderPlan plan) {
         List<TacticalPrinciple.Warning> findings = new ArrayList<>();
-        scan(board, plan, (move, stationary) -> {
-            boolean convoy = stationary.orderType() == OrderType.CONVOY;
-            var category = convoy ? TacticalPrinciple.Category.FRIENDLY_CONVOY_FLEET
-                    : TacticalPrinciple.Category.FRIENDLY_SUPPORT_UNIT;
-            String principle = convoy ? "friendly-convoy-fleet" : "friendly-support-unit";
-            findings.add(new TacticalPrinciple.Warning(
-                    principle + ":" + Classifier.signature(board, List.of(move, stationary)),
-                    category, TacticalPrinciple.Severity.WARNING, List.of(move, stationary),
-                    convoy
-                            ? "The move targets a friendly convoying fleet's occupied province; "
-                            + "it does not reinforce convoy defense and may waste an order. "
-                            + "An unsuccessful friendly move does not itself disrupt the convoy. "
-                            + "Supporting the stationary fleet may be worth comparing."
-                            : "The move targets a friendly supporting unit's occupied province; "
-                            + "it does not reinforce that unit and may waste an order. "
-                            + "Supporting the stationary unit may be worth comparing.",
-                    Order.supportHold(move.unit(), board.locationOf(stationary.unit())),
-                    TacticalPrinciple.EvaluationStatus.NOT_REQUESTED));
-        });
+        scan(board, plan, (move, related, category, principle, explanation, alternative) ->
+                findings.add(new TacticalPrinciple.Warning(
+                        principle + ":" + Classifier.signature(board, List.of(move, related)),
+                        category, TacticalPrinciple.Severity.WARNING, List.of(move, related),
+                        explanation, alternative, TacticalPrinciple.EvaluationStatus.NOT_REQUESTED)));
         findings.sort(Comparator.comparing(TacticalPrinciple.Warning::id));
         return List.copyOf(findings);
     }
@@ -48,28 +34,93 @@ public final class TacticalBias {
         return scan(board, plan, null);
     }
 
-    private static int scan(BoardState board, OrderPlan plan, BiConsumer<Order, Order> finding) {
+    static boolean supportsForeignMoveTo(BoardState board, Order support, Province destination) {
+        if (support.orderType() != OrderType.SUPPORT || support.auxiliaryTarget() == null
+                || support.target() == null
+                || Province.canonical(support.auxiliaryTarget()) != Province.canonical(destination))
+            return false;
+        UnitId supported = unitAtExactLocation(board, support.target());
+        return supported != null && supported.owner() != support.owner();
+    }
+
+    private static int scan(BoardState board, OrderPlan plan, FindingConsumer finding) {
         Objects.requireNonNull(board, "board");
         Objects.requireNonNull(plan, "plan");
+        Map<Province, UnitId> unitsAt = new EnumMap<>(Province.class);
+        for (var entry : board.locations().entrySet())
+            unitsAt.put(entry.getValue(), entry.getKey());
         Map<Province, Order> stationaryOrders = new EnumMap<>(Province.class);
         for (Order order : plan.orders()) {
-            if (board.locations().containsKey(order.unit())
-                    && (order.orderType() == OrderType.SUPPORT || order.orderType() == OrderType.CONVOY))
+            if (order.owner() == plan.nation() && board.locations().containsKey(order.unit())
+                    && (order.orderType() == OrderType.HOLD || order.orderType() == OrderType.SUPPORT
+                    || order.orderType() == OrderType.CONVOY))
                 stationaryOrders.put(Province.canonical(board.locationOf(order.unit())), order);
         }
-        int count = 0;
+        Map<Province, List<Order>> foreignSupportDestinations = new EnumMap<>(Province.class);
+        for (Order support : plan.orders()) {
+            if (support.owner() != plan.nation() || support.orderType() != OrderType.SUPPORT
+                    || support.auxiliaryTarget() == null || support.target() == null)
+                continue;
+            UnitId supported = unitsAt.get(support.target());
+            if (supported == null || supported.owner() == support.owner())
+                continue;
+            foreignSupportDestinations.computeIfAbsent(
+                    Province.canonical(support.auxiliaryTarget()), ignored -> new ArrayList<>())
+                    .add(support);
+        }
+        Set<Order> offendingMoves = new HashSet<>();
         for (Order move : plan.orders()) {
             if (move.orderType() != OrderType.MOVE || move.target() == null
-                    || !board.locations().containsKey(move.unit()))
+                    || move.owner() != plan.nation() || !board.locations().containsKey(move.unit()))
                 continue;
             Order stationary = stationaryOrders.get(Province.canonical(move.target()));
-            if (stationary == null || stationary.unit().equals(move.unit())
-                    || stationary.owner() != move.owner())
-                continue;
-            count++;
-            if (finding != null)
-                finding.accept(move, stationary);
+            if (stationary != null && !stationary.unit().equals(move.unit())
+                    && stationary.owner() == move.owner()) {
+                offendingMoves.add(move);
+                if (finding != null) {
+                    var category = switch (stationary.orderType()) {
+                        case HOLD -> TacticalPrinciple.Category.FRIENDLY_HOLD_UNIT;
+                        case SUPPORT -> TacticalPrinciple.Category.FRIENDLY_SUPPORT_UNIT;
+                        case CONVOY -> TacticalPrinciple.Category.FRIENDLY_CONVOY_FLEET;
+                        default -> throw new IllegalStateException("Unexpected stationary order");
+                    };
+                    String principle = switch (category) {
+                        case FRIENDLY_HOLD_UNIT -> "friendly-hold-unit";
+                        case FRIENDLY_SUPPORT_UNIT -> "friendly-support-unit";
+                        case FRIENDLY_CONVOY_FLEET -> "friendly-convoy-fleet";
+                        case FOREIGN_SUPPORTED_DESTINATION -> throw new IllegalStateException();
+                    };
+                    String explanation = switch (category) {
+                        case FRIENDLY_HOLD_UNIT -> "Moves into your holding unit.";
+                        case FRIENDLY_SUPPORT_UNIT -> "Moves into your supporting unit.";
+                        case FRIENDLY_CONVOY_FLEET -> "Moves into your convoying fleet.";
+                        case FOREIGN_SUPPORTED_DESTINATION -> throw new IllegalStateException();
+                    };
+                    finding.accept(move, stationary, category, principle, explanation,
+                            Order.supportHold(move.unit(), board.locationOf(stationary.unit())));
+                }
+            }
+            for (Order support : foreignSupportDestinations.getOrDefault(
+                    Province.canonical(move.target()), List.of())) {
+                offendingMoves.add(move);
+                if (finding != null)
+                    finding.accept(move, support, TacticalPrinciple.Category.FOREIGN_SUPPORTED_DESTINATION,
+                            "foreign-supported-destination", "Competes with a foreign move you support.", null);
+            }
         }
-        return count;
+        return offendingMoves.size();
+    }
+
+    private static UnitId unitAtExactLocation(BoardState board, Province location) {
+        for (var entry : board.locations().entrySet())
+            if (entry.getValue() == location)
+                return entry.getKey();
+        return null;
+    }
+
+    @FunctionalInterface
+    private interface FindingConsumer {
+        void accept(Order move, Order related, TacticalPrinciple.Category category,
+                    String principle, String explanation, Order alternative);
     }
 }

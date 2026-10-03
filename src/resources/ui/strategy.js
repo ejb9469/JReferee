@@ -988,7 +988,9 @@ function renderInspector() {
         + `${number(plan.shapedWorst ?? plan.worst)} / ${number(plan.shapedScore ?? plan.baseScore)}. `
         + `Human average log frequency ${number(human?.score)}; available ${human?.available ?? false}; `
         + `${human?.diagnostic ?? "Evidence details unavailable."} `
-        + `Final = shaped ${number(plan.shapedScore ?? plan.baseScore)} − tactical ${number(plan.penaltyTotal)} `
+        + `Final = shaped ${number(plan.shapedScore ?? plan.baseScore)} − tactical `
+        + `${plan.offendingMoveCount ?? "unavailable"} × ${number(plan.penaltyWeight)} `
+        + `= ${number(plan.penaltyTotal)} `
         + `+ human ${number(plan.humanWeight)} × ${number(human?.score)} `
         + `(${number(plan.humanContribution)}) = ${number(plan.score)}.`;
     $("#human-units").replaceChildren();
@@ -1068,12 +1070,12 @@ function renderInspector() {
     $("#plan-findings").replaceChildren();
     for (const finding of plan.findings ?? []) {
         appendText($("#plan-findings"), "li",
-            `Warning: ${finding.explanation ?? finding.message ?? finding}`
-            + (finding.evaluatedStatus ? ` Comparison status: ${finding.evaluatedStatus}.` : ""),
+            `${finding.explanation ?? finding.message ?? finding}`
+            + (finding.evaluatedStatus ? ` Comparison: ${finding.evaluatedStatus}.` : ""),
             "finding-warning");
         for (const order of finding.orders ?? [])
             appendText($("#plan-findings"), "li",
-                `${order.type === "MOVE" ? "Flagged incoming move" : "Related stationary order"}: ${order.text}`);
+                `${order.type === "MOVE" ? "Incoming" : "Related"}: ${order.text}`);
     }
     if (!(plan.findings ?? []).length)
         appendText($("#plan-findings"), "li",
@@ -1198,19 +1200,16 @@ function deltaRelation(value) {
 }
 
 function scoreSummary(plan) {
-    return `Adjusted ${number(plan.score)} · base ${number(plan.baseScore)} · `
-        + `shaped ${number(plan.shapedScore ?? plan.baseScore)} · human ${number(plan.humanContribution)} · `
-        + `offending moves ${plan.offendingMoveCount ?? "unavailable"} · `
-        + `weight ${number(plan.penaltyWeight)} · penalty total ${number(plan.penaltyTotal)}`;
+    return `score ${number(plan.score)} · base ${number(plan.baseScore)} · `
+        + `bias −${number(plan.penaltyTotal)} · human +${number(plan.humanContribution)}`;
 }
 
 function rankExplanation(plan) {
     if (plan.baseRank === undefined)
         return "Base rank unavailable";
     return plan.baseRank === plan.rank
-        ? `Base rank ${plan.baseRank} unchanged after shaping/preferences/bias`
-        : `Base rank ${plan.baseRank} → adjusted rank ${plan.rank}: `
-            + "raw outcome plus positional shaping and human preference minus tactical bias reorders candidates";
+        ? `Base rank ${plan.baseRank} unchanged`
+        : `Base rank ${plan.baseRank} → ${plan.rank}`;
 }
 
 function offendingIncoming(plan, order) {

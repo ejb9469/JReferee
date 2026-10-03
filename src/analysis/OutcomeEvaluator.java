@@ -175,13 +175,14 @@ public class OutcomeEvaluator {
             double shapedScore = (1 - caution) * shapedMean + caution * shapedWorst;
 
             var findings = TacticalBias.inspect(board, plan);
-            double penalty = tacticalBiasWeight * findings.size();
+            int offendingMoveCount = TacticalBias.offendingMoveCount(board, plan);
+            double penalty = tacticalBiasWeight * offendingMoveCount;
             double humanContribution = scoringConfiguration.humanWeight() * preference.score();
             double finalScore = shapedScore - penalty + humanContribution;
             if (!Double.isFinite(finalScore))
                 throw new IllegalArgumentException("Evaluation overflowed; reduce the weights");
             evaluations.add(new PlanEvaluation(plan, scores, mean, worst, finalScore, details,
-                    combined, tacticalBiasWeight, findings.size(), penalty, findings,
+                    combined, tacticalBiasWeight, offendingMoveCount, penalty, findings,
                     shapedMean, shapedWorst, shapedScore, preference, scoringConfiguration.humanWeight(),
                     humanContribution, scoringConfiguration));
 

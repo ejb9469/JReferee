@@ -28,8 +28,7 @@ public final class TacticalPrinciplesSelfCheck {
                 Order.supportMove(nwy, Province.NWG, Province.NTH)));
         var warning = TacticalAnalysis.FRIENDLY_CONVOY_FLEET.inspect(board, plan).getFirst();
         require(!warning.rejected() && warning.penalty() == 0
-                && warning.explanation().contains("does not itself disrupt")
-                && warning.explanation().contains("does not reinforce convoy defense and may waste an order")
+                && warning.explanation().equals("Moves into your convoying fleet.")
                 && warning.principleId().equals("friendly-convoy-fleet")
                 && !warning.id().equals(warning.principleId()),
                 "Warning incorrectly bans or claims convoy disruption");

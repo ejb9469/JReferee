@@ -82,11 +82,13 @@ public final class TacticalAnalysis {
             String diagnostic = "Alternative comparison was not requested.";
             if (compareAlternatives) {
                 Order suggested = warning.suggestedAlternative();
-                RoutePrediction evidence = observedChoices.get(suggested.unit());
-                Long count = evidence == null ? null : evidence.counts().get(suggested);
                 status = TacticalPrinciple.EvaluationStatus.UNAVAILABLE;
-                diagnostic = "No observed support-hold choice is available; not evaluated.";
-                if (count != null && count > 0 && evidence.observations() > 0) {
+                diagnostic = suggested == null
+                        ? "No safe automatic alternative is available; not evaluated."
+                        : "No observed support-hold choice is available; not evaluated.";
+                RoutePrediction evidence = suggested == null ? null : observedChoices.get(suggested.unit());
+                Long count = evidence == null ? null : evidence.counts().get(suggested);
+                if (suggested != null && count != null && count > 0 && evidence.observations() > 0) {
                     provenance = new Provenance(evidence.basis(), evidence.observations(), count);
                     List<Order> orders = plan.orders().stream().map(order ->
                             order.unit().equals(suggested.unit()) ? suggested : order).toList();

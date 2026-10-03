@@ -224,15 +224,11 @@
                     <input name="tacticalBiasWeight" type="number"
                            min="0" max="1000" step="any" required>
                     <small>
-                        Untuned default 5; 0 disables this heuristic. Each distinct friendly move
-                        into a friendly supporter's or convoying fleet's occupied province
-                        subtracts this weight from the shaped combined score, before the human
-                        preference term is added. This is separate from
-                        coordination validity and does not change adjudication.
-                        Any positive weight enables count-first coordinated search ordering
-                        with bounded grouping of max(256, beam width); the numerical
-                        outcome-score penalty scales with the weight. Raw generation
-                        is not reordered, but its evaluated ranking still applies the weight.
+                        Untuned default 5; 0 disables it. Distinct moves into your HOLD,
+                        SUPPORT, or CONVOY unit—or into a destination of a foreign move you
+                        support—reduce the shaped score. This soft preference does not change
+                        coordination checks or adjudication. Positive weights enable bounded,
+                        count-first search; raw generation is unchanged.
                     </small>
                 </label>
                 <label>
@@ -358,12 +354,10 @@
             <ul id="dependency-legend"></ul>
             <ul id="structured-dependencies" aria-live="polite"></ul>
             <p id="requirement-details" role="status"></p>
-            <h4>Self-dependency warnings</h4>
+            <h4>Tactical warnings</h4>
             <p class="muted">
-                Warnings are diagnostic, not invalid orders. The separate tactical bias
-                subtracts weight × distinct offending incoming moves from the shaped combined score,
-                before the human preference term is added;
-                it never changes per-scenario adjudicated outcomes.
+                Warnings do not reject orders. The separate bias penalizes each distinct
+                incoming move once; adjudicated outcomes are unchanged.
             </p>
             <ul id="plan-findings"></ul>
             <h4>Limited alternative comparison</h4>

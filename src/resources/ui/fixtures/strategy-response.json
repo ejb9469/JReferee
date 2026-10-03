@@ -78,7 +78,7 @@
         {"type": "CONVOY", "origin": "NTH", "target": "Yor", "auxiliaryTarget": "Bel", "text": "F NTH C Yor-Bel"},
         {"type": "MOVE", "origin": "Yor", "target": "Bel", "auxiliaryTarget": null, "text": "A Yor-Bel"},
         {"type": "MOVE", "origin": "Wal", "target": "Lon", "auxiliaryTarget": null, "text": "A Wal-Lon"},
-        {"type": "SUPPORT", "origin": "Lon", "target": "NTH", "auxiliaryTarget": null, "text": "F Lon S NTH"}
+        {"type": "SUPPORT", "origin": "Lon", "target": "SpaSC", "auxiliaryTarget": "NTH", "text": "F Lon S SpaSC-NTH"}
       ],
       "dependencies": [], "dependencySets": {"checked": true, "alternatives": [], "confirmed": false},
       "scenarios": [
@@ -86,8 +86,9 @@
         {"name": "Scenario 2", "score": 0, "centerPositionDelta": 0, "dislodgementPenalty": 0, "objectiveDelta": 0, "dislodgedUnits": 0, "opponentOrders": [{"nation": "FRANCE", "type": "HOLD", "origin": "ENG", "target": null, "auxiliaryTarget": null, "text": "F ENG H"}]}
       ],
       "findings": [
-        {"id": "fixture-warning", "principleId": "friendly-convoy-fleet", "category": "FRIENDLY_CONVOY_FLEET", "severity": "WARNING", "explanation": "Fixture <img src=x onerror=alert(1)>: Edi moves into friendly convoying fleet NTH; that fleet remains stationary. Diagnostic only; weight applies once to the incoming move.", "orders": [{"type": "MOVE", "origin": "Edi", "target": "NTH", "text": "F Edi-NTH"}, {"type": "CONVOY", "origin": "NTH", "text": "F NTH C Yor-Bel"}], "penalty": 0, "rejected": false, "suggestedAlternative": {"text": "F Edi S NTH"}, "evaluatedStatus": "EVALUATED"},
-        {"id": "fixture-support", "principleId": "friendly-support-unit", "category": "FRIENDLY_SUPPORT_UNIT", "severity": "WARNING", "explanation": "Wal moves into friendly supporting fleet Lon; that fleet remains stationary.", "orders": [{"type": "MOVE", "origin": "Wal", "target": "Lon", "text": "A Wal-Lon"}, {"type": "SUPPORT", "origin": "Lon", "text": "F Lon S NTH"}], "penalty": 0, "rejected": false, "suggestedAlternative": {"text": "A Wal S Lon"}, "evaluatedStatus": "EVALUATED"}
+        {"id": "fixture-warning", "principleId": "friendly-convoy-fleet", "category": "FRIENDLY_CONVOY_FLEET", "severity": "WARNING", "explanation": "Moves into your convoying fleet.", "orders": [{"type": "MOVE", "origin": "Edi", "target": "NTH", "text": "F Edi-NTH"}, {"type": "CONVOY", "origin": "NTH", "text": "F NTH C Yor-Bel"}], "penalty": 0, "rejected": false, "suggestedAlternative": {"text": "F Edi S NTH"}, "evaluatedStatus": "EVALUATED"},
+        {"id": "fixture-support", "principleId": "friendly-support-unit", "category": "FRIENDLY_SUPPORT_UNIT", "severity": "WARNING", "explanation": "Moves into your supporting unit.", "orders": [{"type": "MOVE", "origin": "Wal", "target": "Lon", "text": "A Wal-Lon"}, {"type": "SUPPORT", "origin": "Lon", "text": "F Lon S SpaSC-NTH"}], "penalty": 0, "rejected": false, "suggestedAlternative": {"text": "A Wal S Lon"}, "evaluatedStatus": "EVALUATED"},
+        {"id": "fixture-foreign-destination", "principleId": "foreign-supported-destination", "category": "FOREIGN_SUPPORTED_DESTINATION", "severity": "WARNING", "explanation": "Competes with a foreign move you support.", "orders": [{"type": "MOVE", "origin": "Edi", "target": "NTH", "text": "F Edi-NTH"}, {"type": "SUPPORT", "origin": "Lon", "target": "SpaSC", "auxiliaryTarget": "NTH", "text": "F Lon S SpaSC-NTH"}], "penalty": 0, "rejected": false, "suggestedAlternative": null, "evaluatedStatus": "UNAVAILABLE"}
       ],
       "comparisons": [
         {
