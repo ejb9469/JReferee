@@ -588,21 +588,26 @@ not dependency-free; STRICT means self-contained, not guaranteed success.
 ### Focused friendly support/convoy soft bias
 
 The browser now explicitly opts into a **strong, untuned heuristic**: default
-`tacticalBiasWeight=5` outcome-score points per distinct incoming MOVE, compared
-with the default center weight of 1. This implements the requested preference
-against moving into a different friendly unit's occupied province when its
-**selected own order** is SUPPORT (hold or move support) or CONVOY, rather than
-the earlier warning-only policy. Current board locations are compared as canonical
-territories; exact coasts remain intact for order legality and support matching.
-Supporting or convoying a foreign unit does not exempt the incoming friendly move.
+`tacticalBiasWeight=5` outcome-score points per distinct flagged MOVE, compared
+with the default center weight of 1. It prefers against moving into a different
+friendly unit's occupied province when its **selected own order** is HOLD, SUPPORT
+(hold or move support), or CONVOY. It also flags each friendly move that converges
+with another friendly move on the exact destination of a currently foreign unit;
+one attack could instead support the other. Current board locations are compared as
+canonical territories for occupancy, while exact coasts remain intact for order
+legality and support matching. A convergent attack requires an exact matching
+destination/coast before a support-move replacement is suggested. Supporting or
+convoying a foreign unit does not exempt an incoming move against the friendly issuer.
 
-The incoming MOVE is penalized once, not the stationary support/convoy instruction.
-Ordinary holds, friendly units moving away, empty destinations, attacks on foreign
-supporters/convoy fleets, and legitimate support orders are outside this pattern.
-Findings are explanations, not legality rules: no assertion that the move cuts own
-support, self-dislodges, or automatically disrupts a convoy. A flagged-only candidate
-set remains available, and sufficiently better adjudicated outcome scores can
-outweigh the finite penalty. Self-bounces and tactical sacrifices are not banned.
+Each matching MOVE is penalized once, never once per related order or peer attack.
+Friendly units moving away, empty destinations, single foreign attacks, attacks on
+foreign supporters/convoy fleets, and legitimate support orders are outside these
+patterns. A new HOLD or convergent-attack finding may have no legal one-order support
+replacement; that is reported as unavailable rather than inventing an order. Findings
+are explanations, not legality rules: no assertion that the move cuts own support,
+self-dislodges, or automatically disrupts a convoy. A flagged-only candidate set
+remains available, and sufficiently better adjudicated outcome scores can outweigh
+the finite penalty. Self-bounces and tactical sacrifices are not banned.
 
 Weight **0** disables the bias exactly. Legacy API constructors and experiment
 configurations default to 0; imported historical submissions and RAW historical
@@ -628,11 +633,12 @@ synthesized hold, fabricated frequency, or widened evidence. Cutoffs and pruning
 remain visible; this is not a global-optimum or tactical-strength claim.
 
 **Compare observed alternatives** is opt-in and defaults off. Only a suggested
-support-hold actually present in selected route evidence can be compared; missing,
-invalid, or budget-limited alternatives are explicitly unevaluated. A replacement
-must be structurally/geographically coordinated, retain real observation counts
-and provenance, and be evaluated against the identical explicit opponent scenarios
-and scoring settings, including the same tactical-bias weight. Raw scenario,
+support-hold or support-move actually present in selected route evidence can be
+compared; missing, unavailable, invalid, or budget-limited alternatives are
+explicitly unevaluated. A replacement must be structurally/geographically
+coordinated, retain real observation counts and provenance, and be evaluated against
+the identical explicit opponent scenarios and scoring settings, including the same
+tactical-bias weight. Raw scenario,
 mean, worst, and base combined deltas are reported separately from the adjusted
 recommendation delta and penalty change. Removing a penalty can improve heuristic
 preference without improving an adjudicated outcome. The request has separate fixed caps of eight comparisons

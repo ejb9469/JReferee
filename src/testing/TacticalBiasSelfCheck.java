@@ -50,8 +50,12 @@ public final class TacticalBiasSelfCheck {
         immutable(() -> findings.clear());
         require(TacticalBias.offendingMoveCount(board, plan(move)) == 0,
                 "Unresolved partial target counted");
-        require(TacticalBias.offendingMoveCount(board, plan(move, Order.hold(nth))) == 0,
-                "Ordinary HOLD counted");
+        var holdFinding = TacticalBias.inspect(board, plan(move, Order.hold(nth))).getFirst();
+        require(holdFinding.category() == TacticalPrinciple.Category.FRIENDLY_HOLD_UNIT
+                        && holdFinding.principleId().equals("friendly-hold-unit")
+                        && holdFinding.suggestedAlternative().equals(Order.supportHold(edi, Province.NTH))
+                        && TacticalBias.offendingMoveCount(board, plan(move, Order.hold(nth))) == 1,
+                "Friendly HOLD collision was not detected with a support-hold alternative");
         require(TacticalBias.offendingMoveCount(board,
                 plan(move, Order.move(nth, Province.Nwy))) == 0, "Moving target counted");
         require(TacticalBias.offendingMoveCount(board,
@@ -79,6 +83,29 @@ public final class TacticalBiasSelfCheck {
                 "Foreign scenario supporter/convoyer counted as own selected stationary order");
         require(TacticalBias.offendingMoveCount(board(edi),
                 plan(move, convoy)) == 0, "Inactive selected target counted");
+
+        UnitId par = own(UnitType.ARMY, Province.Par);
+        UnitId pic = own(UnitType.ARMY, Province.Pic);
+        UnitId foreignBur = unit(Nation.FRANCE, UnitType.ARMY, Province.Bur);
+        Order parAttack = Order.move(par, Province.Bur);
+        Order picAttack = Order.move(pic, Province.Bur);
+        BoardState foreignAttackBoard = board(par, pic, foreignBur);
+        var foreignAttackFindings = TacticalBias.inspect(foreignAttackBoard,
+                plan(parAttack, picAttack));
+        require(foreignAttackFindings.size() == 2
+                        && foreignAttackFindings.stream().allMatch(finding ->
+                        finding.category() == TacticalPrinciple.Category.FRIENDLY_PROVINCE_ATTACK
+                                && finding.suggestedAlternative() != null
+                                && finding.suggestedAlternative().orderType() == OrderType.SUPPORT
+                                && finding.suggestedAlternative().auxiliaryTarget() == Province.Bur)
+                        && TacticalBias.offendingMoveCount(foreignAttackBoard,
+                        plan(parAttack, picAttack)) == 2,
+                "Distinct convergent attacks on a foreign unit were not detected");
+        require(foreignAttackFindings.equals(TacticalBias.inspect(foreignAttackBoard,
+                plan(picAttack, parAttack))), "Foreign-attack findings depend on submitted order order");
+        require(TacticalBias.offendingMoveCount(board(par, pic), plan(parAttack, picAttack)) == 0,
+                "Convergent attacks on an empty province were counted");
+
         UnitId lon = own(UnitType.FLEET, Province.Lon);
         var two = TacticalBias.inspect(board(edi, nth, yor, lon),
                 plan(Order.move(lon, Province.NTH), convoy, move, army));
@@ -113,6 +140,27 @@ public final class TacticalBiasSelfCheck {
         require(original.id().equals(renamed.id()), "Warning ID depends on UUID or origin");
         require(TacticalBias.offendingMoveCount(coastBoard,
                 plan(Order.move(relocated, Province.SpaSC))) == 0, "Self MOVE counted");
+        UnitId lyo = own(UnitType.FLEET, Province.LYO);
+        UnitId foreignSpa = unit(Nation.FRANCE, UnitType.FLEET, Province.SpaNC);
+        require(TacticalBias.offendingMoveCount(board(mao, lyo, foreignSpa),
+                plan(Order.move(mao, Province.SpaNC), Order.move(lyo, Province.SpaSC))) == 0,
+                "Different exact coasts were treated as matching support destinations");
+
+        UnitId lonArmy = own(UnitType.ARMY, Province.Lon);
+        UnitId belHolder = own(UnitType.ARMY, Province.Bel);
+        BoardState unreachableHoldBoard = board(lonArmy, belHolder);
+        OrderPlan unreachableHold = plan(Order.move(lonArmy, Province.Bel), Order.hold(belHolder));
+        var unavailableWarning = TacticalBias.inspect(unreachableHoldBoard, unreachableHold).getFirst();
+        require(unavailableWarning.suggestedAlternative() == null,
+                "Illegal support-hold replacement was suggested");
+        var unavailable = TacticalAnalysis.analyze(unreachableHoldBoard, moment(), unreachableHold,
+                Map.of(), Map.of("quiet", List.of()), Map.of(), new OutcomeEvaluator(0, 0, 0),
+                processor(), true, 8, 128).comparisons().getFirst();
+        require(unavailable.warning().evaluatedStatus() == TacticalPrinciple.EvaluationStatus.UNAVAILABLE
+                        && unavailable.alternative() == null && unavailable.baselineEvaluation() == null
+                        && unavailable.diagnostic().startsWith("No legal one-order support alternative"),
+                "Null support alternative was not reported as unavailable");
+
         var advisory = TacticalAnalysis.analyze(coastBoard, moment(),
                 plan(coastMove, Order.supportHold(relocated, Province.Por)), Map.of(),
                 Map.of(), Map.of(), new OutcomeEvaluator(0, 0, 0), processor(), false, 8, 128);
@@ -196,11 +244,42 @@ public final class TacticalBiasSelfCheck {
                 processor());
         require(outweighed.getFirst().plan().equals(gain) && outweighed.getFirst().score() == 7,
                 "Finite penalty became an outcome-ranking veto");
+
+        UnitId parAttack = own(UnitType.ARMY, Province.Par);
+        UnitId picAttack = own(UnitType.ARMY, Province.Pic);
+        UnitId foreignBur = unit(Nation.FRANCE, UnitType.ARMY, Province.Bur);
+        Order firstAttack = Order.move(parAttack, Province.Bur);
+        Order secondAttack = Order.move(picAttack, Province.Bur);
+        Order firstSupport = Order.supportMove(parAttack, Province.Pic, Province.Bur);
+        Order secondSupport = Order.supportMove(picAttack, Province.Par, Province.Bur);
+        BoardState foreignAttackBoard = board(parAttack, picAttack, foreignBur);
+        OrderPlan convergent = plan(firstAttack, secondAttack);
+        var convergentEvaluation = new OutcomeEvaluator(0, 0, 0, 5).rank(foreignAttackBoard,
+                moment(), List.of(convergent), Map.of("hold", List.of(Order.hold(foreignBur))),
+                Map.of(Province.Bur, 10.0), processor()).getFirst();
+        require(convergentEvaluation.offendingMoveCount() == 2
+                        && convergentEvaluation.penaltyTotal() == 10
+                        && convergentEvaluation.findings().stream().allMatch(finding ->
+                        finding.category() == TacticalPrinciple.Category.FRIENDLY_PROVINCE_ATTACK),
+                "Convergent foreign-attack penalty was not charged once per move");
+        var convergentComparisons = TacticalAnalysis.analyze(foreignAttackBoard, moment(), convergent,
+                predictions(firstAttack, firstSupport, secondAttack, secondSupport),
+                Map.of("hold", List.of(Order.hold(foreignBur))), Map.of(Province.Bur, 10.0),
+                new OutcomeEvaluator(0, 0, 0, 5), processor(), true, 8, 128).comparisons();
+        require(convergentComparisons.size() == 2 && convergentComparisons.stream().allMatch(candidateComparison ->
+                        candidateComparison.warning().evaluatedStatus()
+                                == TacticalPrinciple.EvaluationStatus.EVALUATED
+                                && candidateComparison.alternative() != null
+                                && candidateComparison.scoreDelta() > 0),
+                "Observed support-move alternatives were not compared against foreign attacks");
     }
 
     private static void beam() {
         narrowPair(Province.Bel, Province.Pic);
         narrowPair(Province.Pic, Province.Bel);
+        narrowHoldPair(Province.Bel, Province.Pic);
+        narrowHoldPair(Province.Pic, Province.Bel);
+        narrowForeignAttack();
         UnitId edi = own(UnitType.FLEET, Province.Edi);
         UnitId nth = own(UnitType.FLEET, Province.NTH);
         UnitId yor = own(UnitType.ARMY, Province.Yor);
@@ -288,6 +367,39 @@ public final class TacticalBiasSelfCheck {
         require(renamed.plans().size() == 1 && analysis.openings.Classifier.signature(renamedBoard,
                 renamed.plans().getFirst().orders()).equals(analysis.openings.Classifier.signature(
                 board, robust.plans().getFirst().orders())), "Beam depends on UUID or origin");
+    }
+
+    private static void narrowHoldPair(Province moverProvince, Province stationaryProvince) {
+        UnitId mover = own(UnitType.ARMY, moverProvince);
+        UnitId stationary = own(UnitType.ARMY, stationaryProvince);
+        UnitId bur = own(UnitType.ARMY, Province.Bur);
+        BoardState board = board(mover, stationary, bur);
+        Order move = Order.move(mover, stationaryProvince);
+        Order alternative = Order.supportHold(mover, stationaryProvince);
+        var evidence = weighted(predictions(move, alternative, Order.hold(stationary), Order.hold(bur)),
+                move, 9);
+        var result = new CoordinatedOrders(2, 1, 1).generate(board, Nation.ENGLAND,
+                evidence, CoordinationMode.STRICT);
+        require(result.plans().size() == 1 && result.plans().getFirst().orders().contains(alternative)
+                        && result.plans().getFirst().orders().getFirst().unit().equals(stationary),
+                "Narrow HOLD beam lost its stationary target before tactical ordering "
+                        + moverProvince + " -> " + stationaryProvince);
+    }
+
+    private static void narrowForeignAttack() {
+        UnitId par = own(UnitType.ARMY, Province.Par);
+        UnitId pic = own(UnitType.ARMY, Province.Pic);
+        UnitId foreignBur = unit(Nation.FRANCE, UnitType.ARMY, Province.Bur);
+        Order attack = Order.move(par, Province.Bur);
+        Order support = Order.supportMove(par, Province.Pic, Province.Bur);
+        Order peer = Order.move(pic, Province.Bur);
+        BoardState board = board(par, pic, foreignBur);
+        var result = new CoordinatedOrders(2, 1, 1).generate(board, Nation.ENGLAND,
+                weighted(predictions(attack, support, peer), attack, 9), CoordinationMode.STRICT);
+        require(result.plans().size() == 1 && result.plans().getFirst().orders().contains(support)
+                        && TacticalBias.offendingMoveCount(board, result.plans().getFirst()) == 0
+                        && result.diagnostics().beamTruncated(),
+                "Narrow foreign-attack group lost a support-move alternative before cutoff");
     }
 
     private static Map<UnitId, RoutePrediction> weighted(Map<UnitId, RoutePrediction> evidence,

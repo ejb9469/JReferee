@@ -225,10 +225,12 @@
                            min="0" max="1000" step="any" required>
                     <small>
                         Untuned default 5; 0 disables this heuristic. Each distinct friendly move
-                        into a friendly supporter's or convoying fleet's occupied province
-                        subtracts this weight from the shaped combined score, before the human
-                        preference term is added. This is separate from
-                        coordination validity and does not change adjudication.
+                        into a friendly holding, supporting, or convoying unit's occupied province,
+                        or converging with another friendly move on an occupied foreign province,
+                        subtracts this weight from the shaped combined score before the human
+                        preference term is added. Exact coast encodings must match before a
+                        support-move alternative is suggested. This is separate from coordination
+                        validity and does not change adjudication.
                         Any positive weight enables count-first coordinated search ordering
                         with bounded grouping of max(256, beam width); the numerical
                         outcome-score penalty scales with the weight. Raw generation
@@ -358,10 +360,10 @@
             <ul id="dependency-legend"></ul>
             <ul id="structured-dependencies" aria-live="polite"></ul>
             <p id="requirement-details" role="status"></p>
-            <h4>Self-dependency warnings</h4>
+            <h4>Tactical coordination warnings</h4>
             <p class="muted">
                 Warnings are diagnostic, not invalid orders. The separate tactical bias
-                subtracts weight × distinct offending incoming moves from the shaped combined score,
+                subtracts weight × distinct flagged moves from the shaped combined score,
                 before the human preference term is added;
                 it never changes per-scenario adjudicated outcomes.
             </p>

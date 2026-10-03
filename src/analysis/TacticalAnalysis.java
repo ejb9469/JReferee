@@ -90,63 +90,63 @@ public final class TacticalAnalysis {
                     Long count = evidence == null ? null : evidence.counts().get(suggested);
                     diagnostic = "No observed suggested support choice is available; not evaluated.";
                     if (count != null && count > 0 && evidence.observations() > 0) {
-                    provenance = new Provenance(evidence.basis(), evidence.observations(), count);
-                    List<Order> orders = plan.orders().stream().map(order ->
-                            order.unit().equals(suggested.unit()) ? suggested : order).toList();
-                    double preference = 0;
-                    boolean observed = true;
-                    for (Order order : orders) {
-                        RoutePrediction prediction = observedChoices.get(order.unit());
-                        Long n = prediction == null ? null : prediction.counts().get(order);
-                        if (n == null || n < 1 || prediction.observations() < 1) {
-                            observed = false;
-                            break;
+                        provenance = new Provenance(evidence.basis(), evidence.observations(), count);
+                        List<Order> orders = plan.orders().stream().map(order ->
+                                order.unit().equals(suggested.unit()) ? suggested : order).toList();
+                        double preference = 0;
+                        boolean observed = true;
+                        for (Order order : orders) {
+                            RoutePrediction prediction = observedChoices.get(order.unit());
+                            Long n = prediction == null ? null : prediction.counts().get(order);
+                            if (n == null || n < 1 || prediction.observations() < 1) {
+                                observed = false;
+                                break;
+                            }
+                            preference += Math.log((double) n / prediction.observations());
                         }
-                        preference += Math.log((double) n / prediction.observations());
-                    }
-                    if (observed) {
-                        alternative = new OrderPlan(plan.nation(), orders, preference);
-                        Optional<String> problem = CoordinatedOrders.coordinationProblem(board, alternative);
-                        if (problem.isPresent()) {
-                            problem = Optional.of("Alternative plan is not structurally coordinated: "
-                                    + problem.get());
+                        if (observed) {
+                            alternative = new OrderPlan(plan.nation(), orders, preference);
+                            Optional<String> problem = CoordinatedOrders.coordinationProblem(board, alternative);
+                            if (problem.isPresent()) {
+                                problem = Optional.of("Alternative plan is not structurally coordinated: "
+                                        + problem.get());
+                            } else {
+                                Optional<String> originalProblem =
+                                        CoordinatedOrders.coordinationProblem(board, plan);
+                                if (originalProblem.isPresent())
+                                    problem = Optional.of("Original plan is not structurally coordinated: "
+                                            + originalProblem.get());
+                            }
+                            if (!moment.gamePhase().isMovement() || problem.isPresent()) {
+                                status = TacticalPrinciple.EvaluationStatus.INVALID;
+                                diagnostic = problem.orElse("Comparison requires a movement phase.");
+                            } else if (scenarios.isEmpty()) {
+                                diagnostic = "No explicit opponent scenarios; not evaluated.";
+                            } else if (compared >= comparisonLimit
+                                    || (long) work + 2L * scenarios.size() > scenarioEvaluationLimit) {
+                                status = TacticalPrinciple.EvaluationStatus.LIMIT_REACHED;
+                                diagnostic = "Alternative comparison work limit reached.";
+                                truncated = true;
+                            } else {
+                                var evaluations = evaluator.rank(board, moment, List.of(plan, alternative),
+                                       scenarios, objectives, processor, observedChoices);
+                                baseline = evaluations.stream().filter(value -> value.plan().equals(plan))
+                                        .findFirst().orElseThrow();
+                                replacement = evaluations.stream().filter(value ->
+                                        value.plan().orders().equals(orders)).findFirst().orElseThrow();
+                                for (String name : baseline.scenarioScores().keySet())
+                                    deltas.put(name, replacement.scenarioScores().get(name)
+                                            - baseline.scenarioScores().get(name));
+                                compared++;
+                                work += 2 * scenarios.size();
+                                status = TacticalPrinciple.EvaluationStatus.EVALUATED;
+                                diagnostic = "Paired comparison uses identical explicit scenarios, objectives "
+                                        + "and evaluator; equal weights are not probabilities.";
+                            }
                         } else {
-                            Optional<String> originalProblem =
-                                    CoordinatedOrders.coordinationProblem(board, plan);
-                            if (originalProblem.isPresent())
-                                problem = Optional.of("Original plan is not structurally coordinated: "
-                                        + originalProblem.get());
+                            diagnostic = "A replacement plan order lacks observed evidence; not evaluated.";
                         }
-                        if (!moment.gamePhase().isMovement() || problem.isPresent()) {
-                            status = TacticalPrinciple.EvaluationStatus.INVALID;
-                            diagnostic = problem.orElse("Comparison requires a movement phase.");
-                        } else if (scenarios.isEmpty()) {
-                            diagnostic = "No explicit opponent scenarios; not evaluated.";
-                        } else if (compared >= comparisonLimit
-                                || (long) work + 2L * scenarios.size() > scenarioEvaluationLimit) {
-                            status = TacticalPrinciple.EvaluationStatus.LIMIT_REACHED;
-                            diagnostic = "Alternative comparison work limit reached.";
-                            truncated = true;
-                        } else {
-                            var evaluations = evaluator.rank(board, moment, List.of(plan, alternative),
-                                   scenarios, objectives, processor, observedChoices);
-                            baseline = evaluations.stream().filter(value -> value.plan().equals(plan))
-                                    .findFirst().orElseThrow();
-                            replacement = evaluations.stream().filter(value ->
-                                    value.plan().orders().equals(orders)).findFirst().orElseThrow();
-                            for (String name : baseline.scenarioScores().keySet())
-                                deltas.put(name, replacement.scenarioScores().get(name)
-                                        - baseline.scenarioScores().get(name));
-                            compared++;
-                            work += 2 * scenarios.size();
-                            status = TacticalPrinciple.EvaluationStatus.EVALUATED;
-                            diagnostic = "Paired comparison uses identical explicit scenarios, objectives "
-                                    + "and evaluator; equal weights are not probabilities.";
-                        }
-                    } else {
-                        diagnostic = "A replacement plan order lacks observed evidence; not evaluated.";
                     }
-                }
                 }
             }
             var updated = new TacticalPrinciple.Warning(warning.id(), warning.category(),

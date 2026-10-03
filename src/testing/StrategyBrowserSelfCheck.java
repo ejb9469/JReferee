@@ -448,8 +448,11 @@ public final class StrategyBrowserSelfCheck {
         String js = java.nio.file.Files.readString(ui.resolve("strategy.js"));
         require(html.contains("name=\"tacticalBiasWeight\"") && html.contains("id=\"bias-summary\"")
                         && html.contains("Untuned default 5")
+                        && html.contains("friendly holding, supporting, or convoying")
+                        && html.contains("Tactical coordination warnings")
                         && html.contains("count-first coordinated search ordering")
                         && js.contains("scoreSummary(plan)") && js.contains("FLAGGED INCOMING MOVE")
+                        && js.contains("Related move")
                         && js.contains("raw outcome/base score Δ") && js.contains("bias-adjusted score Δ")
                         && js.contains("raw historical orders are unpenalized"),
                 "Browser UI score, flags, comparison or historical labels missing");

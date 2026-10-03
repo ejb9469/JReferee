@@ -1071,14 +1071,16 @@ function renderInspector() {
             `Warning: ${finding.explanation ?? finding.message ?? finding}`
             + (finding.evaluatedStatus ? ` Comparison status: ${finding.evaluatedStatus}.` : ""),
             "finding-warning");
-        for (const order of finding.orders ?? [])
+        for (const [index, order] of (finding.orders ?? []).entries())
             appendText($("#plan-findings"), "li",
-                `${order.type === "MOVE" ? "Flagged incoming move" : "Related stationary order"}: ${order.text}`);
+                `${order.type === "MOVE"
+                    ? index === 0 ? "Flagged move" : "Related move"
+                    : "Related stationary order"}: ${order.text}`);
     }
     if (!(plan.findings ?? []).length)
         appendText($("#plan-findings"), "li",
-            plan.findings ? "No self-dependency warnings reported."
-                : "Self-dependency warning analysis unavailable in this response.");
+            plan.findings ? "No tactical coordination warnings reported."
+            : "Tactical coordination warning analysis unavailable in this response.");
     renderComparisons(plan);
 }
 

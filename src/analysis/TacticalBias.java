@@ -36,7 +36,7 @@ public final class TacticalBias {
             return List.copyOf(findings);
         }
 
-        /** Linear selected-order scan; beam comparisons do not construct warning metadata. */
+        /** Selected-order scan; beam comparisons do not construct warning metadata. */
         public static int offendingMoveCount(BoardState board, OrderPlan plan) {
             return occurrences(board, plan).size();
         }
@@ -91,7 +91,10 @@ public final class TacticalBias {
 
         private static Order suggestedAlternative(BoardState board, Occurrence occurrence) {
             return switch (occurrence.category()) {
-                case FRIENDLY_HOLD_UNIT, FRIENDLY_SUPPORT_UNIT, FRIENDLY_CONVOY_FLEET ->
+                case FRIENDLY_SUPPORT_UNIT, FRIENDLY_CONVOY_FLEET ->
+                        Order.supportHold(occurrence.move().unit(),
+                                board.locationOf(occurrence.related().unit()));
+                case FRIENDLY_HOLD_UNIT ->
                         supportHoldAlternative(board, occurrence.move(), occurrence.related());
                 case FRIENDLY_PROVINCE_ATTACK ->
                         supportMoveAlternative(board, occurrence.move(), occurrence.related());
