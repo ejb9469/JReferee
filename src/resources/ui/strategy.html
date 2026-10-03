@@ -129,14 +129,70 @@
             </label>
 
             <label>
-                Additional objectives for the advised country
+                Snapshot objectives for the advised country
                 <textarea name="objectives" rows="12" spellcheck="false"></textarea>
                 <small>
                     One PROVINCE VALUE per line. Example: NTH 1.0.
-                    Empty means no extra objectives.
+                    Empty means no extra objectives. These belong only to this position,
+                    not the reusable nation profile; importing a game or phase clears them.
                 </small>
             </label>
         </div>
+
+        <details id="scoring-editor">
+            <summary>Human preference and reusable geographic profiles</summary>
+            <p class="muted">
+                Untuned, illustrative preferences, not learned win probabilities.
+                Zero human weight and empty geographic profiles preserve legacy scoring.
+                Human evidence uses each chosen order's count divided by ALL selected
+                order counts for that unit before top-K search pruning, not original observations.
+            </p>
+            <label>Human preference weight
+                <input name="humanWeight" type="number" value="0" min="0" max="1000" step="any">
+            </label>
+            <div class="editor-grid text-fields">
+                <label>Global province values
+                    <textarea name="globalValues" rows="5" spellcheck="false"></textarea>
+                    <small>One PROVINCE=VALUE[/ARMY,FLEET] per line; type filter optional.
+                        Canonical provinces only, no coast aliases. Values −1000…1000.</small>
+                </label>
+                <label>Reusable adjustments for <span id="profile-nation"></span>
+                    <textarea id="profile-adjustments" rows="5" spellcheck="false"></textarea>
+                    <small>Same grammar. Added to global values, not replacements.</small>
+                </label>
+                <label>Reusable regional objectives for this country
+                    <textarea id="profile-regions" rows="5" spellcheck="false"></textarea>
+                    <small>One NAME TARGET1,TARGET2 PRIORITY ARMY,FLEET HORIZON DECAY per line.
+                        Names: letters/digits/_/-. Positive priority ≤1000; horizon 1…12;
+                        decay 0…1. At most 8 goals/country, 32 total, 16 targets/goal, 128 total.
+                        Exact fleet coasts such as SpaNC are allowed; do not mix a canonical
+                        territory with its exact coast in one goal's targets.
+                        Example: north Bel,Hol 2 ARMY 4 0.5.</small>
+                </label>
+            </div>
+            <div id="profile-fields" hidden></div>
+            <div class="editor-actions">
+                <button id="clear-profile" type="button">Delete this country's profile</button>
+                <button id="clear-snapshot" type="button">Clear snapshot objectives</button>
+                <button id="reset-scoring" type="button">Disable/reset all shaping</button>
+                <button id="example-scoring" type="button">Load untuned example</button>
+                <button id="export-scoring" type="button">Export profiles JSON</button>
+                <label>Import profiles JSON
+                    <input id="scoring-file" type="file" accept=".json,application/json">
+                </label>
+            </div>
+            <p class="muted">Example: German Pru is negative; global MAO/ION favor fleets.
+                Everything is editable and disableable. Profiles persist across positions;
+                snapshot objectives do not. Export/import includes all seven countries.
+                Regional work is bounded: plans × scenarios × own units × goals ≤65536;
+                the complete URL-encoded request must fit 32 KiB.
+                Guided search retains historical top K UNION positional top K (at most 2K/unit),
+                with a bounded beam and tactical collisions ordered first.
+                Positional hints scan at most the first 64 historical observed choices per unit;
+                diagnostics report choices left unexamined.
+                Destination estimates guide search only; final scoring uses actual adjudication.</p>
+            <p id="profile-status" role="status"></p>
+        </details>
 
         <details>
             <summary>Scoring and bounded search limits</summary>
@@ -266,9 +322,20 @@
             <p id="result-context"></p>
             <p id="scoring-context"></p>
             <p id="bias-summary" role="status"></p>
+            <details>
+                <summary>Human evidence and final score arithmetic</summary>
+                <p id="human-summary"></p>
+                <ul id="human-units"></ul>
+                <pre id="frozen-scoring"></pre>
+            </details>
             <label for="scenario-selector">Opponent scenario</label>
             <select id="scenario-selector"></select>
             <p id="scenario-metrics" role="status"></p>
+            <details>
+                <summary>Province and regional contributions for this scenario</summary>
+                <ul id="province-shaping"></ul>
+                <ul id="regional-shaping"></ul>
+            </details>
             <ul id="scenario-orders"></ul>
             <h4>External assumptions — not confirmed promises</h4>
             <label for="dependency-set">Alternative conjunction set</label>

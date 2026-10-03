@@ -30,6 +30,132 @@ let resultContext = null;
 let importedGame = null;
 let importedPhase = null;
 let fileReadVersion = 0;
+let scoringReadVersion = 0;
+let profileNation = null;
+
+function profileField(kind, nation) {
+    return form.elements.namedItem(`${kind}.${nation}`);
+}
+
+function saveProfile() {
+    if (!profileNation)
+        return;
+    profileField("adjustments", profileNation).value = $("#profile-adjustments").value;
+    profileField("regions", profileNation).value = $("#profile-regions").value;
+}
+
+function loadProfile() {
+    saveProfile();
+    profileNation = $("#nation").value;
+    $("#profile-nation").textContent = profileNation;
+    $("#profile-adjustments").value = profileField("adjustments", profileNation).value;
+    $("#profile-regions").value = profileField("regions", profileNation).value;
+}
+
+function profileDocument() {
+    saveProfile();
+    return {
+        format: "jreferee-scoring-profiles", version: 1,
+        humanWeight: form.elements.namedItem("humanWeight").value,
+        globalValues: form.elements.namedItem("globalValues").value,
+        nationProfiles: Object.fromEntries(Object.keys(bootstrap.colors).map(nation =>
+            [nation, { adjustments: profileField("adjustments", nation).value,
+                regions: profileField("regions", nation).value }]))
+    };
+}
+
+function applyProfiles(value) {
+    const nations = Object.keys(bootstrap.colors);
+    if (!value || value.format !== "jreferee-scoring-profiles" || value.version !== 1
+        || typeof value.globalValues !== "string" || value.globalValues.length > 8000
+        || typeof value.humanWeight !== "string" || value.humanWeight.trim() === ""
+        || !Number.isFinite(Number(value.humanWeight))
+        || Number(value.humanWeight) < 0 || Number(value.humanWeight) > 1000
+        || !value.nationProfiles || typeof value.nationProfiles !== "object"
+        || Object.keys(value.nationProfiles).length !== nations.length
+        || nations.some(nation => !Object.hasOwn(value.nationProfiles, nation)
+            || typeof value.nationProfiles[nation]?.adjustments !== "string"
+            || typeof value.nationProfiles[nation]?.regions !== "string"
+            || value.nationProfiles[nation].adjustments.length > 8000
+            || value.nationProfiles[nation].regions.length > 8000))
+        throw new Error("Expected bounded scoring profiles JSON containing exactly all seven countries.");
+    form.elements.namedItem("humanWeight").value = value.humanWeight;
+    form.elements.namedItem("globalValues").value = value.globalValues;
+    for (const nation of nations) {
+        profileField("adjustments", nation).value = value.nationProfiles[nation].adjustments;
+        profileField("regions", nation).value = value.nationProfiles[nation].regions;
+    }
+    profileNation = null;
+    loadProfile();
+    invalidate({ target: {} });
+    $("#profile-status").textContent = "Profiles loaded. Java validates grammar and scoring budgets on Generate.";
+}
+
+function emptyProfiles() {
+    return { format: "jreferee-scoring-profiles", version: 1, humanWeight: "0", globalValues: "",
+        nationProfiles: Object.fromEntries(Object.keys(bootstrap.colors)
+            .map(nation => [nation, { adjustments: "", regions: "" }])) };
+}
+
+function setupProfiles() {
+    for (const nation of Object.keys(bootstrap.colors))
+        for (const kind of ["adjustments", "regions"]) {
+            const field = document.createElement("input");
+            field.type = "hidden";
+            field.name = `${kind}.${nation}`;
+            $("#profile-fields").append(field);
+        }
+    $("#nation").addEventListener("change", () => {
+        loadProfile();
+        form.elements.namedItem("objectives").value = "";
+        $("#profile-status").textContent = "Country profile loaded; country-specific snapshot objectives cleared.";
+    });
+    for (const id of ["profile-adjustments", "profile-regions"])
+        $(`#${id}`).addEventListener("input", saveProfile);
+    $("#clear-profile").addEventListener("click", () => {
+        $("#profile-adjustments").value = "";
+        $("#profile-regions").value = "";
+        saveProfile();
+        invalidate({ target: {} });
+    });
+    $("#clear-snapshot").addEventListener("click", () => {
+        form.elements.namedItem("objectives").value = "";
+        invalidate({ target: {} });
+    });
+    $("#reset-scoring").addEventListener("click", () => applyProfiles(emptyProfiles()));
+    $("#example-scoring").addEventListener("click", () => {
+        const example = emptyProfiles();
+        example.humanWeight = "1";
+        example.globalValues = "MAO=1/FLEET\nION=1/FLEET";
+        example.nationProfiles.GERMANY.adjustments = "Pru=-1/ARMY,FLEET";
+        example.nationProfiles.GERMANY.regions = "north Bel,Hol 2 ARMY 4 0.5";
+        applyProfiles(example);
+        $("#profile-status").textContent = "Untuned example loaded, not calibrated advice. Edit or reset to disable.";
+    });
+    $("#export-scoring").addEventListener("click", () => {
+        const url = URL.createObjectURL(new Blob([JSON.stringify(profileDocument(), null, 2)],
+            { type: "application/json" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "jreferee-scoring-profiles.json";
+        link.click();
+        URL.revokeObjectURL(url);
+    });
+    $("#scoring-file").addEventListener("change", async () => {
+        const version = ++scoringReadVersion;
+        const file = $("#scoring-file").files[0];
+        if (!file) return;
+        try {
+            if (file.size > 32768) throw new Error("Scoring profiles exceed 32 KiB.");
+            const value = JSON.parse(await file.text());
+            if (version !== scoringReadVersion || busy) return;
+            applyProfiles(value);
+        } catch (error) {
+            if (version === scoringReadVersion)
+                $("#profile-status").textContent = "Import failed: " + error.message;
+        }
+    });
+}
 
 async function responseJson(response) {
     const value = await response.json();
@@ -51,7 +177,9 @@ async function start() {
         $("#nation").append(option);
     }
 
+    setupProfiles();
     restoreStartingPosition();
+    loadProfile();
 
     form.addEventListener("input", invalidate);
     form.addEventListener("change", invalidate);
@@ -89,10 +217,11 @@ function clearResults() {
     $("#plan-dependencies").replaceChildren();
     $("#plan-inspector").hidden = true;
     for (const selector of ["#result-context", "#scoring-context", "#bias-summary",
-        "#scenario-metrics", "#requirement-details"])
+        "#scenario-metrics", "#requirement-details", "#human-summary", "#frozen-scoring"])
         $(selector).textContent = "";
     for (const selector of ["#scenario-orders", "#structured-dependencies",
-        "#dependency-legend", "#plan-findings", "#plan-comparisons"])
+        "#dependency-legend", "#plan-findings", "#plan-comparisons", "#human-units",
+        "#province-shaping", "#regional-shaping"])
         $(selector).replaceChildren();
     $("#show-dependencies").checked = false;
     $("#scenario-selector").replaceChildren();
@@ -152,6 +281,8 @@ function restoreStartingPosition() {
     for (const [name, value] of Object.entries(bootstrap.defaults))
         form.elements.namedItem(name).value = value;
     form.elements.namedItem("compareAlternatives").checked = false;
+    if (profileNation)
+        loadProfile();
 
     importedPhase = null;
     clearResults();
@@ -177,6 +308,7 @@ async function loadGameFile() {
 
     importedGame = null;
     importedPhase = null;
+    form.elements.namedItem("objectives").value = "";
 
     $("#import-phase").replaceChildren();
     $("#import-phase").disabled = true;
@@ -461,6 +593,7 @@ async function generate(event) {
     // Only the editor's named position/configuration controls are submitted.
     // Imported source orders and metadata are outside this form.
     const body = new URLSearchParams();
+    saveProfile();
 
     for (const [key, value] of new FormData(form))
         body.append(key, String(value));
@@ -500,6 +633,9 @@ async function generate(event) {
             ...(response.context ?? context), source,
             pruning: {
                 omittedChoices: response.coordination?.omittedChoices,
+                geographyGuided: response.coordination?.geographyGuided,
+                replenishedChoices: response.coordination?.replenishedChoices,
+                guidanceChoicesUnexamined: response.coordination?.guidanceChoicesUnexamined,
                 beamTruncated: response.coordination?.beamTruncated,
                 dependencySearchTruncated: response.coordination?.dependencySearchTruncated
             }
@@ -524,6 +660,10 @@ async function generate(event) {
             `${coordination.mode}: ${coordination.expandedCandidates} expanded; `
             + `${coordination.rejectedCandidates} rejected; `
             + `${coordination.omittedChoices} choices omitted; `
+            + `geography guided: ${coordination.geographyGuided ? "yes" : "no"}; `
+            + `${coordination.replenishedChoices ?? 0} positional choices replenished; `
+            + `${coordination.guidanceChoicesUnexamined ?? 0} guidance choices unexamined; `
+            + `historical guidance scan cap ${coordination.geographicChoiceLimit ?? "unavailable"}/unit; `
             + `beam truncated: ${coordination.beamTruncated ? "yes" : "no"}; `
             + `${coordination.dependencyAssignmentsExamined} foreign-assignment nodes `
             + `(limit ${coordination.foreignAssignmentLimit} per check); `
@@ -792,6 +932,10 @@ function renderInspector() {
         + `request comparison limit ${limits.comparisonLimit ?? "unavailable"}; `
         + `comparison scenario-evaluation budget ${limits.comparisonScenarioEvaluationBudget ?? "unavailable"}; `
         + `omitted choices ${context.pruning.omittedChoices ?? "unavailable"}; `
+        + `geography guided ${context.pruning.geographyGuided ?? false}; `
+        + `positional choices replenished ${context.pruning.replenishedChoices ?? 0}; `
+        + `guidance choices unexamined ${context.pruning.guidanceChoicesUnexamined ?? 0}; `
+        + `historical guidance scan cap ${limits.geographicChoiceLimit ?? "unavailable"}/unit; `
         + `beam truncated ${context.pruning.beamTruncated ?? "unavailable"}; `
         + `dependency search truncated ${context.pruning.dependencySearchTruncated ?? "unavailable"}; `
         + (context.positionOnly === true ? "position-only evidence; no route histories; "
@@ -801,6 +945,11 @@ function renderInspector() {
         + (context.source.snapshot !== undefined
             ? `; snapshot ${context.source.snapshot}; status ${context.source.status}` : "")
         + ". Source metadata is display-only, not training input.";
+    if (context.pruning.geographyGuided)
+        $("#result-context").textContent +=
+            " Guided search retains historical top K UNION positional top K (at most 2K/unit); "
+            + "the beam remains bounded and tactical collisions remain primary ordering. "
+            + "Destination estimates guide search only; final shaping uses actual adjudication.";
     const objectives = typeof context.objectives === "string"
         ? context.objectives.trim()
         : Object.entries(context.objectives ?? {}).map(([province, value]) => `${province} ${value}`).join("; ");
@@ -821,14 +970,35 @@ function renderInspector() {
                 + "max(256, beam width) grouping; penalty magnitude scales with weight. "
             : "Zero weight retains legacy search ordering. ")
         + "Coordination validity is separate from this heuristic; mean, worst, and scenario components remain raw.";
+    const human = plan.humanPreference;
+    $("#human-summary").textContent =
+        `Raw mean/worst/combined ${number(plan.mean)} / ${number(plan.worst)} / ${number(plan.baseScore)}; `
+        + `shaped mean/worst/combined ${number(plan.shapedMean ?? plan.mean)} / `
+        + `${number(plan.shapedWorst ?? plan.worst)} / ${number(plan.shapedScore ?? plan.baseScore)}. `
+        + `Human average log frequency ${number(human?.score)}; available ${human?.available ?? false}; `
+        + `${human?.diagnostic ?? "Evidence details unavailable."} `
+        + `Final = shaped ${number(plan.shapedScore ?? plan.baseScore)} − tactical ${number(plan.penaltyTotal)} `
+        + `+ human ${number(plan.humanWeight)} × ${number(human?.score)} `
+        + `(${number(plan.humanContribution)}) = ${number(plan.score)}.`;
+    $("#human-units").replaceChildren();
+    for (const unit of human?.units ?? [])
+        appendText($("#human-units"), "li",
+            `${unit.order?.text ?? `${unit.identity.nation} ${unit.identity.unitType} ${unit.identity.origin}`}: `
+            + `${unit.selectedCount}/${unit.denominator} FULL selected counts (before top-K); `
+            + `basis ${unit.basis}; log ${number(unit.logFrequency)}; available ${unit.available}. ${unit.diagnostic}`);
+    $("#frozen-scoring").textContent = "Frozen result-time scoring configuration (all countries):\n"
+        + JSON.stringify(plan.scoringConfiguration ?? context.scoringConfiguration ?? {}, null, 2);
     const scenario = scenarioDetails(plan)[Number($("#scenario-selector").value)];
     $("#scenario-metrics").textContent = scenario
         ? `Scenario score ${number(scenario.score)}; center-position component `
           + `${number(scenario.centerPositionDelta ?? scenario.centerComponent)}; `
           + `dislodgement penalty ${number(scenario.dislodgementPenalty ?? scenario.dislodgementComponent)}; `
           + `objective component ${number(scenario.objectiveDelta ?? scenario.objectiveComponent)}`
-          + (scenario.dislodgedUnits !== undefined ? `; dislodged units ${scenario.dislodgedUnits}` : "") + "."
+          + (scenario.dislodgedUnits !== undefined ? `; dislodged units ${scenario.dislodgedUnits}` : "")
+          + `; province Δ ${number(scenario.provinceContribution)}; regional Δ ${number(scenario.regionalContribution)}; `
+          + `augmented = raw + province + regional = ${number(scenario.augmentedScore)}.`
         : "Per-scenario score and objective components unavailable in this response.";
+    renderShaping(plan, scenario);
     $("#scenario-orders").replaceChildren();
     const sampled = (result.scenarios ?? []).find(item => item.index === scenario?.scenarioIndex)
         ?? (result.scenarios ?? [])[scenario?.scenarioIndex];
@@ -901,6 +1071,34 @@ function renderInspector() {
     renderComparisons(plan);
 }
 
+function renderShaping(plan, scenario) {
+    $("#province-shaping").replaceChildren();
+    $("#regional-shaping").replaceChildren();
+    for (const unit of scenario?.shaping?.units ?? [])
+        appendText($("#province-shaping"), "li",
+            `${unit.identity.nation} ${unit.identity.unitType}: ${unit.before} → ${unit.after ?? "dislodged"}; `
+            + `effective province value ${number(unit.beforeValue)} → ${number(unit.afterValue)}; `
+            + `contribution ${number(unit.contribution)}; surviving ${unit.surviving}. `
+            + (!unit.surviving ? "Lost units contribute zero on both sides; losses are penalized separately." : ""));
+    const profile = (plan.scoringConfiguration ?? resultContext.scoringConfiguration)
+        ?.nationProfiles?.[result.nation];
+    for (const goal of scenario?.shaping?.objectives ?? []) {
+        const definition = profile?.objectives?.find(item => item.name === goal.name);
+        appendText($("#regional-shaping"), "li",
+            `${goal.name}: targets ${definition?.targets?.join(", ") ?? "unavailable"}; `
+            + `types ${definition?.unitTypes?.join(", ") ?? "unavailable"}; priority ${number(definition?.priority)}; `
+            + `horizon ${definition?.horizon ?? "unavailable"}; decay ${number(definition?.decay)}; `
+            + `best-surviving-unit potential ${number(goal.beforePotential)} → ${number(goal.afterPotential)}; `
+            + `bounded contribution ${number(goal.contribution)} (within ±priority).`);
+        for (const unit of goal.units)
+            appendText($("#regional-shaping"), "li",
+                `${unit.identity.unitType} ${unit.identity.origin}: static movement distance `
+                + `${unit.beforeDistance} → ${unit.afterDistance} (−1 = unreachable/lost); `
+                + `potential ${number(unit.beforePotential)} → ${number(unit.afterPotential)}. `
+                + "No convoy or opponent-cooperation assumptions; zero outside horizon.");
+    }
+}
+
 function renderComparisons(plan) {
     const host = $("#plan-comparisons");
     host.replaceChildren();
@@ -945,6 +1143,7 @@ function renderComparisons(plan) {
             + `${number(comparison.alternativeWorst ?? originalWorst + comparison.worstDelta)} `
             + `(Δ ${number(comparison.worstDelta)}, ${deltaRelation(comparison.worstDelta)}); `
             + `raw outcome/base score Δ ${number(comparison.scoreDelta)} (${deltaRelation(comparison.scoreDelta)}); `
+            + `positional/shaping Δ ${number(comparison.positionalDelta)}; human contribution Δ ${number(comparison.humanDelta)}; `
             + `penalty Δ ${number(comparison.penaltyDelta)} (alternative − original); `
             + `bias-adjusted score Δ ${number(comparison.adjustedScoreDelta)} `
             + `(${deltaRelation(comparison.adjustedScoreDelta)}). `
@@ -987,6 +1186,7 @@ function deltaRelation(value) {
 
 function scoreSummary(plan) {
     return `Adjusted ${number(plan.score)} · base ${number(plan.baseScore)} · `
+        + `shaped ${number(plan.shapedScore ?? plan.baseScore)} · human ${number(plan.humanContribution)} · `
         + `offending moves ${plan.offendingMoveCount ?? "unavailable"} · `
         + `weight ${number(plan.penaltyWeight)} · penalty total ${number(plan.penaltyTotal)}`;
 }
@@ -995,9 +1195,9 @@ function rankExplanation(plan) {
     if (plan.baseRank === undefined)
         return "Base rank unavailable";
     return plan.baseRank === plan.rank
-        ? `Base rank ${plan.baseRank} unchanged after heuristic bias`
+        ? `Base rank ${plan.baseRank} unchanged after shaping/preferences/bias`
         : `Base rank ${plan.baseRank} → adjusted rank ${plan.rank}: `
-            + "base score minus weight × offending moves reorders candidates";
+            + "raw outcome plus positional shaping and human preference minus tactical bias reorders candidates";
 }
 
 function offendingIncoming(plan, order) {

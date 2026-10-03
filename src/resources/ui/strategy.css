@@ -400,3 +400,19 @@ input:disabled {
         flex: 1 1 15rem;
     }
 }
+/* Long scoring diagnostics remain readable on narrow screens. */
+#frozen-scoring {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 18rem;
+    overflow: auto;
+}
+
+#scoring-editor textarea {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#human-units, #province-shaping, #regional-shaping {
+    overflow-wrap: anywhere;
+}
