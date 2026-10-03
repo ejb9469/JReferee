@@ -333,7 +333,14 @@ units and exact coasts, ownership tint, plan/scenario/dependency switching,
 reset/invalidation/import/history, a delayed cancelled response, 390px mobile
 layout, and original openings navigation/singleton filtering. These are renderer
 checks, not a real-corpus end-to-end test. Compilation/browser scratch files were
-removed; no private corpus, reserved TEST records, or extra training was used.
+removed; no private corpus or reserved TEST records were used, and no production
+corpus training or tuning was performed.
+
+A read-only diff review found no significant issues. Earlier automated scans
+reported zero alerts, but a later Java CodeQL run timed out. The final PR-wide
+review/CodeQL request could not start because the validation service's time budget
+was exhausted. **Final automated security validation remains unavailable**, not
+a clean final scan result. Changed files were secret-scanned before commits.
 
 The bias does not solve missing evidence, choices omitted before the beam, large
 dependency groups pruned at their internal bound, opponent-model uncertainty, or

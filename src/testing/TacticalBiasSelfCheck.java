@@ -16,6 +16,7 @@ public final class TacticalBiasSelfCheck {
         detection();
         rankingAndComparison();
         beam();
+        boundedBiasHonesty();
         configurationConsistency();
         compatibilityAndValidation();
         System.out.println("Tactical bias checks passed.");
@@ -59,6 +60,23 @@ public final class TacticalBiasSelfCheck {
         UnitId foreign = unit(Nation.FRANCE, UnitType.FLEET, Province.NTH);
         require(TacticalBias.offendingMoveCount(board(edi, foreign), plan(move)) == 0,
                 "Foreign occupancy counted without selected own order");
+        UnitId foreignArmy = unit(Nation.FRANCE, UnitType.ARMY, Province.Yor);
+        BoardState foreignTargetBoard = board(edi, nth, foreignArmy);
+        for (Order stationary : List.of(Order.convoy(nth, Province.Yor, Province.Hol),
+                Order.supportHold(nth, Province.Yor),
+                Order.supportMove(nth, Province.Yor, Province.Hol)))
+            require(TacticalBias.offendingMoveCount(foreignTargetBoard, plan(move, stationary)) == 1,
+                    "Own stationary order cooperating with foreign target was exempted");
+        var foreignScenarios = Map.of(
+                "foreign-convoy", List.of(Order.convoy(foreign, Province.Yor, Province.Hol),
+                        Order.move(foreignArmy, Province.Hol)),
+                "foreign-support", List.of(Order.supportHold(foreign, Province.Yor),
+                        Order.hold(foreignArmy)));
+        var foreignEvaluation = new OutcomeEvaluator(0, 0, 0, 5).rank(
+                board(edi, foreign, foreignArmy), moment(), List.of(plan(move)),
+                foreignScenarios, Map.of(), processor()).getFirst();
+        require(foreignEvaluation.findings().isEmpty() && foreignEvaluation.penaltyTotal() == 0,
+                "Foreign scenario supporter/convoyer counted as own selected stationary order");
         require(TacticalBias.offendingMoveCount(board(edi),
                 plan(move, convoy)) == 0, "Inactive selected target counted");
         UnitId lon = own(UnitType.FLEET, Province.Lon);
@@ -121,6 +139,9 @@ public final class TacticalBiasSelfCheck {
         Map<Province, Double> objectives = Map.of(Province.Hol, 4.0);
         var raw = new OutcomeEvaluator(0, 0, 0.7).rank(board, moment(),
                 List.of(safe, flagged), scenarios, objectives, processor());
+        require(raw.equals(new OutcomeEvaluator(0, 0, 0.7, 0).rank(board, moment(),
+                List.of(safe, flagged), scenarios, objectives, processor())),
+                "Evaluator three-argument and explicit zero constructors differ");
         var biased = new OutcomeEvaluator(0, 0, 0.7, 3).rank(board, moment(),
                 List.of(flagged, safe), scenarios, objectives, processor());
         require(raw.getFirst().plan().equals(flagged) && biased.getFirst().plan().equals(safe),
@@ -145,6 +166,11 @@ public final class TacticalBiasSelfCheck {
                 "Penalty does not count each selected offending MOVE exactly once");
         require(new OutcomeEvaluator(0, 0, 0, 3).rank(board, moment(), List.of(flagged),
                 scenarios, objectives, processor()).size() == 1, "Flagged-only plan rejected");
+        var adjudicated = new JointOrders().evaluate(board, flagged, List.of(), processor());
+        require(adjudicated.finalLocations().get(edi) == Province.Edi
+                && adjudicated.finalLocations().get(yor) == Province.Hol
+                && adjudicated.dislodgements().isEmpty(),
+                "Bias-enabled self-bounce changed convoy adjudication");
         immutable(() -> newFlagged.findings().clear());
         var comparison = TacticalAnalysis.analyze(board, moment(), flagged,
                 predictions(move, support, convoy, army), scenarios, objectives,
@@ -190,6 +216,8 @@ public final class TacticalBiasSelfCheck {
                 "Narrow convoy beam pruned alternative before resolving mover-first dependency");
         require(biased.plans().getFirst().orders().getFirst().unit().equals(nth),
                 "Potential stationary convoy target was not assigned first");
+        require(biased.diagnostics().beamTruncated() && !biased.exhaustedRetainedDomains(),
+                "Final bias beam cutoff was not reported honestly");
         require(new CoordinatedOrders(2, 1, 3).generate(board, Nation.ENGLAND,
                 predictions(move, convoy, army), CoordinationMode.STRICT).plans().size() == 1,
                 "Bias hard-rejected flagged-only retained domain");
@@ -269,6 +297,34 @@ public final class TacticalBiasSelfCheck {
         choices.put(order, count);
         result.put(order.unit(), new RoutePrediction("POSITION", 0, choices));
         return result;
+    }
+
+    private static void boundedBiasHonesty() {
+        Province[] chain = {Province.Bre, Province.Pic, Province.Par, Province.Bur, Province.Mun,
+                Province.Sil, Province.Boh, Province.Gal, Province.Ukr, Province.War};
+        UnitId[] units = Arrays.stream(chain).map(province -> own(UnitType.ARMY, province))
+                .toArray(UnitId[]::new);
+        List<Order> orders = new ArrayList<>();
+        for (int index = 0; index < units.length - 1; index++) {
+            orders.add(Order.hold(units[index]));
+            orders.add(Order.supportHold(units[index], chain[index + 1]));
+        }
+        orders.add(Order.supportMove(units[9], Province.Sil, Province.Pru));
+        BoardState board = board(units);
+        var evidence = predictions(orders.toArray(Order[]::new));
+        var bounded = new CoordinatedOrders(2, 1, 5).generate(board, Nation.ENGLAND,
+                evidence, CoordinationMode.STRICT);
+        require(bounded.plans().isEmpty() && bounded.diagnostics().beamTruncated()
+                && bounded.diagnostics().omittedChoices() == 0
+                && bounded.diagnostics().expandedCandidates() == 1278
+                && !bounded.exhaustedRetainedDomains(),
+                "Internal 256 partial cutoff falsely claimed retained-domain exhaustion");
+        var exhaustive = new CoordinatedOrders(2, 1024, 5).generate(board, Nation.ENGLAND,
+                evidence, CoordinationMode.STRICT);
+        require(exhaustive.plans().isEmpty() && !exhaustive.diagnostics().beamTruncated()
+                && exhaustive.exhaustedRetainedDomains()
+                && exhaustive.diagnostics().expandedCandidates() == 1534,
+                "Bias-enabled exhaustive hard contradiction diagnostics changed");
     }
 
     private static void compatibilityAndValidation() {
