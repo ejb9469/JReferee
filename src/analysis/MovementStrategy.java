@@ -185,7 +185,7 @@ public final class MovementStrategy {
                 List.of(), "Ranked movement plans using the supplied scoring configuration."
                         + (coordination.conditionalPlans().isEmpty() ? ""
                         : " Some plans require explicit foreign cooperation; convoy routes are not guaranteed successful."),
-                coordination);
+                coordination, scenarioOrders, selected);
 
     }
 
@@ -252,7 +252,30 @@ public final class MovementStrategy {
             int opponentScenarioCount,
             List<UnitId> insufficientUnits,
             String diagnostic,
-            CoordinatedOrders.Diagnostics coordination) {
+            CoordinatedOrders.Diagnostics coordination,
+            Map<String, List<Order>> scenarioOrders,
+            Map<UnitId, RoutePrediction> selectedPredictions) {
+
+        public Recommendation(PredictionPolicy policy, Status status,
+                              List<PlanEvaluation> rankedPlans,
+                              Map<UnitId, UnitEvidence> evidence,
+                              int candidatePlanCount, int opponentScenarioCount,
+                              List<UnitId> insufficientUnits, String diagnostic,
+                              CoordinatedOrders.Diagnostics coordination,
+                              Map<String, List<Order>> scenarioOrders) {
+            this(policy, status, rankedPlans, evidence, candidatePlanCount, opponentScenarioCount,
+                    insufficientUnits, diagnostic, coordination, scenarioOrders, Map.of());
+        }
+
+        public Recommendation(PredictionPolicy policy, Status status,
+                              List<PlanEvaluation> rankedPlans,
+                              Map<UnitId, UnitEvidence> evidence,
+                              int candidatePlanCount, int opponentScenarioCount,
+                              List<UnitId> insufficientUnits, String diagnostic,
+                              CoordinatedOrders.Diagnostics coordination) {
+            this(policy, status, rankedPlans, evidence, candidatePlanCount,
+                    opponentScenarioCount, insufficientUnits, diagnostic, coordination, Map.of());
+        }
 
         public Recommendation(PredictionPolicy policy, Status status,
                               List<PlanEvaluation> rankedPlans,
@@ -274,6 +297,10 @@ public final class MovementStrategy {
                     Objects.requireNonNull(insufficientUnits, "insufficientUnits"));
             Objects.requireNonNull(diagnostic, "diagnostic");
             Objects.requireNonNull(coordination, "coordination");
+            Map<String, List<Order>> scenarioCopy = new TreeMap<>();
+            scenarioOrders.forEach((key, value) -> scenarioCopy.put(key, List.copyOf(value)));
+            scenarioOrders = Collections.unmodifiableMap(scenarioCopy);
+            selectedPredictions = Collections.unmodifiableMap(new LinkedHashMap<>(selectedPredictions));
 
             if (candidatePlanCount < 0 || opponentScenarioCount < 0)
                 throw new IllegalArgumentException("Candidate counts must not be negative");

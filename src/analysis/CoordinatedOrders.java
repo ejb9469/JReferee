@@ -27,6 +27,20 @@ public final class CoordinatedOrders {
         this.beamWidth = beamWidth;
     }
 
+    /** Exact complete-plan check; does not manufacture route evidence. */
+    public static Optional<String> coordinationProblem(BoardState board, OrderPlan plan) {
+        Map<UnitId, List<Order>> domains = new LinkedHashMap<>();
+        for (Order order : plan.orders())
+            domains.put(order.unit(), List.of(order));
+        Set<UnitId> expected = new HashSet<>();
+        board.locations().keySet().stream().filter(unit -> unit.owner() == plan.nation())
+                .forEach(expected::add);
+        if (!domains.keySet().equals(expected))
+            return Optional.of("Plan must name every active friendly unit exactly once.");
+        return Optional.ofNullable(check(board, plan.nation(), plan.orders(), domains,
+                CoordinationMode.CONDITIONAL).reason());
+    }
+
     public Result generate(BoardState board, Nation nation,
                            Map<UnitId, RoutePrediction> predictions,
                            CoordinationMode mode) {
@@ -100,6 +114,7 @@ public final class CoordinatedOrders {
                 break;
         }
         Map<String, List<String>> conditional = new LinkedHashMap<>();
+        Map<String, ForeignDependencies> structured = new LinkedHashMap<>();
         List<OrderPlan> complete = new ArrayList<>();
         for (OrderPlan plan : beam) {
             if (plan.orders().size() != units.size())
@@ -114,11 +129,12 @@ public final class CoordinatedOrders {
                 complete.add(plan);
                 if (!check.dependencies().isEmpty())
                     conditional.put(Classifier.signature(board, plan.orders()), check.dependencies());
+                structured.put(Classifier.signature(board, plan.orders()), check.structured());
             }
         }
         Diagnostics diagnostics = new Diagnostics(mode, expandedCount, rejected, omitted,
                 truncated, List.copyOf(reasons), conditional,
-                dependencyAssignments, dependencyTruncated);
+                dependencyAssignments, dependencyTruncated, structured);
         return new Result(complete, diagnostics,
                 complete.isEmpty() && omitted == 0 && !truncated && !dependencyTruncated);
     }
@@ -129,6 +145,7 @@ public final class CoordinatedOrders {
         for (Order order : partial)
             assigned.put(order.unit(), order);
         Set<String> dependencies = new TreeSet<>();
+        List<ForeignDependencies.Requirement> requirements = new ArrayList<>();
         Map<UnitId, Order> foreignMoves = new LinkedHashMap<>();
         Set<UnitId> foreignStationary = new HashSet<>();
         Map<UnitId, Order> routes = new LinkedHashMap<>();
@@ -150,6 +167,12 @@ public final class CoordinatedOrders {
                     if (mode == CoordinationMode.STRICT)
                         return Check.reject("Foreign cooperation required: " + dependency);
                     dependencies.add(dependency);
+                    requirements.add(new ForeignDependencies.Requirement(target,
+                            board.locationOf(target), order.auxiliaryTarget() == null
+                            ? ForeignDependencies.Constraint.STATIONARY
+                            : ForeignDependencies.Constraint.EXACT_ORDER,
+                            order.auxiliaryTarget() == null ? null : OrderType.MOVE,
+                            order.auxiliaryTarget(), null, List.of(order), "MOVEMENT"));
                     if (order.auxiliaryTarget() == null) {
                         foreignStationary.add(target);
                     } else {
@@ -205,7 +228,21 @@ public final class CoordinatedOrders {
                         List.of(), search.examined, search.limited);
             }
             dependencies.addAll(search.dependencies);
-            return new Check(null, List.copyOf(dependencies), search.examined, search.limited);
+            ForeignSearch alternatives = new ForeignSearch(board, nation, assigned, domains,
+                    List.copyOf(routes.values()), foreignMoves.keySet());
+            alternatives.collect = true;
+            alternatives.examined = search.examined;
+            alternatives.alternatives.addAll(search.alternatives);
+            alternatives.find(0, new HashMap<>());
+            List<List<ForeignDependencies.Requirement>> conjunctions = new ArrayList<>();
+            for (List<ForeignDependencies.Requirement> routeRequirements : alternatives.alternatives) {
+                List<ForeignDependencies.Requirement> conjunction = new ArrayList<>(requirements);
+                conjunction.addAll(routeRequirements);
+                conjunctions.add(conjunction);
+            }
+            return new Check(null, List.copyOf(dependencies),
+                    alternatives.examined, search.limited || alternatives.limited,
+                    new ForeignDependencies(conjunctions, alternatives.limited));
         }
         for (Order move : routes.values()) {
             Check route = route(board, nation, move, assigned, domains, mode, foreignMoves.keySet());
@@ -213,7 +250,8 @@ public final class CoordinatedOrders {
                 return route;
             dependencies.addAll(route.dependencies());
         }
-        return new Check(null, List.copyOf(dependencies));
+        return new Check(null, List.copyOf(dependencies), 0, false,
+                new ForeignDependencies(List.of(requirements), false));
     }
 
     private static boolean agrees(Order reference, Order selected) {
@@ -346,6 +384,8 @@ public final class CoordinatedOrders {
         private long examined;
         private boolean limited;
         private List<String> dependencies = List.of();
+        private boolean collect;
+        private final List<List<ForeignDependencies.Requirement>> alternatives = new ArrayList<>();
 
         ForeignSearch(BoardState board, Nation nation, Map<UnitId, Order> own,
                       Map<UnitId, List<Order>> domains, List<Order> routes,
@@ -370,6 +410,7 @@ public final class CoordinatedOrders {
             }
             examined++;
             Set<String> needed = new TreeSet<>();
+            Map<UnitId, ForeignDependencies.Requirement> structured = new LinkedHashMap<>();
             boolean supplied = true;
             for (Order move : routes) {
                 List<UnitId> available = new ArrayList<>();
@@ -397,14 +438,35 @@ public final class CoordinatedOrders {
                         return false;
                 } else {
                     for (UnitId fleet : selected)
-                        if (fleet.owner() != nation)
+                        if (fleet.owner() != nation) {
                             needed.add(label(board, fleet) + " CONVOY "
                                     + board.locationOf(move.unit()) + " -> " + move.target());
+                            Order required = assumptions.get(fleet);
+                            List<Order> affected = own.values().stream()
+                                    .filter(order -> order.equals(move)
+                                            || order.target() == board.locationOf(move.unit())
+                                            && order.auxiliaryTarget() == move.target())
+                                    .sorted(Comparator.comparing(order ->
+                                            Classifier.signature(board, List.of(order)))).toList();
+                            ForeignDependencies.Requirement previous = structured.get(fleet);
+                            if (previous != null) {
+                                List<Order> combined = new ArrayList<>(previous.affectedFriendlyOrders());
+                                combined.addAll(affected);
+                                affected = combined.stream().distinct()
+                                        .sorted(Comparator.comparing(order ->
+                                                Classifier.signature(board, List.of(order)))).toList();
+                            }
+                            structured.put(fleet, new ForeignDependencies.Requirement(fleet,
+                                    board.locationOf(fleet), ForeignDependencies.Constraint.EXACT_ORDER,
+                                    OrderType.CONVOY, required.target(), required.auxiliaryTarget(),
+                                    affected, "MOVEMENT"));
+                        }
                 }
             }
             if (supplied) {
                 dependencies = List.copyOf(needed);
-                return true;
+                alternatives.add(List.copyOf(structured.values()));
+                return !collect;
             }
             if (depth == fleets.size())
                 return false;
@@ -431,9 +493,13 @@ public final class CoordinatedOrders {
         }
     }
 
-    private record Check(String reason, List<String> dependencies, long examined, boolean limited) {
+    private record Check(String reason, List<String> dependencies, long examined, boolean limited,
+                         ForeignDependencies structured) {
         Check(String reason, List<String> dependencies) {
-            this(reason, dependencies, 0, false);
+            this(reason, dependencies, 0, false, new ForeignDependencies(List.of(List.of()), false));
+        }
+        Check(String reason, List<String> dependencies, long examined, boolean limited) {
+            this(reason, dependencies, examined, limited, new ForeignDependencies(List.of(), limited));
         }
 
         static Check reject(String reason) {
@@ -454,7 +520,17 @@ public final class CoordinatedOrders {
                               boolean beamTruncated, List<String> reasons,
                               Map<String, List<String>> conditionalPlans,
                               long dependencyAssignmentsExamined,
-                              boolean dependencySearchTruncated) {
+                              boolean dependencySearchTruncated,
+                              Map<String, ForeignDependencies> foreignDependencies) {
+        public Diagnostics(CoordinationMode mode, long expandedCandidates,
+                           long rejectedCandidates, long omittedChoices,
+                           boolean beamTruncated, List<String> reasons,
+                           Map<String, List<String>> conditionalPlans,
+                           long dependencyAssignmentsExamined, boolean dependencySearchTruncated) {
+            this(mode, expandedCandidates, rejectedCandidates, omittedChoices, beamTruncated,
+                    reasons, conditionalPlans, dependencyAssignmentsExamined,
+                    dependencySearchTruncated, Map.of());
+        }
         public Diagnostics(CoordinationMode mode, long expandedCandidates,
                            long rejectedCandidates, long omittedChoices,
                            boolean beamTruncated, List<String> reasons,
@@ -468,7 +544,10 @@ public final class CoordinatedOrders {
             Map<String, List<String>> copy = new LinkedHashMap<>();
             conditionalPlans.forEach((key, value) -> copy.put(key, List.copyOf(value)));
             conditionalPlans = Collections.unmodifiableMap(copy);
+            foreignDependencies = Collections.unmodifiableMap(new LinkedHashMap<>(foreignDependencies));
         }
+
+        public boolean dependenciesChecked() { return mode != CoordinationMode.RAW; }
 
         public static Diagnostics raw() {
             return new Diagnostics(CoordinationMode.RAW, 0, 0, 0, false, List.of(), Map.of());

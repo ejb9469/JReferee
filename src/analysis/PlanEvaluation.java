@@ -8,8 +8,13 @@ public record PlanEvaluation(
         Map<String, Double> scenarioScores,
         double mean,
         double worst,
-        double score
+        double score,
+        Map<String, ScenarioEvaluation> scenarioDetails
 ) {
+    public PlanEvaluation(OrderPlan plan, Map<String, Double> scenarioScores,
+                          double mean, double worst, double score) {
+        this(plan, scenarioScores, mean, worst, score, Map.of());
+    }
 
     public PlanEvaluation {
 
@@ -37,6 +42,15 @@ public record PlanEvaluation(
             throw new IllegalArgumentException("Evaluation scores must be finite");
 
         scenarioScores = Collections.unmodifiableMap(copy);
+        scenarioDetails = Collections.unmodifiableMap(new LinkedHashMap<>(scenarioDetails));
+        if (!scenarioDetails.isEmpty() && !scenarioDetails.keySet().equals(scenarioScores.keySet()))
+            throw new IllegalArgumentException("Scenario details must match scores");
+        for (var entry : scenarioDetails.entrySet()) {
+            ScenarioEvaluation detail = Objects.requireNonNull(entry.getValue(), "scenario detail");
+            if (!entry.getKey().equals(detail.name())
+                    || Double.compare(scenarioScores.get(entry.getKey()), detail.score()) != 0)
+                throw new IllegalArgumentException("Scenario details must describe the same scores");
+        }
 
     }
 
