@@ -43,6 +43,15 @@ public final class TacticalAnalysis {
             return baselineEvaluation == null ? null
                     : alternativeEvaluation.penaltyTotal() - baselineEvaluation.penaltyTotal();
         }
+        public Double positionalDelta() {
+            return baselineEvaluation == null ? null
+                    : (alternativeEvaluation.shapedScore() - alternativeEvaluation.baseScore())
+                    - (baselineEvaluation.shapedScore() - baselineEvaluation.baseScore());
+        }
+        public Double humanDelta() {
+            return baselineEvaluation == null ? null
+                    : alternativeEvaluation.humanContribution() - baselineEvaluation.humanContribution();
+        }
     }
 
     public record Result(List<Comparison> comparisons, int comparisonsEvaluated,
@@ -117,7 +126,7 @@ public final class TacticalAnalysis {
                             truncated = true;
                         } else {
                             var evaluations = evaluator.rank(board, moment, List.of(plan, alternative),
-                                    scenarios, objectives, processor);
+                                   scenarios, objectives, processor, observedChoices);
                             baseline = evaluations.stream().filter(value -> value.plan().equals(plan))
                                     .findFirst().orElseThrow();
                             replacement = evaluations.stream().filter(value ->

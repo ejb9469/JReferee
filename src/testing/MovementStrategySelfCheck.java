@@ -84,7 +84,7 @@ public final class MovementStrategySelfCheck {
         List<PlanEvaluation> directRanking = evaluator.rank(
                 board, SPRING_1901, directCandidates,
                 OpponentScenarios.asOrders(board, Nation.ENGLAND, directScenarios),
-                Map.of(Province.NTH, 1.0), processor);
+                Map.of(Province.NTH, 1.0), processor, directPredictions);
 
         require(recommendation.rankedPlans().equals(directRanking),
                 "Orchestration differs from direct component invocation");

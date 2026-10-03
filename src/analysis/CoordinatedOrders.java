@@ -17,27 +17,38 @@ import java.util.*;
  * related-unit groups, expanded together before the requested beam cutoff;
  * intermediate groups retain at most max(256, beamWidth) partials. This bounded
  * lookahead is not exhaustive and cannot recover omitted domain choices.
+ * Optional geography replenishes historical top-K with at most K observed
+ * positional choices and ranks partials with an optimistic destination hint.
+ * These hints never replace actual adjudicated scoring or historical counts.
  * RAW always uses historical generation, even with an explicit positive bias.
  */
 public final class CoordinatedOrders {
 
     public static final int FOREIGN_ASSIGNMENT_LIMIT = 4096;
+    public static final int GEOGRAPHIC_CHOICE_LIMIT = 64;
 
     private final int choicesPerUnit;
     private final int beamWidth;
     private final double tacticalBiasWeight;
+    private final ScoringConfiguration scoringConfiguration;
 
     public CoordinatedOrders(int choicesPerUnit, int beamWidth) {
         this(choicesPerUnit, beamWidth, 0);
     }
 
     public CoordinatedOrders(int choicesPerUnit, int beamWidth, double tacticalBiasWeight) {
+        this(choicesPerUnit, beamWidth, tacticalBiasWeight, ScoringConfiguration.defaults());
+    }
+
+    public CoordinatedOrders(int choicesPerUnit, int beamWidth, double tacticalBiasWeight,
+                             ScoringConfiguration scoringConfiguration) {
         if (choicesPerUnit < 1 || beamWidth < 1)
             throw new IllegalArgumentException("Search limits must be positive");
         this.choicesPerUnit = choicesPerUnit;
         this.beamWidth = beamWidth;
         TacticalBias.validateWeight(tacticalBiasWeight);
         this.tacticalBiasWeight = tacticalBiasWeight;
+        this.scoringConfiguration = Objects.requireNonNull(scoringConfiguration);
     }
 
     /** Exact complete-plan check; does not manufacture route evidence. */
@@ -70,6 +81,11 @@ public final class CoordinatedOrders {
                 .sorted(unitOrder(board)).toList();
         Map<UnitId, List<Order>> domains = new LinkedHashMap<>();
         long omitted = 0;
+        long replenished = 0;
+        long guidanceUnexamined = 0;
+        Set<UnitType> ownTypes = EnumSet.noneOf(UnitType.class);
+        units.forEach(unit -> ownTypes.add(unit.unitType()));
+        boolean guided = scoringConfiguration.hasGeography(nation, ownTypes);
         for (UnitId unit : units) {
             RoutePrediction prediction = predictions.get(unit);
             if (prediction == null || prediction.counts().isEmpty())
@@ -82,8 +98,26 @@ public final class CoordinatedOrders {
             }
             List<Order> ranked = JointOrders.rankedOrders(board, prediction);
             int retained = Math.min(choicesPerUnit, ranked.size());
-            omitted += ranked.size() - retained;
-            domains.put(unit, List.copyOf(ranked.subList(0, retained)));
+            Set<Order> choices = new LinkedHashSet<>(ranked.subList(0, retained));
+            if (guided) {
+                Map<Order, Double> hints = new HashMap<>();
+                Map<Order, Integer> historicalRanks = new HashMap<>();
+                int examined = Math.min(GEOGRAPHIC_CHOICE_LIMIT, ranked.size());
+                guidanceUnexamined += ranked.size() - examined;
+                for (int index = 0; index < examined; index++) {
+                    Order order = ranked.get(index);
+                    historicalRanks.put(order, index);
+                    hints.put(order, PositionShaping.optimisticDelta(board,
+                            new OrderPlan(nation, List.of(order), 0), scoringConfiguration));
+                }
+                List<Order> positional = new ArrayList<>(ranked.subList(0, examined));
+                positional.sort(Comparator.comparingDouble((Order order) ->
+                        hints.get(order)).reversed().thenComparingInt(historicalRanks::get));
+                choices.addAll(positional.subList(0, Math.min(retained, examined)));
+            }
+            replenished += choices.size() - retained;
+            omitted += ranked.size() - choices.size();
+            domains.put(unit, List.copyOf(choices));
         }
         if (units.isEmpty())
             return new Result(List.of(), new Diagnostics(mode, 0, 0, omitted,
@@ -93,6 +127,15 @@ public final class CoordinatedOrders {
         Comparator<OrderPlan> ranking = Comparator
                 .comparingDouble(OrderPlan::logPreference).reversed()
                 .thenComparing(plan -> Classifier.signature(board, plan.orders()));
+        Map<OrderPlan, Double> planHints = new HashMap<>();
+        if (guided) {
+            int ownCount = units.size();
+            ranking = Comparator.comparingDouble((OrderPlan plan) ->
+                    planHints.computeIfAbsent(plan, candidate ->
+                            PositionShaping.optimisticDelta(board, candidate, scoringConfiguration)
+                                    + (1 + scoringConfiguration.humanWeight() / ownCount)
+                                    * candidate.logPreference())).reversed().thenComparing(ranking);
+        }
         Set<UnitId> groupEnds = new HashSet<>();
         if (tacticalBiasWeight > 0) {
             ranking = Comparator.comparingInt((OrderPlan plan) ->
@@ -127,6 +170,7 @@ public final class CoordinatedOrders {
                 }
             }
             expanded.sort(ranking);
+            planHints.clear();
             int retainedWidth = tacticalBiasWeight > 0 && !groupEnds.contains(unit)
                     ? Math.max(256, beamWidth) : beamWidth;
             truncated |= expanded.size() > retainedWidth;
@@ -156,7 +200,8 @@ public final class CoordinatedOrders {
         }
         Diagnostics diagnostics = new Diagnostics(mode, expandedCount, rejected, omitted,
                 truncated, List.copyOf(reasons), conditional,
-                dependencyAssignments, dependencyTruncated, structured);
+                dependencyAssignments, dependencyTruncated, structured, guided, replenished,
+                guidanceUnexamined);
         return new Result(complete, diagnostics,
                 complete.isEmpty() && omitted == 0 && !truncated && !dependencyTruncated);
     }
@@ -596,7 +641,31 @@ public final class CoordinatedOrders {
                               Map<String, List<String>> conditionalPlans,
                               long dependencyAssignmentsExamined,
                               boolean dependencySearchTruncated,
-                              Map<String, ForeignDependencies> foreignDependencies) {
+                              Map<String, ForeignDependencies> foreignDependencies,
+                              boolean geographyGuided, long replenishedChoices,
+                              long guidanceChoicesUnexamined) {
+        public Diagnostics(CoordinationMode mode, long expandedCandidates,
+                           long rejectedCandidates, long omittedChoices,
+                           boolean beamTruncated, List<String> reasons,
+                           Map<String, List<String>> conditionalPlans,
+                           long dependencyAssignmentsExamined, boolean dependencySearchTruncated,
+                           Map<String, ForeignDependencies> foreignDependencies,
+                           boolean geographyGuided, long replenishedChoices) {
+            this(mode, expandedCandidates, rejectedCandidates, omittedChoices, beamTruncated,
+                    reasons, conditionalPlans, dependencyAssignmentsExamined,
+                    dependencySearchTruncated, foreignDependencies, geographyGuided,
+                    replenishedChoices, 0);
+        }
+        public Diagnostics(CoordinationMode mode, long expandedCandidates,
+                           long rejectedCandidates, long omittedChoices,
+                           boolean beamTruncated, List<String> reasons,
+                           Map<String, List<String>> conditionalPlans,
+                           long dependencyAssignmentsExamined, boolean dependencySearchTruncated,
+                           Map<String, ForeignDependencies> foreignDependencies) {
+            this(mode, expandedCandidates, rejectedCandidates, omittedChoices, beamTruncated,
+                    reasons, conditionalPlans, dependencyAssignmentsExamined,
+                    dependencySearchTruncated, foreignDependencies, false, 0);
+        }
         public Diagnostics(CoordinationMode mode, long expandedCandidates,
                            long rejectedCandidates, long omittedChoices,
                            boolean beamTruncated, List<String> reasons,

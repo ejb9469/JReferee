@@ -37,13 +37,23 @@ import static io.json.JsonEscaper.appendString;
 public final class StrategyBrowserApp {
 
     private static final int MAX_REQUEST_BYTES = 32_768;
+    private static final long MAX_GEOGRAPHIC_SEARCH_WORK = 8_000_000;
 
     private static final Set<String> FORM_FIELDS = Set.of(
             "nation", "year", "phase", "policy", "coordinationMode",
             "units", "centers", "objectives",
             "centerWeight", "dislodgementPenalty", "caution", "tacticalBiasWeight",
             "minimum", "choices", "plans", "scenarios");
-    private static final Set<String> OPTIONAL_FORM_FIELDS = Set.of("compareAlternatives");
+    private static final Set<String> OPTIONAL_FORM_FIELDS = optionalFields();
+
+    private static Set<String> optionalFields() {
+        Set<String> fields = new HashSet<>(Set.of("compareAlternatives", "humanWeight", "globalValues"));
+        for (Nation nation : Nation.values()) {
+            fields.add("adjustments." + nation.name());
+            fields.add("regions." + nation.name());
+        }
+        return Set.copyOf(fields);
+    }
 
     private StrategyBrowserApp() { }
 
@@ -247,7 +257,8 @@ public final class StrategyBrowserApp {
                         new OutcomeEvaluator(
                                 query.centerWeight(),
                                 query.dislodgementPenalty(),
-                                query.caution(), query.configuration().tacticalBiasWeight()),
+                                query.caution(), query.configuration().tacticalBiasWeight(),
+                                query.configuration().scoringConfiguration()),
                         new MovementProcessor());
 
                 send(exchange, 200, "application/json; charset=utf-8",
@@ -338,7 +349,8 @@ public final class StrategyBrowserApp {
                 integer(values, "minimum", 1, 10000),
                 choices, plans, scenarios,
                 enumValue(CoordinationMode.class, values.get("coordinationMode")),
-                decimal(values.get("tacticalBiasWeight"), "Tactical bias weight", 0, 1000));
+                decimal(values.get("tacticalBiasWeight"), "Tactical bias weight", 0, 1000),
+                parseScoring(values));
 
         Map<UnitId, Province> locations = new LinkedHashMap<>();
         Set<Province> occupied = EnumSet.noneOf(Province.class);
@@ -373,6 +385,28 @@ public final class StrategyBrowserApp {
                             .getBytes(StandardCharsets.UTF_8));
 
             locations.put(new UnitId(id, owner, type, location), location);
+            if (locations.size() > 75)
+                throw new IllegalArgumentException("At most 75 active units are supported.");
+        }
+        long ownUnits = locations.keySet().stream().filter(unit -> unit.owner() == nation).count();
+        long geographyWork = (long) plans * scenarios * ownUnits
+                * configuration.scoringConfiguration().profile(nation).objectives().size();
+        if (geographyWork > 65_536)
+            throw new IllegalArgumentException("Regional work budget exceeded (plans × scenarios × own units × goals ≤65536).");
+        var scoring = configuration.scoringConfiguration();
+        Set<UnitType> ownTypes = EnumSet.noneOf(UnitType.class);
+        locations.keySet().stream().filter(unit -> unit.owner() == nation)
+                .forEach(unit -> ownTypes.add(unit.unitType()));
+        var profile = scoring.profile(nation);
+        boolean activeGeography = scoring.hasGeography(nation, ownTypes);
+        if (configuration.coordinationMode() != CoordinationMode.RAW && activeGeography) {
+            long shapeEntries = ownUnits * ownUnits * (1L + profile.objectives().size());
+            long searchWork = shapeEntries * (Math.max(256, plans) * 2L * choices
+                    + CoordinatedOrders.GEOGRAPHIC_CHOICE_LIMIT);
+            if (searchWork > MAX_GEOGRAPHIC_SEARCH_WORK)
+                throw new IllegalArgumentException(
+                        "Geographic search work budget exceeded: own units² × (1+goals) × "
+                                + "(max(256,plans) × 2 × choices + guidance scan cap) ≤8000000.");
         }
 
         Map<Province, Nation> centers = new EnumMap<>(Province.class);
@@ -415,6 +449,85 @@ public final class StrategyBrowserApp {
 
     }
 
+
+    private static ScoringConfiguration parseScoring(Map<String, String> values) {
+        Map<Nation, ScoringConfiguration.NationProfile> profiles = new EnumMap<>(Nation.class);
+        int goals = 0, targets = 0;
+        for (Nation nation : Nation.values()) {
+            var adjustments = provinceValues(values.getOrDefault("adjustments." + nation.name(), ""));
+            List<ScoringConfiguration.RegionalObjective> objectives = new ArrayList<>();
+            Set<String> names = new HashSet<>();
+            for (String row : rows(values.getOrDefault("regions." + nation.name(), ""))) {
+                String[] parts = fields(row, 6, "NAME TARGETS PRIORITY TYPES HORIZON DECAY");
+                if (!parts[0].matches("[A-Za-z0-9_-]{1,40}") || !names.add(parts[0]))
+                    throw new IllegalArgumentException("Regional objective names must be unique, 1–40 letters/digits/_/-.");
+                Set<Province> provinces = EnumSet.noneOf(Province.class);
+                for (String target : parts[1].split(",", -1)) {
+                    Province province = regionTarget(target);
+                    Province canonical = Province.canonical(province);
+                    if (provinces.contains(province)
+                            || (canonical != province && provinces.contains(canonical))
+                            || (canonical == province && provinces.stream()
+                            .anyMatch(existing -> Province.canonical(existing) == canonical)))
+                        throw new IllegalArgumentException("Repeated regional target: " + target);
+                    provinces.add(province);
+                }
+                goals++;
+                targets += provinces.size();
+                if (objectives.size() >= 8 || provinces.size() > 16 || goals > 32 || targets > 128)
+                    throw new IllegalArgumentException("Profile budget: at most 8 goals/nation, 32 total goals, 16 targets/goal, 128 total targets.");
+                double priority = decimal(parts[2], "Regional priority", 0, 1000);
+                if (priority == 0)
+                    throw new IllegalArgumentException("Regional priority must be positive.");
+                objectives.add(new ScoringConfiguration.RegionalObjective(
+                        parts[0], provinces, priority, unitTypes(parts[3]),
+                        integer(Map.of("horizon", parts[4]), "horizon", 1, 12),
+                        decimal(parts[5], "Regional decay", 0, 1)));
+            }
+            profiles.put(nation, new ScoringConfiguration.NationProfile(adjustments, objectives));
+        }
+        return new ScoringConfiguration(
+                decimal(values.getOrDefault("humanWeight", "0"), "Human preference weight", 0, 1000),
+                provinceValues(values.getOrDefault("globalValues", "")), profiles);
+    }
+
+    private static Map<Province, ScoringConfiguration.ProvinceValue> provinceValues(String text) {
+        Map<Province, ScoringConfiguration.ProvinceValue> values = new EnumMap<>(Province.class);
+        for (String row : rows(text)) {
+            String[] parts = row.replace('=', ' ').replace('/', ' ').split("\\s+");
+            if (parts.length < 2 || parts.length > 3)
+                throw new IllegalArgumentException("Expected PROVINCE=VALUE[/ARMY,FLEET]: " + row);
+            Province province = scoringProvince(parts[0]);
+            var value = new ScoringConfiguration.ProvinceValue(
+                    decimal(parts[1], "Province value", -1000, 1000),
+                    unitTypes(parts.length == 3 ? parts[2] : "ARMY,FLEET"));
+            if (values.putIfAbsent(province, value) != null)
+                throw new IllegalArgumentException("Repeated province value: " + province);
+        }
+        return Map.copyOf(values);
+    }
+
+    private static Province scoringProvince(String text) {
+        Province province = enumValue(Province.class, text);
+        if (province == Province.Swi || Province.canonical(province) != province)
+            throw new IllegalArgumentException("Scoring requires a playable canonical province, not a coast alias: " + text);
+        return province;
+    }
+
+    private static Province regionTarget(String text) {
+        Province province = enumValue(Province.class, text);
+        if (province == Province.Swi)
+            throw new IllegalArgumentException("Switzerland is not a regional target.");
+        return province;
+    }
+
+    private static Set<UnitType> unitTypes(String text) {
+        Set<UnitType> types = EnumSet.noneOf(UnitType.class);
+        for (String value : text.split(",", -1))
+            if (!types.add(enumValue(UnitType.class, value)))
+                throw new IllegalArgumentException("Repeated unit type: " + text);
+        return Set.copyOf(types);
+    }
 
     private static String bootstrapJson(String token, String ruleset, int games) {
 
@@ -506,6 +619,10 @@ public final class StrategyBrowserApp {
                 .append(",\"expandedCandidates\":").append(coordination.expandedCandidates())
                 .append(",\"rejectedCandidates\":").append(coordination.rejectedCandidates())
                 .append(",\"omittedChoices\":").append(coordination.omittedChoices())
+                .append(",\"geographyGuided\":").append(coordination.geographyGuided())
+                .append(",\"replenishedChoices\":").append(coordination.replenishedChoices())
+                .append(",\"guidanceChoicesUnexamined\":").append(coordination.guidanceChoicesUnexamined())
+                .append(",\"geographicChoiceLimit\":").append(CoordinatedOrders.GEOGRAPHIC_CHOICE_LIMIT)
                 .append(",\"beamTruncated\":").append(coordination.beamTruncated())
                 .append(",\"dependencyAssignmentsExamined\":")
                 .append(coordination.dependencyAssignmentsExamined())
@@ -570,7 +687,8 @@ public final class StrategyBrowserApp {
                     query.board(), query.moment(), evaluation.plan(),
                     recommendation.selectedPredictions(), recommendation.scenarioOrders(),
                     query.objectives(), new OutcomeEvaluator(query.centerWeight(),
-                            query.dislodgementPenalty(), query.caution(), config.tacticalBiasWeight()),
+                            query.dislodgementPenalty(), query.caution(), config.tacticalBiasWeight(),
+                            config.scoringConfiguration()),
                     new MovementProcessor(), query.compareAlternatives(),
                     comparisonsRemaining, comparisonWorkRemaining);
             comparisonsRemaining -= tactical.comparisonsEvaluated();
@@ -588,6 +706,13 @@ public final class StrategyBrowserApp {
                     .append(",\"penaltyTotal\":").append(evaluation.penaltyTotal())
                     .append(",\"mean\":").append(evaluation.mean())
                     .append(",\"worst\":").append(evaluation.worst())
+                    .append(",\"shapedMean\":").append(evaluation.shapedMean())
+                    .append(",\"shapedWorst\":").append(evaluation.shapedWorst())
+                    .append(",\"shapedScore\":").append(evaluation.shapedScore())
+                    .append(",\"humanWeight\":").append(evaluation.humanWeight())
+                    .append(",\"humanContribution\":").append(evaluation.humanContribution())
+                    .append(",\"humanPreference\":").append(humanJson(query.board(), evaluation.humanPreference()))
+                    .append(",\"scoringConfiguration\":").append(scoringJson(evaluation.scoringConfiguration()))
                     .append(",\"logPreference\":").append(evaluation.plan().logPreference())
                     .append(",\"orders\":").append(ordersJson(query.board(), evaluation.plan().orders()))
                     .append(",\"scenarios\":").append(scenariosJson(query.board(), evaluation))
@@ -654,6 +779,8 @@ public final class StrategyBrowserApp {
                     + ",\"worstDelta\":" + comparison.worstDelta()
                     + ",\"scoreDelta\":" + comparison.scoreDelta()
                     + ",\"adjustedScoreDelta\":" + comparison.adjustedScoreDelta()
+                    + ",\"positionalDelta\":" + comparison.positionalDelta()
+                    + ",\"humanDelta\":" + comparison.humanDelta()
                     + ",\"penaltyDelta\":" + comparison.penaltyDelta() + "}");
         }
         return out.toString();
@@ -679,7 +806,11 @@ public final class StrategyBrowserApp {
                     + ",\"centerPositionDelta\":" + scenario.centerPositionDelta()
                     + ",\"dislodgementPenalty\":" + scenario.dislodgementPenalty()
                     + ",\"dislodgedUnits\":" + scenario.dislodgedUnits()
-                    + ",\"score\":" + scenario.score() + "}");
+                    + ",\"score\":" + scenario.score()
+                    + ",\"provinceContribution\":" + scenario.provinceContribution()
+                    + ",\"regionalContribution\":" + scenario.regionalContribution()
+                    + ",\"augmentedScore\":" + scenario.augmentedScore()
+                    + ",\"shaping\":" + shapingJson(board, scenario.shaping()) + "}");
         return out.toString();
     }
 
@@ -738,17 +869,99 @@ public final class StrategyBrowserApp {
                 + ",\"dislodgementPenalty\":" + query.dislodgementPenalty()
                 + ",\"caution\":" + query.caution()
                 + ",\"tacticalBiasWeight\":" + config.tacticalBiasWeight()
+                + ",\"scoringConfiguration\":" + scoringJson(config.scoringConfiguration())
                 + ",\"equalScenarioWeights\":true"
-                + ",\"formula\":\"base=(1-caution)*mean+caution*worst; adjusted=base-weight*offendingMoveCount\""
+                + ",\"formula\":\"raw=(1-caution)*mean+caution*worst; shaped=(1-caution)*shapedMean+caution*shapedWorst; final=shaped-tacticalWeight*offendingMoveCount+humanWeight*humanPreference\""
                 + ",\"limits\":{\"minimumObservations\":" + config.minimumObservations()
                 + ",\"choicesPerUnit\":" + config.choicesPerUnit()
                 + ",\"nationalPlanLimit\":" + config.nationalPlanLimit()
                 + ",\"opponentScenarioLimit\":" + config.opponentScenarioLimit()
                 + ",\"evaluationBudget\":512"
+                + ",\"regionalWorkBudget\":65536"
+                + ",\"geographicSearchWorkBudget\":" + MAX_GEOGRAPHIC_SEARCH_WORK
+                + ",\"geographicChoiceLimit\":" + CoordinatedOrders.GEOGRAPHIC_CHOICE_LIMIT
                 + ",\"comparisonLimit\":" + TacticalAnalysis.MAX_COMPARISONS
                 + ",\"comparisonScenarioEvaluationBudget\":" + TacticalAnalysis.MAX_SCENARIO_EVALUATIONS
                 + ",\"foreignAssignmentLimit\":" + CoordinatedOrders.FOREIGN_ASSIGNMENT_LIMIT + "}"
                 + ",\"compareAlternatives\":" + query.compareAlternatives() + "}";
+    }
+
+    private static String scoringJson(ScoringConfiguration scoring) {
+        StringJoiner profiles = new StringJoiner(",", "{", "}");
+        for (Nation nation : Nation.values()) {
+            var profile = scoring.profile(nation);
+            StringJoiner objectives = new StringJoiner(",", "[", "]");
+            for (var objective : profile.objectives())
+                objectives.add("{\"name\":" + quote(objective.name())
+                        + ",\"targets\":" + enumNames(objective.targets())
+                        + ",\"priority\":" + objective.priority()
+                        + ",\"unitTypes\":" + enumNames(objective.unitTypes())
+                        + ",\"horizon\":" + objective.horizon()
+                        + ",\"decay\":" + objective.decay() + "}");
+            profiles.add(quote(nation.name()) + ":{\"adjustments\":"
+                    + valuesJson(profile.adjustments()) + ",\"objectives\":" + objectives + "}");
+        }
+        return "{\"humanWeight\":" + scoring.humanWeight()
+                + ",\"globalValues\":" + valuesJson(scoring.globalValues())
+                + ",\"nationProfiles\":" + profiles + "}";
+    }
+
+    private static String valuesJson(Map<Province, ScoringConfiguration.ProvinceValue> values) {
+        StringJoiner out = new StringJoiner(",", "{", "}");
+        values.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry ->
+                out.add(quote(entry.getKey().name()) + ":{\"value\":" + entry.getValue().value()
+                        + ",\"unitTypes\":" + enumNames(entry.getValue().unitTypes()) + "}"));
+        return out.toString();
+    }
+
+    private static String enumNames(Collection<? extends Enum<?>> values) {
+        return stringsJson(values.stream().map(Enum::name).sorted().toList());
+    }
+
+    private static String unitJson(BoardState board, UnitId unit) {
+        return "{\"unit\":" + quote(unit.value().toString()) + ",\"nation\":" + quote(unit.owner().name())
+                + ",\"unitType\":" + quote(unit.unitType().name())
+                + ",\"origin\":" + provinceJson(board.locationOf(unit)) + "}";
+    }
+
+    private static String humanJson(BoardState board, HumanPreference preference) {
+        StringJoiner units = new StringJoiner(",", "[", "]");
+        for (var unit : preference.units())
+            units.add("{\"identity\":" + unitJson(board, unit.unit())
+                    + ",\"order\":" + (unit.order() == null ? "null" : orderJson(board, unit.order()))
+                    + ",\"selectedCount\":" + unit.selectedCount()
+                    + ",\"denominator\":" + unit.denominator()
+                    + ",\"basis\":" + quote(unit.basis())
+                    + ",\"logFrequency\":" + unit.logFrequency()
+                    + ",\"available\":" + unit.available()
+                    + ",\"diagnostic\":" + quote(unit.diagnostic()) + "}");
+        return "{\"available\":" + preference.available() + ",\"score\":" + preference.score()
+                + ",\"diagnostic\":" + quote(preference.diagnostic())
+                + ",\"units\":" + units + "}";
+    }
+
+    private static String shapingJson(BoardState board, PositionShaping.Breakdown shaping) {
+        StringJoiner units = new StringJoiner(",", "[", "]");
+        for (var unit : shaping.units())
+            units.add("{\"identity\":" + unitJson(board, unit.unit())
+                    + ",\"before\":" + provinceJson(unit.before()) + ",\"after\":" + provinceJson(unit.after())
+                    + ",\"beforeValue\":" + unit.beforeValue() + ",\"afterValue\":" + unit.afterValue()
+                    + ",\"contribution\":" + unit.contribution() + ",\"surviving\":" + unit.surviving() + "}");
+        StringJoiner objectives = new StringJoiner(",", "[", "]");
+        for (var objective : shaping.objectives()) {
+            StringJoiner potentials = new StringJoiner(",", "[", "]");
+            for (var unit : objective.units())
+                potentials.add("{\"identity\":" + unitJson(board, unit.unit())
+                        + ",\"beforeDistance\":" + unit.beforeDistance() + ",\"afterDistance\":" + unit.afterDistance()
+                        + ",\"beforePotential\":" + unit.beforePotential() + ",\"afterPotential\":" + unit.afterPotential() + "}");
+            objectives.add("{\"name\":" + quote(objective.name())
+                    + ",\"beforePotential\":" + objective.beforePotential()
+                    + ",\"afterPotential\":" + objective.afterPotential()
+                    + ",\"contribution\":" + objective.contribution() + ",\"units\":" + potentials + "}");
+        }
+        return "{\"provinceContribution\":" + shaping.provinceContribution()
+                + ",\"regionalContribution\":" + shaping.regionalContribution()
+                + ",\"units\":" + units + ",\"objectives\":" + objectives + "}";
     }
 
     private static boolean booleanValue(String value) {

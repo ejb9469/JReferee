@@ -122,6 +122,348 @@ Notes:
 
 ## Experimental movement strategy
 
+### Configurable preference scoring: design and sources
+
+The optional scoring layers are an original, interpretable Java heuristic,
+not CICERO, a trained joint policy, reinforcement learning, or piKL equilibrium
+search. The useful research distinction is **human anchor versus strategic
+planning/value**, not a set of published province weights:
+
+- [Official CICERO/Diplodocus project](https://github.com/facebookresearch/diplomacy_cicero)
+  separates dialogue-free strategy models, planning agents, and training.
+  Its [human-imitation joint-policy model card](https://github.com/facebookresearch/diplomacy_cicero/blob/main/model_cards/human_imitation_joint_policy.md)
+  describes an anchor compatible with human conventions and autoregressive
+  actions that can model correlations. Our independent order frequencies
+  cannot model those correlations; hard coordination checks remain essential.
+- [Human-regularized no-press Diplomacy/Diplodocus](https://arxiv.org/abs/2210.05492)
+  motivates retaining a human anchor while planning. This implementation does
+  not reproduce its learning or planning algorithm.
+- [Modeling Strong and Human-Like Gameplay with KL-Regularized Search](https://openreview.net/pdf?id=H9N_sqy6lc)
+  motivates an adjustable preference for human-like actions alongside value.
+  A weighted average log frequency here is **not** a KL divergence, an
+  equilibrium computation, or a reproduction of piKL.
+- [DipNet project](https://github.com/diplomacy/research) and
+  [paper](https://arxiv.org/abs/1909.02128) provide the broader supervised-policy
+  and board-context motivation. We import neither its models nor its dataset.
+
+The official project READMEs and CICERO model card were read for this change.
+The piKL paper was read via its
+[official PMLR mirror](https://raw.githubusercontent.com/mlresearch/v162/gh-pages/jacob22a/jacob22a.pdf)
+(particularly sections 4.2–4.3: regularized utility, regret minimization and
+candidate action/value search). DipNet was read via its
+[project paper mirror](https://raw.githubusercontent.com/diplomacy/research/master/neurips_paper_v1.pdf)
+(sections 4.1–4.3: board/previous-order inputs, adjacency encoder and sequential
+order decoder). Direct arXiv/OpenReview endpoints were unavailable; the
+Diplodocus paper's full text was not accessible, so its anchor/value separation
+is grounded instead in the official
+[anchor policy](https://github.com/facebookresearch/diplomacy_cicero/blob/main/model_cards/no_press_human_imitation_policy.md)
+and [value model](https://github.com/facebookresearch/diplomacy_cicero/blob/main/model_cards/diplodocus_high_rl_value_function.md)
+cards, not a claim to have reproduced unread methods. CICERO's main code is MIT with
+separately licensed external utilities and noncommercial model weights; DipNet
+also separates code licensing from restrictions on weights and data. **No code,
+assets, weights, or datasets from either project are reused.** No external API,
+ML framework, checkpoint download, Python service, or press generation is added.
+
+All new scoring layers default to zero/empty in the Java API and browser.
+Existing center-position, snapshot objective, dislodgement, caution, and
+tactical-bias settings retain their meaning. Province profiles and named
+regions are user heuristics, not learned values or historical national goals.
+The opt-in example (German Prussia negative; global MAO/ION fleet values
+positive) is editable, removable, experimental, and **untuned**. None is a
+prohibition: actual outcomes and tactical needs can outweigh positional wishes.
+
+#### Layer arithmetic and evidence
+
+For each explicit, equally weighted opponent scenario:
+
+```text
+legacyScenario = legacy objective delta + center-position delta − dislodgement penalty
+augmentedScenario = legacyScenario + provinceContribution + regionalContribution
+baseScore = (1 − caution) × rawMean + caution × rawWorst
+shapedScore = (1 − caution) × shapedMean + caution × shapedWorst
+H = average over active own units of log(selectedOrderCount / selectedDistributionTotal)
+finalScore = shapedScore − tacticalWeight × offendingMoves + humanWeight × H
+```
+
+`PlanEvaluation.mean`, `worst`, `baseScore`, `scenarioScores`, and
+`ScenarioEvaluation.score` retain **raw** meanings. New `shapedMean`,
+`shapedWorst`, `shapedScore`, `augmentedScore`, and contributions are separate.
+The shaped worst is the minimum of **complete augmented scenario scores**,
+never a sum of component minima from different scenarios. Tactical penalties
+and the human term are applied once per plan, not once per scenario.
+
+Human evidence uses the actual selected prediction distribution: year-pooling
+or other selection happens first, reference filtering (if selected) then
+conditions that distribution, and the denominator sums **all its surviving
+counts before top-K truncation**. It is not an unfiltered population frequency.
+There is no smoothing, confidence attenuation, or fabricated unseen count.
+Average logs prevent automatically penalizing larger nations. The raw summed
+`OrderPlan.logPreference` remains available and remains a final tie-breaker.
+Individual order independence is an approximation, not a learned joint policy.
+Unavailable evidence is explicit, with finite placeholders and per-unit
+diagnostics; positive human weight requires complete evidence and rejects
+invalid scorer input. Zero-weight legacy direct APIs still accept manually
+constructed plans without evidence. Evidence-aware calls can expose additional
+metadata at weight zero without changing legacy numeric scores or ranks.
+
+#### Province profiles and regional potentials
+
+`ScoringConfiguration` is an immutable value passed to both strategy and
+evaluator; mismatched configurations are rejected. All seven nation profiles
+exist, even when empty. Effective occupation value is
+**global value + advised nation's adjustment**, each subject to its own unit-type
+applicability. Territory valuations canonicalize coasts and reject duplicate
+aliases; movement locations retain exact fleet coasts. A user's negative
+German Prussia adjustment has no effect on Russia or other nations.
+
+Province contribution sums effective-value differences from actual before and
+after locations of surviving own units. Bounces therefore yield zero progress.
+Dislodged/missing units contribute zero to both new layers: loss cannot earn
+positive “escape” from a negative square, and the separate legacy
+dislodgement penalty remains visible. These are occupation values, not claimed
+supply-center captures.
+
+Named regions have explicit targets, applicable unit types, positive priority,
+distance horizon, and nonnegative exponential decay. For each applicable unit:
+`potential = priority × exp(−decay × distance)` within the horizon, otherwise
+zero. Unreachable distance is `−1` with zero potential. A region's potential is
+the **maximum** over its surviving applicable units, not their sum; each
+objective is bounded by its priority and attracting extra units gives no extra
+reward when one is already closer. Contributions sum independently across
+named regions as `potential(after) − potential(before)`. Approach can earn
+reward before arrival; equal distance or staying inside earns zero, moving
+away can be negative, and round trips telescope to zero for a fixed profile
+and surviving cohort. Removing an objective disables it.
+
+Static distances use shortest paths on unit-appropriate engine geography.
+Armies use land-only movement, **not convoy reachability**. Fleets use exact
+coastal connectivity, preserving split coasts; a canonical region target can
+match either coast, while an explicit coast target remains specific.
+Static unreachable diagnostics are limitations, not assertions that a convoy
+could never reach a region. Actual adjudicated convoy arrivals can change
+potential, but search hints do not assume arbitrary convoy routes.
+This is bounded regional positional shaping, not multi-turn planning.
+
+#### Bounded availability and comparisons
+
+With geographic features enabled, coordinated search retains the union of
+historical top-K and up to K positional observed choices from the first
+64 historically ranked choices per own unit
+(at most 2K), then uses the existing bounded beam and hard coordination checks.
+The search hint is optimistic direct-move shaping plus
+`(1 + humanWeight / ownUnitCount) × partial.logPreference`; PR9's positive
+tactical-bias collision ordering and dependency grouping take precedence.
+Hint values are **pre-adjudication**, not final scores. Counts and historical
+log preferences are never replaced with hint scores.
+
+Zero/empty geographic settings use legacy search; RAW always uses historical
+generation. Replenished, omitted, and guidance-unexamined choices, beam/dependency cutoffs, and
+unreachable objectives are reported. Evidence absent from the supplied
+distribution cannot be recovered, and a bounded beam can still miss a better
+plan. No global optimum or exhaustive enumeration is claimed.
+
+Alternative comparisons use the same frozen evaluator, evidence and explicit
+opponent scenarios for original and replacement. Raw outcome delta,
+`(shapedScore − baseScore)` delta, human contribution delta, and tactical
+penalty delta remain separate; their sum (subtracting the penalty delta)
+reconciles the final-score difference without double counting. A heuristic
+ranking gain is not proof of tactical improvement or playing strength.
+
+#### Browser profile controls
+
+The scoring editor stores reusable adjustments and regions independently for
+all seven countries; changing the advised nation loads its own profile.
+Global values apply to all countries. The editable text formats are:
+
+```text
+# Province values (omit this comment when pasting):
+MAO=1/FLEET
+ION=1/FLEET
+
+# Germany's adjustments:
+Pru=-1/ARMY,FLEET
+
+# Germany's named regions: NAME TARGETS PRIORITY TYPES HORIZON DECAY
+north Bel,Hol 2 ARMY 4 0.5
+```
+
+Names in the browser contain letters/digits/underscore/hyphen. Type filters
+are optional for valuations (default both types), mandatory for regions.
+Deleting a row deletes that value/goal. Delete-country-profile and
+disable/reset-all controls are explicit; export/import JSON contains exactly
+seven reusable nation profiles. Canonical values and exact-coast region
+targets have distinct parsing rules. The Java endpoint validates the complete
+profile, including unknown names, duplicate territory aliases, finite values,
+body size, goal/target counts and estimated work; HTML validation alone is
+not trusted.
+
+Browser values and human weight are bounded to ±1000 and 0–1000 respectively;
+regional priority is positive up to 1000, horizon 1–12, decay 0–1. Limits
+include 8 goals per country, 32 total goals, 16 targets per goal and 128 total
+targets, a 32 KiB URL-encoded body, and bounded scoring/search work.
+Regional outcome work is capped at
+`plans × scenarios × ownUnits × goals ≤ 65536`; guided search estimates
+`ownUnits² × (1 + goals) × (max(256, plans) × 2 × choices + 64) ≤ 8000000`.
+Search and endpoint budgets use the same nation/unit-type-aware activation
+helper, including effective global-plus-national cancellations. Inapplicable
+types, foreign-only adjustments and zeroed values do not activate guidance.
+The Java configuration API also validates finite, bounded values but permits
+larger programmatic limits documented by its constants.
+
+Legacy snapshot objectives remain separate from reusable profiles and are
+cleared on country changes and game/phase imports. Reusable profiles persist
+deliberately, with that behavior labelled in the editor. Results retain their
+own immutable Java configuration and serialized provenance; changing settings
+invalidates displayed results rather than retroactively changing their score.
+Human evidence, effective before/after province values, per-region distances
+and potentials, raw/shaped means and worst values, and the once-per-plan terms
+are visible in the inspector. No region layer replaces recorded ownership
+tint, historical submissions, or foreign-assumption overlays.
+
+#### Opt-in ablation, not a strength benchmark
+
+```sh
+java -cp "$CP" _app.PreferenceAblationApp
+java -cp "$CP" _app.PreferenceAblationApp --synthetic-validation
+```
+
+The no-argument command does not load data or start an experiment. The
+explicit synthetic command runs fixed illustrations for tactical-5 baseline,
+human-only addition, province-only addition, region-only addition and combined
+settings, with identical explicit scenarios. It prints availability, candidate
+cutoffs, common-plan rank changes, latency, full evidence denominators and
+raw-versus-heuristic score differences. Human reference-order agreement is
+**unmeasured** for synthetic fixtures, never inferred from frequency scores.
+Latency is elapsed wall time including JVM warm-up/cache effects, not a
+controlled performance benchmark.
+
+For real positions use `PreferenceAblation.evaluate` with a bounded list of
+fixed `ValidationFixture`s, predictions produced from **TRAINING only**,
+explicit scenarios, and optional VALIDATION reference-order labels. Reference
+labels are only measured after ranking; they never enter features or search.
+The harness caps fixtures, units, evidence choices, scenarios, beam width and
+total candidate/scenario evaluations. It opens no database implicitly.
+Tuning must use TRAINING/VALIDATION, never reserved TEST, and must not add
+current/future submissions to a model or history. No tuning, real-corpus
+measurement, self-play tournament or playing-strength improvement is claimed
+by this implementation.
+
+#### Validation of this change (2026-10-03)
+
+**Passed:** all 227 Java source files compiled on Java 25, including browser
+and new fixtures. 27 main-based Java self-checks passed across the scoped
+validation runs. The final existing-suite run passed DATC **132/132 cases,
+677/677 orders**, phases **34/34 cases, 163/163 checks**, and parser fixtures
+**2/2 cases, 96/96 checks**, with zero manager warnings. Compilation emitted
+only existing deprecation notes. Both opt-in ablation CLI modes passed; the
+synthetic experiment produced 15 rows with human-reference agreement explicitly
+unmeasured.
+
+The final whole-source/existing-suite commands (consolidated) were:
+
+```sh
+cd /home/runner/work/JReferee/JReferee
+R=/home/runner/work/JReferee/JReferee
+JDK=/usr/lib/jvm/temurin-25-jdk-amd64/bin
+A=/usr/share/gradle-9.8.0/lib/annotations-24.0.1.jar
+B="$R/out/regression-final"
+mkdir -p "$B/classes" "$B/logs" "$B/native"
+find "$R/src" -name '*.java' -print0 |
+  xargs -0 "$JDK/javac" --release 25 -cp "$A" -d "$B/classes" \
+  > "$B/logs/compile.log" 2>&1
+"$JDK/java" -cp "$B/classes" testing.PreferenceSearchSelfCheck
+curl -fsSL https://repo.maven.apache.org/maven2/org/xerial/sqlite-jdbc/3.53.4.0/sqlite-jdbc-3.53.4.0.jar \
+  -o "$B/sqlite-jdbc-3.53.4.0.jar"
+CP="$B/classes:$R/src:$R/src/resources:$A:$B/sqlite-jdbc-3.53.4.0.jar"
+for check in BackendDiagnosticsSelfCheck CandidateSelectionAuditSelfCheck \
+  CoordinatedOrdersSelfCheck FourPolicyEvaluationSelfCheck HeldOutEvaluationSelfCheck \
+  JointOrdersSelfCheck MovementStrategySelfCheck OccupancyRelaxationSelfCheck \
+  OpponentScenariosSelfCheck RouteCorpusSelfCheck RoutePreferencesSelfCheck \
+  ScenarioCoverageSelfCheck ScenarioWidthComparisonSelfCheck StageCoverageSelfCheck \
+  TacticalPrinciplesSelfCheck YearPooledSelectionSelfCheck YearPoolingSelfCheck
+do
+  "$JDK/java" --enable-native-access=ALL-UNNAMED \
+    -Djava.io.tmpdir="$B/native" -Dorg.sqlite.tmpdir="$B/native" \
+    -cp "$CP" "testing.$check" > "$B/logs/testing.$check.log" 2>&1 || exit 1
+done
+for check in parsing.diplobn.DiploBNRecordImporterSelfCheck \
+  performance.PerformanceStatsSelfCheck phase.movement.NormalizedOrderSelfCheck
+do
+  "$JDK/java" --enable-native-access=ALL-UNNAMED \
+    -Djava.io.tmpdir="$B/native" -Dorg.sqlite.tmpdir="$B/native" \
+    -cp "$CP" "$check" > "$B/logs/$check.log" 2>&1 || exit 1
+done
+"$JDK/java" --enable-native-access=ALL-UNNAMED \
+  -Djava.io.tmpdir="$B/native" -Dorg.sqlite.tmpdir="$B/native" \
+  -cp "$CP" _app.TestCaseManager > "$B/logs/TestCaseManager.log" 2>&1
+"$JDK/java" -cp "$CP" _app.PreferenceAblationApp > "$B/logs/ablation-guard.log" 2>&1
+"$JDK/java" -cp "$CP" _app.PreferenceAblationApp --synthetic-validation \
+  > "$B/logs/ablation-synthetic.log" 2>&1
+```
+
+Outputs were logged under `$B/logs`; build/log/native/JDBC scratch was removed
+after validation. The existing pinned SQLite driver was used only for synthetic
+JDBC tests; its advisory check returned no findings and no dependency changed.
+Subagent filesystem restrictions required ignored `out/` scratch during scoped
+runs; no generated data was committed. Ordinary reproductions can set `B` to a
+directory under `/tmp`.
+
+The six separately validated Java checks, accepted without redundant reruns,
+were `PreferenceScoringSelfCheck`, `OutcomeEvaluatorSelfCheck`,
+`TacticalBiasSelfCheck`, `ReferenceFilteringSelfCheck`,
+`StrategyBrowserSelfCheck`, and `StrategyBrowserHttpSelfCheck`. Final core
+checks used Java 25 and the installed annotation jar with `-sourcepath src`.
+The last typed-activation core run used:
+
+```sh
+C="$R/out/scoring-check/classes"
+mkdir -p "$C"
+"$JDK/javac" -cp "$A" -d "$C" -sourcepath "$R/src" \
+  "$R/src/testing/PreferenceScoringSelfCheck.java" \
+  "$R/src/testing/OutcomeEvaluatorSelfCheck.java" \
+  "$R/src/testing/TacticalBiasSelfCheck.java"
+"$JDK/java" -cp "$C" testing.PreferenceScoringSelfCheck
+"$JDK/java" -cp "$C" testing.OutcomeEvaluatorSelfCheck
+"$JDK/java" -cp "$C" testing.TacticalBiasSelfCheck
+```
+
+`ReferenceFilteringSelfCheck` had already passed against the earlier full-source
+core compilation with that same class directory. The final browser Java
+commands were:
+
+```sh
+mkdir -p out/browser-check/classes
+"$JDK/javac" --release 25 -cp "$A" -d out/browser-check/classes -sourcepath src \
+  src/_app/StrategyBrowserApp.java src/testing/StrategyBrowserSelfCheck.java \
+  src/testing/StrategyBrowserHttpSelfCheck.java
+"$JDK/java" -cp "out/browser-check/classes:$A" testing.StrategyBrowserSelfCheck
+"$JDK/java" -cp "out/browser-check/classes:$A" testing.StrategyBrowserHttpSelfCheck
+TMPDIR="$R/out" node "$R/src/testing/StrategyBrowserDomFixture.js"
+```
+
+**Chromium DOM fixture passed**, serving unchanged production HTML/JS/CSS/SVG
+with synthetic API responses. It covers profiles, import/export/reset,
+country isolation, frozen inspector arithmetic, safe text, desktop/mobile
+keyboard inspection, all units/coasts, vacant-center ownership/reset,
+historical-versus-generated and foreign overlays, cancellation/version guards,
+and original openings country/search/navigation/singleton filtering.
+Only native `File.text` is delayed for the stale-upload test; application
+functions are not replaced. Fixture profiles use `os.tmpdir()` (normally
+`/tmp`); the scoped sandbox run explicitly set the permitted `TMPDIR` shown
+above and cleaned every generated profile.
+
+**Failures/unavailable:** an early whole-source compile overlapped unfinished
+browser edits and failed with brace errors; those edits were corrected and all
+later builds passed. Final automated review/CodeQL timed out and tripped its
+circuit breaker, which prohibited retries. Earlier zero-alert scans are
+**not a clean final security scan**. Independent read-only reviews of the
+implementation and final hardening found no significant issues. Changed files
+were secret-scanned before commits.
+
+**Unrun/unmeasured:** database-backed browser startup/E2E, real-corpus ablations,
+human agreement on real games, tuning, playing strength and self-play.
+The local corpus was absent; no private or reserved TEST games were consumed.
+
 The route-based movement strategy is an opt-in API. It composes the existing
 `RoutePreferences` model, one named `PredictionPolicy`, complete national plans,
 complete opponent scenarios, and the existing `OutcomeEvaluator`. Callers
@@ -304,7 +646,7 @@ It loads TRAINING only, requests empty histories, and neither writes the
 database nor executes orders against the edited position. Opening-browser
 assets, navigation, singleton filtering, and maps are not replaced.
 
-### Soft-bias validation and limitations
+### Previous soft-bias validation and limitations (PR #9)
 
 All Java sources, including `StrategyBrowserApp`, compiled with
 `/usr/lib/jvm/temurin-25-jdk-amd64/bin/javac --release 25` and the existing
