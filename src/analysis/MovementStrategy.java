@@ -39,6 +39,8 @@ public final class MovementStrategy {
         Objects.requireNonNull(processor, "processor");
         if (configuration.tacticalBiasWeight() != evaluator.tacticalBiasWeight())
             throw new IllegalArgumentException("Strategy and evaluator tactical bias weights must match");
+        if (!configuration.scoringConfiguration().equals(evaluator.scoringConfiguration()))
+            throw new IllegalArgumentException("Strategy and evaluator preference configurations must match");
 
         CoordinatedOrders.Diagnostics coordination = new CoordinatedOrders.Diagnostics(
                 configuration.coordinationMode(), 0, 0, 0, false, List.of(), Map.of());
@@ -127,7 +129,8 @@ public final class MovementStrategy {
 
         CoordinatedOrders ownSearch = new CoordinatedOrders(
                 configuration.choicesPerUnit(),
-                configuration.nationalPlanLimit(), configuration.tacticalBiasWeight());
+                configuration.nationalPlanLimit(), configuration.tacticalBiasWeight(),
+                configuration.scoringConfiguration());
 
         CoordinatedOrders.Result generation = ownSearch.generate(
                 board, nation, selected, configuration.coordinationMode());
@@ -178,13 +181,17 @@ public final class MovementStrategy {
 
         List<PlanEvaluation> ranked = evaluator.rank(
                 board, moment, candidates, scenarioOrders,
-                objectives, processor);
+                objectives, processor, selected);
 
         return new Recommendation(
                 configuration.policy(), Status.RANKED,
                 ranked, evidence,
                 candidates.size(), scenarios.size(),
                 List.of(), "Ranked movement plans using the supplied scoring configuration."
+                        + (coordination.geographyGuided()
+                        ? " Bounded geographic guidance replenished observed choices; ordered destinations "
+                        + "are optimistic search hints, not adjudicated progress or a global optimum."
+                        : "")
                         + (coordination.conditionalPlans().isEmpty() ? ""
                         : " Some plans require explicit foreign cooperation; convoy routes are not guaranteed successful."),
                 coordination, scenarioOrders, selected);
@@ -199,8 +206,8 @@ public final class MovementStrategy {
     }
 
 
-    /** Search configuration and final-scoring evaluator tactical weights must match.
-     * RAW ignores this weight during generation, but evaluation still applies it.
+    /** Search and evaluator use identical frozen preference and tactical settings.
+     * RAW ignores guidance during generation, but evaluation still applies scoring.
      */
     public record Configuration(
             PredictionPolicy policy,
@@ -209,7 +216,17 @@ public final class MovementStrategy {
             int nationalPlanLimit,
             int opponentScenarioLimit,
             CoordinationMode coordinationMode,
-            double tacticalBiasWeight) {
+            double tacticalBiasWeight,
+            ScoringConfiguration scoringConfiguration) {
+
+        public Configuration(PredictionPolicy policy, long minimumObservations,
+                             int choicesPerUnit, int nationalPlanLimit,
+                             int opponentScenarioLimit, CoordinationMode coordinationMode,
+                             double tacticalBiasWeight) {
+            this(policy, minimumObservations, choicesPerUnit, nationalPlanLimit,
+                    opponentScenarioLimit, coordinationMode, tacticalBiasWeight,
+                    ScoringConfiguration.defaults());
+        }
 
         public Configuration(PredictionPolicy policy, long minimumObservations,
                              int choicesPerUnit, int nationalPlanLimit,
@@ -228,6 +245,7 @@ public final class MovementStrategy {
         public Configuration {
             Objects.requireNonNull(policy, "policy");
             Objects.requireNonNull(coordinationMode, "coordinationMode");
+            Objects.requireNonNull(scoringConfiguration, "scoringConfiguration");
             TacticalBias.validateWeight(tacticalBiasWeight);
 
             if (minimumObservations < 1
