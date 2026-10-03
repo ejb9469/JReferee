@@ -331,6 +331,11 @@ switching, safe `textContent`, frozen source/settings, mobile layout, and the
 opening-browser search/navigation/single-entry filter. Screenshots were captured
 and kept outside tracked files. These are real renderer tests with **mocked API
 results**, not a database-backed browser end-to-end or tactical-strength test.
+Changed files passed secret scanning before each commit. A separate read-only
+review reported no significant issues. Earlier CodeQL runs reported zero alerts,
+but a later Java scan timed out; the final PR-wide automated review/security
+request could not run because the validation time budget was exhausted. Final
+automated security validation therefore remains outstanding, not a clean result.
 The ignored local SQLite database is absent, so corpus recall experiments and
 database-backed browser startup remain unverified. Reserved TEST games were
 not used. Exact submitted-order recall is separate from coherence and tactical
@@ -354,6 +359,8 @@ Compatibility/UI review checklist for these improvements:
   opt-in, observed evidence, coordinated geometry, and fixed paired-work limits.
 - [ ] Database-backed startup and real-corpus experiments: unavailable because
   the ignored local corpus is absent. Synthetic results are not strength evidence.
+- [ ] Final PR-wide automated review/security scan: unavailable due to exhausted
+  validation time budget.
 
 ### Four-policy experiment
 
