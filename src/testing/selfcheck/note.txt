@@ -1,0 +1,1 @@
+Not all self-checks are in here for access modifier reasons (e.g. self-check uses a package-private constructor)
