@@ -486,6 +486,8 @@ public enum Province {
 
 
     public static Province canonical(Province p) {
+        if (p == null)  // makes this function null-safe
+            return null;
         return ( p.parent == null
                   ? p  // return p if non-split coast
                   : p.parent);  // return `p.parent` if split-coast
