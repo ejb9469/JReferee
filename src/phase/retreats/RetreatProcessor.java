@@ -4,6 +4,7 @@ import domain.Geography;
 import domain.Province;
 import domain.UnitType;
 import phase.Processor;
+import phase.RetreatInput;
 import phase.UnitId;
 import phase.movement.MovementResult;
 

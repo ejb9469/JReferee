@@ -6,6 +6,7 @@ import adjudication.SzykmanJustice;
 import contracts.OrderForm;
 import domain.OrderType;
 import domain.Province;
+import phase.MovementInput;
 import phase.Order;
 import phase.Processor;
 import phase.UnitId;

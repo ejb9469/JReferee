@@ -1,7 +1,7 @@
-package phase.retreats;
+package phase;
 
-import phase.PhaseInput;
 import phase.movement.MovementResult;
+import phase.retreats.RetreatOrder;
 
 import java.util.Collection;
 import java.util.List;
@@ -10,10 +10,10 @@ import java.util.Objects;
 /**
  * Immutable input for one retreat phase.
  */
-public record RetreatInput(
-        MovementResult movementResult,
-        List<RetreatOrder> submittedOrders
-) implements PhaseInput {
+public record RetreatInput(MovementResult movementResult,
+                            List<RetreatOrder> submittedOrders)
+    implements PhaseInput {
+
 
     public RetreatInput {
         Objects.requireNonNull(movementResult, "movementResult");
@@ -35,5 +35,6 @@ public record RetreatInput(
                                 "submittedOrders"))
         );
     }
+
 
 }

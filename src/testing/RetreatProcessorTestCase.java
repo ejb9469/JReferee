@@ -2,7 +2,7 @@ package testing;
 
 import domain.Province;
 import phase.UnitId;
-import phase.retreats.RetreatInput;
+import phase.RetreatInput;
 import phase.retreats.RetreatProcessor;
 import phase.retreats.RetreatResult;
 

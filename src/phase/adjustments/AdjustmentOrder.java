@@ -9,6 +9,7 @@ import domain.Nation;
  * <p>Builds, disbands, and waives are structurally different orders at the `phase` level,
  * not simply a change in fields of a singular `Order`, like in `adjudication`.</p>
  */
-public interface AdjustmentOrder extends OrderForm {
-
-}
+public sealed interface AdjustmentOrder
+        extends OrderForm
+        permits BuildOrder, DisbandOrder, WaiveOrder
+{   }

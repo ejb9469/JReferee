@@ -1,12 +1,10 @@
-package phase.adjustments;
+package phase;
 
 import domain.Nation;
 import domain.Province;
-import phase.PhaseInput;
+import phase.adjustments.AdjustmentOrder;
 import phase.retreats.RetreatResult;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,12 +23,11 @@ import static phase.BoardRules.scOwners;
  * All stored ownership keys are canonical territories: split-coast variants
  * such as "Spain(nc)" normalize to "Spain".</p>
  */
-public final class AdjustmentInput
-    implements PhaseInput {
+public record AdjustmentInput(RetreatResult retreatResult,
+                              Map<Province, Nation> supplyCenterOwners,
+                              List<AdjustmentOrder> submittedOrders)
+        implements PhaseInput {
 
-    private final RetreatResult retreatResult;
-    private final Map<Province, Nation> supplyCenterOwners;
-    private final List<AdjustmentOrder> submittedOrders;
 
     public AdjustmentInput(
             RetreatResult retreatResult,
@@ -46,20 +43,12 @@ public final class AdjustmentInput
                         submittedOrders, "submittedOrders"));
     }
 
-    public RetreatResult retreatResult() {
-        return retreatResult;
-    }
-
     /**
      * Returns each currently controlled supply center and its controlling
      * nation. Uncontrolled centers are absent.
      */
     public Map<Province, Nation> owners() {
         return supplyCenterOwners;
-    }
-
-    public List<AdjustmentOrder> submittedOrders() {
-        return submittedOrders;
     }
 
     /**
@@ -69,5 +58,6 @@ public final class AdjustmentInput
         Objects.requireNonNull(province, "province");
         return supplyCenterOwners.get(Province.canonical(province));
     }
+
 
 }

@@ -4,7 +4,7 @@ import domain.Nation;
 import domain.Province;
 import domain.UnitType;
 import phase.UnitId;
-import phase.adjustments.AdjustmentInput;
+import phase.AdjustmentInput;
 import phase.adjustments.AdjustmentProcessor;
 import phase.adjustments.AdjustmentResult;
 import phase.adjustments.Balance;

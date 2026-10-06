@@ -8,4 +8,6 @@ package phase;
  * MovementResult and retreat orders; adjustments need a RetreatResult,
  * supply-center ownership, and adjustment orders.</p>
  */
-public interface PhaseInput {   }
+public sealed interface PhaseInput
+    permits MovementInput, RetreatInput, AdjustmentInput
+{   }

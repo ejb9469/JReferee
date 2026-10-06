@@ -5,6 +5,7 @@ import domain.Geography;
 import domain.Nation;
 import domain.Province;
 import domain.UnitType;
+import phase.AdjustmentInput;
 import phase.Processor;
 import phase.UnitId;
 

@@ -3,6 +3,7 @@ package phase.adjustments;
 import domain.Nation;
 import domain.Province;
 import domain.UnitType;
+import phase.AdjustmentInput;
 import phase.UnitId;
 
 import java.util.ArrayDeque;

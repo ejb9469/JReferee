@@ -1,6 +1,7 @@
 package phase.adjustments;
 
 import domain.Nation;
+import phase.AdjustmentInput;
 import phase.UnitId;
 
 import java.util.Collections;
