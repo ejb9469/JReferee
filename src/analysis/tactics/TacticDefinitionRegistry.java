@@ -56,7 +56,7 @@ public final class TacticDefinitionRegistry {
         add(definitions, TacticFamily.SUPPORT_AND_COOPERATION,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
                 "SUPPORT_TO_MOVE", "A known support order names a known move to the same destination.",
-                "SUPPORT_TO_HOLD", "A known support order names a known non-moving unit in a support or convoy order.",
+                "SUPPORT_TO_HOLD", "A known support order names a known HOLD, SUPPORT, or CONVOY order.",
                 "MULTIPLE_SUPPORT_TO_MOVE", "Two or more known support orders name the same move to a destination.",
                 "MULTIPLE_SUPPORT_TO_HOLD", "Two or more known support orders name the same stationary unit.",
                 "MUTUAL_HOLD_SUPPORT", "Two units are each known to support the other's stationary order.",
@@ -123,6 +123,8 @@ public final class TacticDefinitionRegistry {
         requireCapabilities(definitions, Set.of(
                 TacticKind.SELF_BOUNCE_UNBALANCED_BY_SUPPORT,
                 TacticKind.HOSTILE_SUPPORT_PRESERVES_GARRISON),
+                with(adjudicatedMovement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+        requireCapabilities(definitions, Set.of(TacticKind.REDUNDANT_SUPPORT),
                 with(adjudicatedMovement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
         requireCapabilities(definitions, Set.of(
                 TacticKind.SELF_BOUNCE_CREATES_RETREAT_DENIAL),
@@ -201,6 +203,8 @@ public final class TacticDefinitionRegistry {
                 with(retreatEvidence(), EvidenceCapability.SUPPLY_CENTER_STATE));
         requireCapabilities(definitions, Set.of(TacticKind.RETREAT_BEHIND_ENEMY_LINE),
                 with(retreatEvidence(), EvidenceCapability.OBJECTIVE_STATE));
+        requireCapabilities(definitions, Set.of(TacticKind.FORCED_RETREAT_DESTINATION),
+                with(retreatEvidence(), EvidenceCapability.MAP_ADJACENCY));
         requireCapabilities(definitions, Set.of(TacticKind.VOLUNTARY_DISBAND_INSTEAD_OF_RETREAT),
                 with(retreatEvidence(), EvidenceCapability.ADJUSTMENT_STATE));
         requireCapabilities(definitions, Set.of(TacticKind.COOPERATIVE_DISLODGEMENT),
@@ -233,6 +237,11 @@ public final class TacticDefinitionRegistry {
                 TacticKind.DISBAND_AND_REBUILD_REDEPLOYMENT,
                 TacticKind.UNIT_TYPE_REBALANCING),
                 with(centerPlanning(), EvidenceCapability.ADJUSTMENT_STATE));
+        requireCapabilities(definitions, EnumSet.of(
+                TacticKind.DISBAND_AND_REBUILD_REDEPLOYMENT,
+                TacticKind.UNIT_TYPE_REBALANCING),
+                with(centerPlanning(), EvidenceCapability.ADJUSTMENT_STATE,
+                        EvidenceCapability.MULTI_PHASE_HISTORY));
 
         add(definitions, TacticFamily.POSITION_AND_MULTI_PHASE,
                 TacticInterpretation.PLANNING, planningEvidence(),
@@ -273,6 +282,22 @@ public final class TacticDefinitionRegistry {
                 TacticKind.BREAKTHROUGH,
                 TacticKind.STALEMATE_LINE_BREACH),
                 with(planningEvidence(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+        requireCapabilities(definitions, EnumSet.of(
+                TacticKind.SACRIFICIAL_SUPPORT_CUT,
+                TacticKind.BREAKTHROUGH),
+                with(planningEvidence(), EvidenceCapability.ADJUDICATION_OUTCOME));
+        requireCapabilities(definitions, EnumSet.of(
+                TacticKind.BREAKTHROUGH,
+                TacticKind.FLANKING_REDEPLOYMENT,
+                TacticKind.DEFENSIVE_LINE_FORMATION,
+                TacticKind.STALEMATE_LINE_HOLD,
+                TacticKind.STALEMATE_LINE_BREACH),
+                with(planningEvidence(), EvidenceCapability.MAP_ADJACENCY));
+        requireCapabilities(definitions, EnumSet.of(
+                TacticKind.STALEMATE_LINE_HOLD,
+                TacticKind.STALEMATE_LINE_BREACH),
+                with(planningEvidence(), EvidenceCapability.RULESET_POLICY,
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
 
         add(definitions, TacticFamily.AGREEMENTS_AND_DIAGNOSTICS,
                 TacticInterpretation.AGREEMENT, agreementEvidence(),
@@ -282,6 +307,10 @@ public final class TacticDefinitionRegistry {
                 "PROMISED_SUPPORT_WITHHELD", "A recorded support commitment lacks the promised support order.",
                 "PROMISED_CONVOY_WITHHELD", "A recorded convoy commitment lacks the promised convoy order.",
                 "COORDINATED_STAB", "A recorded cooperation plan is followed by an order that betrays that plan.");
+        requireCapabilities(definitions, Set.of(
+                TacticKind.ARRANGED_BOUNCE,
+                TacticKind.FAKE_ARRANGED_BOUNCE),
+                with(agreementEvidence(), EvidenceCapability.ADJUDICATION_OUTCOME));
         add(definitions, TacticFamily.AGREEMENTS_AND_DIAGNOSTICS,
                 TacticInterpretation.DIAGNOSTIC,
                 movement(),
@@ -290,14 +319,18 @@ public final class TacticDefinitionRegistry {
                 "MUTUALLY_INCOMPATIBLE_ORDER_BUNDLE", "Two or more orders in a proposed bundle cannot all be satisfied.",
                 "TACTICAL_SINGLE_POINT_OF_FAILURE", "A counterfactual comparison identifies one required order whose loss defeats a plan.");
         requireCapabilities(definitions, Set.of(
-                TacticKind.FOREIGN_COOPERATION_DEPENDENCY),
-                with(adjudicatedMovement(), EvidenceCapability.AGREEMENT_RECORD));
+                TacticKind.SUPPORT_ORDER_MISMATCH),
+                with(movement(), EvidenceCapability.INTENT_EVIDENCE));
         requireCapabilities(definitions, Set.of(
-                TacticKind.FOREIGN_COOPERATION_DEPENDENCY,
+                TacticKind.FOREIGN_COOPERATION_DEPENDENCY),
+                adjudicatedMovement());
+        requireCapabilities(definitions, Set.of(
                 TacticKind.MUTUALLY_INCOMPATIBLE_ORDER_BUNDLE),
-                with(movement(), EvidenceCapability.ADJUDICATION_OUTCOME));
+                with(movement(), EvidenceCapability.ADJUDICATION_OUTCOME,
+                        EvidenceCapability.INTENT_EVIDENCE));
         requireCapabilities(definitions, Set.of(TacticKind.TACTICAL_SINGLE_POINT_OF_FAILURE),
-                with(movement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+                with(movement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION,
+                        EvidenceCapability.SEARCH_HORIZON));
 
         if (!definitions.keySet().equals(EnumSet.allOf(TacticKind.class)))
             throw new ExceptionInInitializerError(
