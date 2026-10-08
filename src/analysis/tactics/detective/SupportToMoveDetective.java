@@ -1,4 +1,8 @@
-package analysis.tactics;
+package analysis.tactics.detective;
+
+import analysis.tactics.TacticKind;
+import analysis.tactics.TacticMatch;
+import analysis.tactics.TacticalContext;
 
 import domain.OrderType;
 import domain.Province;

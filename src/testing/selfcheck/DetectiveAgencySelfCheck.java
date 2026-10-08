@@ -1,6 +1,7 @@
 package testing.selfcheck;
 
 import analysis.tactics.*;
+import analysis.tactics.detective.*;
 import domain.Nation;
 import domain.Province;
 import domain.UnitType;

@@ -21,7 +21,8 @@ import java.util.*;
  */
 public record InvestigationReport(
         TacticalContext context,
-        List<TacticMatch> findings
+        List<TacticMatch> findings,
+        InvestigationCoverage coverage
 ) {
 
 
@@ -30,6 +31,7 @@ public record InvestigationReport(
     public InvestigationReport {
 
         Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(coverage, "coverage");
 
         findings = List.copyOf(
                 Objects.requireNonNull(findings, "findings"));
@@ -49,6 +51,34 @@ public record InvestigationReport(
 
         }
 
+        if (coverage.scope()
+                == InvestigationCoverage.Scope.COMPLETE_INVESTIGATION) {
+
+            Map<TacticKind, Integer> counts = new EnumMap<>(TacticKind.class);
+
+            for (TacticMatch match : findings)
+                counts.merge(match.kind(), 1, Integer::sum);
+
+            for (InvestigationCoverage.KindCoverage kindCoverage
+                    : coverage.byKind())
+                if (kindCoverage.findingCount()
+                        != counts.getOrDefault(kindCoverage.kind(), 0))
+                    throw new IllegalArgumentException(
+                            "Coverage finding count differs for "
+                                    + kindCoverage.kind());
+
+        }
+
+    }
+
+    /**
+     * Creates a report without investigation-wide coverage metadata.
+     */
+    public InvestigationReport(
+            TacticalContext context,
+            List<TacticMatch> findings
+    ) {
+        this(context, findings, InvestigationCoverage.notRecorded());
     }
 
     /**
@@ -64,9 +94,7 @@ public record InvestigationReport(
         Objects.requireNonNull(agency, "agency");
         Objects.requireNonNull(context, "context");
 
-        return new InvestigationReport(
-                context,
-                agency.investigate(context));
+        return agency.investigateReport(context);
 
     }
 
@@ -94,7 +122,7 @@ public record InvestigationReport(
             if (match.kind() == kind)
                 selected.add(match);
 
-        return new InvestigationReport(context, selected);
+        return filtered(selected);
 
     }
 
@@ -128,7 +156,7 @@ public record InvestigationReport(
 
         }
 
-        return new InvestigationReport(context, selected);
+        return filtered(selected);
 
     }
 
@@ -151,7 +179,7 @@ public record InvestigationReport(
             if (sameTerritory(match.focus(), territory))
                 selected.add(match);
 
-        return new InvestigationReport(context, selected);
+        return filtered(selected);
 
     }
 
@@ -180,7 +208,7 @@ public record InvestigationReport(
             if (mentionsTerritory(match, territory))
                 selected.add(match);
 
-        return new InvestigationReport(context, selected);
+        return filtered(selected);
 
     }
 
@@ -209,12 +237,19 @@ public record InvestigationReport(
             if (match.completePattern() == complete)
                 selected.add(match);
 
-        return new InvestigationReport(context, selected);
+        return filtered(selected);
 
     }
 
 
     // Territory helpers \\
+
+    private InvestigationReport filtered(List<TacticMatch> selected) {
+        return new InvestigationReport(
+                context,
+                selected,
+                coverage.asFilteredView());
+    }
 
     private boolean mentionsTerritory(
             TacticMatch match,

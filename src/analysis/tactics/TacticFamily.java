@@ -1,0 +1,20 @@
+package analysis.tactics;
+
+
+/**
+ * Broad subject area for a tactical concept.
+ */
+public enum TacticFamily {
+
+    SUPPORT_AND_COOPERATION,
+    COMPETITION_AND_MOVEMENT,
+    COORDINATION_DISRUPTION,
+    SELF_BOUNCE_AND_ASSISTANCE,
+    CONVOY_CONSTRUCTION,
+    CONVOY_INTERFERENCE,
+    DISLODGEMENT_AND_RETREAT,
+    CENTERS_AND_WINTER,
+    POSITION_AND_MULTI_PHASE,
+    AGREEMENTS_AND_DIAGNOSTICS
+
+}
