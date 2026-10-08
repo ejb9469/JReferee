@@ -1,5 +1,10 @@
 package analysis.tactics;
 
+import analysis.tactics.detective.BeleagueredGarrisonDetective;
+import analysis.tactics.detective.SelfBounceDetective;
+import analysis.tactics.detective.SupportToHoldDetective;
+import analysis.tactics.detective.SupportToMoveDetective;
+
 import java.util.*;
 
 
