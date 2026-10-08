@@ -71,6 +71,55 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 
 ---
 
+## Tactical analysis
+
+The tactical API lives in `analysis.tactics`. The abstract `Detective` and its
+four current implementations live in `analysis.tactics.detective` (this is a
+Java package, not a separate module). Callers that previously imported a
+detective from `analysis.tactics` must now import it from the `detective`
+subpackage; importing `analysis.tactics.*` does not import subpackages.
+
+`DetectiveAgency` currently registers structural investigators for
+`SUPPORT_TO_MOVE`, `SUPPORT_TO_HOLD`, `SELF_BOUNCE`, and
+`BELEAGUERED_GARRISON`. `TacticDefinitionRegistry` defines the full 100-kind
+concept catalogue, including support, movement, convoy, retreat, center,
+multi-phase, agreement, and diagnostic concepts. Each kind has an explicit
+family, interpretation, evidence requirements, semantic version, and short
+meaning. These identifiers are application vocabulary, not official
+Diplomacy terminology. Similar-looking variants have distinct definitions;
+none is silently aliased to another kind.
+
+Definitions do not imply implementation availability. Only the four kinds
+above have built-in structural investigators, and only those kinds currently
+have registered adjudicated-claim contracts. The remaining catalogue entries
+are definitions for future investigators; they do not produce speculative
+matches or fabricated assessment outcomes. Structural order candidates do
+not establish legality, effective support, intent, hostility, agreements, or
+strategic value. Agreement and multi-phase concepts explicitly require
+evidence that the movement-only `TacticalContext` does not carry.
+
+`DetectiveAgency.investigate(context)` retains its list-returning API.
+`investigateReport(context)` additionally reports, for every kind, whether an
+implementation is registered, whether required evidence makes it applicable,
+and whether it found matches, found none, was skipped for missing evidence,
+or is unsupported. A complete local match is not a complete scenario or proof
+that the entire investigation covered every kind. Filtering an
+`InvestigationReport` preserves its original investigation coverage and marks
+the result as a filtered view; it does not re-run detectors or turn an
+unselected finding into evidence of absence.
+
+The standalone self-check entry points require no `-ea` flag. After compiling
+the project with OpenJDK 25, run:
+
+```text
+java -cp out testing.selfcheck.DetectiveSelfCheck
+java -cp out testing.selfcheck.DetectiveAgencySelfCheck
+java -cp out testing.selfcheck.TacticArchitectureSelfCheck
+java -cp out testing.selfcheck.InvestigationReportSelfCheck
+```
+
+---
+
 ## Tests
 
 Option A. Run `TestCaseManager`.

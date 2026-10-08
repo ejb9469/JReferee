@@ -31,6 +31,10 @@ public record TacticDefinition(
             throw new IllegalArgumentException(
                     "Definition version and semantics must not be blank");
 
+        if (requiredEvidence.isEmpty())
+            throw new IllegalArgumentException(
+                    "A tactic definition requires evidence capabilities");
+
         EnumSet<EvidenceCapability> capabilities =
                 EnumSet.noneOf(EvidenceCapability.class);
 

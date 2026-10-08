@@ -88,11 +88,13 @@ public final class TacticDefinitionRegistry {
                 "SUPPORTED_ATTACK_WITH_SUPPORT_CUT", "A supported attack is adjudicated while at least one support is cut.",
                 "MULTIPLE_SUPPORT_CUTS", "Adjudication establishes that two or more supports for one attack are cut.",
                 "SUPPORTER_DISLODGEMENT", "Adjudication establishes that the unit issuing support is dislodged.",
-                "ATTACK_FROM_SUPPORTED_DESTINATION", "A move from the supported destination is tested for its support-cut effect.",
                 "SUPPORT_CUTTER_INTERDICTION", "Adjudication establishes that a would-be support cutter is prevented from cutting support.",
                 "SUPPORT_NETWORK_BREAK", "Adjudication establishes that a disruption disconnects a support network.",
                 "REDUNDANT_SUPPORT", "A support is shown unnecessary to the assessed result because other support suffices.",
                 "CRITICAL_SUPPORT", "A counterfactual comparison shows that removing one support changes the result.");
+        add(definitions, TacticFamily.COORDINATION_DISRUPTION,
+                TacticInterpretation.STRUCTURAL_PATTERN, movement(),
+                "ATTACK_FROM_SUPPORTED_DESTINATION", "A move originates in a territory targeted by a supported move; no cut outcome is implied.");
 
         add(definitions, TacticFamily.SELF_BOUNCE_AND_ASSISTANCE,
                 TacticInterpretation.ASSESSMENT_OUTCOME, adjudicatedMovement(),
@@ -116,10 +118,18 @@ public final class TacticDefinitionRegistry {
                 TacticKind.SUPPORT_AGAINST_OWN_UNIT),
                 with(adjudicatedMovement(), EvidenceCapability.RULESET_POLICY));
         requireCapabilities(definitions, Set.of(TacticKind.UNREQUESTED_FOREIGN_SUPPORT),
-                with(movement(), EvidenceCapability.AGREEMENT_RECORD));
+                with(movement(), EvidenceCapability.AGREEMENT_RECORD,
+                        EvidenceCapability.INTENT_EVIDENCE));
+        requireCapabilities(definitions, Set.of(
+                TacticKind.SELF_BOUNCE_UNBALANCED_BY_SUPPORT,
+                TacticKind.HOSTILE_SUPPORT_PRESERVES_GARRISON),
+                with(adjudicatedMovement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+        requireCapabilities(definitions, Set.of(
+                TacticKind.SELF_BOUNCE_CREATES_RETREAT_DENIAL),
+                with(adjudicatedMovement(), EvidenceCapability.RETREAT_ORDERS));
 
         add(definitions, TacticFamily.CONVOY_CONSTRUCTION,
-                TacticInterpretation.STRUCTURAL_PATTERN, convoyStructure(),
+                TacticInterpretation.STRUCTURAL_PATTERN, movement(),
                 "CONVOYED_MOVE", "An army move and a fleet convoy order name the same army and destination.",
                 "MULTI_FLEET_CONVOY", "Two or more fleet convoy orders name the same army move.",
                 "MULTI_ROUTE_CONVOY", "Known convoying fleets provide distinct candidate routes for one army move.",
@@ -135,18 +145,28 @@ public final class TacticDefinitionRegistry {
                 TacticKind.CONVOY_SWAP,
                 TacticKind.ADJACENT_PROVINCE_CONVOY,
                 TacticKind.CONVOY_BEHIND_DEFENSIVE_LINE),
-                with(convoyStructure(), EvidenceCapability.MAP_ADJACENCY));
+                convoyRoutes());
+        requireCapabilities(definitions, Set.of(TacticKind.CONVOY_BEHIND_DEFENSIVE_LINE),
+                with(convoyRoutes(), EvidenceCapability.OBJECTIVE_STATE));
         add(definitions, TacticFamily.CONVOY_INTERFERENCE,
                 TacticInterpretation.ASSESSMENT_OUTCOME, adjudicatedConvoy(),
-                "ATTACK_ON_CONVOY_FLEET", "A known move targets the territory occupied by a convoying fleet.",
                 "CONVOY_DISRUPTION", "Adjudication establishes that a convoy route is disrupted.",
                 "CRITICAL_CONVOY_FLEET", "A counterfactual comparison shows that losing one fleet disrupts all routes.",
                 "REDUNDANT_CONVOY_ROUTE", "A counterfactual comparison shows another valid route survives one route's loss.",
                 "CONVOY_FLEET_PROTECTION", "A counterfactual comparison shows an action protects a required convoy fleet.",
-                "UNMATCHED_CONVOY_ORDER", "A convoy order has no matching army move in the known order set.",
-                "INCOMPLETE_CONVOY_CHAIN", "Known convoy orders do not establish a complete route to the army's destination.",
                 "CONVOY_KIDNAPPING", "A foreign army's move matches convoy orders under the active ruleset's kidnapping policy.",
-                "CONVOY_PARADOX_DEPENDENCY", "A convoy outcome depends cyclically on the outcome of a move it enables.",
+                "CONVOY_PARADOX_DEPENDENCY", "Adjudicated convoy and move outcomes form a cyclic dependency.");
+        add(definitions, TacticFamily.CONVOY_INTERFERENCE,
+                TacticInterpretation.STRUCTURAL_PATTERN, movement(),
+                "ATTACK_ON_CONVOY_FLEET", "A known move targets a convoying fleet; attack alone does not establish convoy disruption.",
+                "UNMATCHED_CONVOY_ORDER", "A convoy order has no matching army move in the known order set.",
+                "INCOMPLETE_CONVOY_CHAIN", "Known convoy orders do not establish a complete route to the army's destination.");
+        requireCapabilities(definitions, Set.of(TacticKind.INCOMPLETE_CONVOY_CHAIN),
+                convoyRoutes());
+        add(definitions, TacticFamily.CONVOY_INTERFERENCE,
+                TacticInterpretation.PLANNING,
+                with(adjudicatedConvoy(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION,
+                        EvidenceCapability.SEARCH_HORIZON),
                 "PARADOX_POLICY_SENSITIVE_PLAN", "A plan's result varies with the configured convoy-paradox resolution policy.");
         requireCapabilities(definitions, Set.of(
                 TacticKind.CRITICAL_CONVOY_FLEET,
@@ -154,10 +174,16 @@ public final class TacticDefinitionRegistry {
                 TacticKind.CONVOY_FLEET_PROTECTION),
                 with(adjudicatedConvoy(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
         requireCapabilities(definitions, Set.of(
-                TacticKind.CONVOY_KIDNAPPING,
-                TacticKind.CONVOY_PARADOX_DEPENDENCY,
-                TacticKind.PARADOX_POLICY_SENSITIVE_PLAN),
+                TacticKind.CONVOY_KIDNAPPING),
                 with(adjudicatedConvoy(), EvidenceCapability.RULESET_POLICY));
+        requireCapabilities(definitions, Set.of(
+                TacticKind.CONVOY_PARADOX_DEPENDENCY),
+                with(adjudicatedConvoy(), EvidenceCapability.RULESET_POLICY));
+        requireCapabilities(definitions, Set.of(
+                TacticKind.PARADOX_POLICY_SENSITIVE_PLAN),
+                with(adjudicatedConvoy(), EvidenceCapability.RULESET_POLICY,
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION,
+                        EvidenceCapability.SEARCH_HORIZON));
 
         add(definitions, TacticFamily.DISLODGEMENT_AND_RETREAT,
                 TacticInterpretation.ASSESSMENT_OUTCOME, retreatEvidence(),
@@ -348,11 +374,15 @@ public final class TacticDefinitionRegistry {
     }
 
     private static Set<EvidenceCapability> convoyStructure() {
-        return with(movement(), EvidenceCapability.MAP_ADJACENCY);
+        return movement();
+    }
+
+    private static Set<EvidenceCapability> convoyRoutes() {
+        return with(convoyStructure(), EvidenceCapability.MAP_ADJACENCY);
     }
 
     private static Set<EvidenceCapability> adjudicatedConvoy() {
-        return with(convoyStructure(), EvidenceCapability.ADJUDICATION_OUTCOME);
+        return with(convoyRoutes(), EvidenceCapability.ADJUDICATION_OUTCOME);
     }
 
     private static Set<EvidenceCapability> retreatEvidence() {

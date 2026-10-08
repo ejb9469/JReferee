@@ -6,6 +6,7 @@ package analysis.tactics;
  *
  * A category identifies an order pattern, not its legality, outcome,
  * intended purpose, or strategic value.
+ * Enum names are identifiers; enum ordinals are not persistent IDs.
  */
 public enum TacticKind {
 
