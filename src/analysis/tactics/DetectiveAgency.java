@@ -109,12 +109,60 @@ public final class DetectiveAgency {
      */
     public List<TacticMatch> investigate(TacticalContext context) {
 
+        return investigateReport(context).findings();
+
+    }
+
+    /**
+     * Runs registered and applicable detectives and records coverage for every
+     * defined kind.<br><br>
+     *
+     * A registered detector is skipped when its definition's required
+     * evidence is unavailable. Missing implementation and skipped evaluation
+     * are never represented as a negative match.
+     */
+    public InvestigationReport investigateReport(TacticalContext context) {
+
         Objects.requireNonNull(context, "context");
 
         List<TacticMatch> findings = new ArrayList<>();
         Set<TacticMatch> observed = new HashSet<>();
+        List<InvestigationCoverage.KindCoverage> coverage = new ArrayList<>();
+        Set<EvidenceCapability> available = availableEvidence(context);
 
-        for (Assignment assignment : assignments.values()) {
+        for (TacticKind kind : TacticKind.values()) {
+
+            Assignment assignment = assignments.get(kind);
+
+            if (assignment == null) {
+                coverage.add(new InvestigationCoverage.KindCoverage(
+                        kind,
+                        false,
+                        false,
+                        InvestigationCoverage.Status.UNSUPPORTED_UNIMPLEMENTED,
+                        0,
+                        Set.of()));
+                continue;
+            }
+
+            TacticDefinition definition =
+                    TacticDefinitionRegistry.require(kind);
+
+            Set<EvidenceCapability> missing =
+                    EnumSet.noneOf(EvidenceCapability.class);
+            missing.addAll(definition.requiredEvidence());
+            missing.removeAll(available);
+
+            if (!missing.isEmpty()) {
+                coverage.add(new InvestigationCoverage.KindCoverage(
+                        kind,
+                        true,
+                        false,
+                        InvestigationCoverage.Status.SKIPPED_MISSING_EVIDENCE,
+                        0,
+                        missing));
+                continue;
+            }
 
             TacticDetector detective = assignment.detective();
 
@@ -131,6 +179,8 @@ public final class DetectiveAgency {
                 throw new IllegalStateException(
                         "Detective returned a null result: "
                                 + assignment.kind());
+
+            int countBefore = findings.size();
 
             for (TacticMatch match : discovered) {
 
@@ -150,11 +200,39 @@ public final class DetectiveAgency {
 
             }
 
+            int findingCount = findings.size() - countBefore;
+            coverage.add(new InvestigationCoverage.KindCoverage(
+                    kind,
+                    true,
+                    true,
+                    findingCount == 0
+                            ? InvestigationCoverage.Status.EVALUATED_WITH_NO_FINDINGS
+                            : InvestigationCoverage.Status.EVALUATED_WITH_FINDINGS,
+                    findingCount,
+                    Set.of()));
+
         }
 
         findings.sort(DetectiveAgency::compareMatches);
 
-        return List.copyOf(findings);
+        return new InvestigationReport(
+                context,
+                findings,
+                new InvestigationCoverage(
+                        InvestigationCoverage.Scope.COMPLETE_INVESTIGATION,
+                        coverage));
+
+    }
+
+    private static Set<EvidenceCapability> availableEvidence(
+            TacticalContext context
+    ) {
+
+        Objects.requireNonNull(context, "context");
+
+        return EnumSet.of(
+                EvidenceCapability.MOVEMENT_POSITION,
+                EvidenceCapability.KNOWN_MOVEMENT_ORDERS);
 
     }
 

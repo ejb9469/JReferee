@@ -38,24 +38,8 @@ public record TacticalAssessment(
         findings = List.copyOf(
                 Objects.requireNonNull(findings, "findings"));
 
-        Set<Claim> expected = switch (match.kind()) {
-
-            case SUPPORT_TO_MOVE -> EnumSet.of(
-                    Claim.SUPPORT_EFFECTIVE,
-                    Claim.SUPPORTED_MOVE_SUCCEEDED);
-
-            case SUPPORT_TO_HOLD -> EnumSet.of(
-                    Claim.SUPPORT_EFFECTIVE,
-                    Claim.SUBJECT_SURVIVED);
-
-            case SELF_BOUNCE -> EnumSet.of(
-                    Claim.SELF_BOUNCE_REALIZED);
-
-            case BELEAGUERED_GARRISON -> EnumSet.of(
-                    Claim.GARRISON_PRESERVED,
-                    Claim.COMPETITION_SAVED_GARRISON);
-
-        };
+        Set<Claim> expected =
+                TacticalAssessmentContracts.requiredClaims(match.kind());
 
         Set<Claim> actual = EnumSet.noneOf(Claim.class);
 
