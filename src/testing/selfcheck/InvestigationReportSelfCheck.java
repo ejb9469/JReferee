@@ -1,7 +1,7 @@
 package testing.selfcheck;
 
 import analysis.tactics.*;
-import analysis.tactics.detective.SupportToMoveDetective;
+import analysis.tactics.detective.*;
 import domain.Nation;
 import domain.Province;
 import domain.UnitType;
@@ -64,7 +64,9 @@ public final class InvestigationReportSelfCheck {
         TacticalContext context = completeSupportContext();
 
         InvestigationReport report =
-                InvestigationReport.investigate(new DetectiveAgency(), context);
+                InvestigationReport.investigate(
+                        new DetectiveAgency(List.of(new SupportToMoveDetective())),
+                        context);
 
         require(report.byKind(TacticKind.SUPPORT_TO_MOVE).size() == 1,
                 "Kind filter did not select support-to-move");
@@ -198,7 +200,11 @@ public final class InvestigationReportSelfCheck {
         TacticalContext context = new TacticalContext(
                 "report-self-check-v1", MOMENT, board, orders);
 
-        DetectiveAgency agency = new DetectiveAgency();
+        DetectiveAgency agency = new DetectiveAgency(List.of(
+                new SupportToMoveDetective(),
+                new SupportToHoldDetective(),
+                new SelfBounceDetective(),
+                new BeleagueredGarrisonDetective()));
         InvestigationReport report = agency.investigateReport(context);
 
         InvestigationReport garrison =

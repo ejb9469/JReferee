@@ -74,14 +74,13 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 ## Tactical analysis
 
 The tactical API lives in `analysis.tactics`. The abstract `Detective` and its
-four current implementations live in `analysis.tactics.detective` (this is a
+implementations live in `analysis.tactics.detective` (this is a
 Java package, not a separate module). Callers that previously imported a
 detective from `analysis.tactics` must now import it from the `detective`
 subpackage; importing `analysis.tactics.*` does not import subpackages.
 
-`DetectiveAgency` currently registers structural investigators for
-`SUPPORT_TO_MOVE`, `SUPPORT_TO_HOLD`, `SELF_BOUNCE`, and
-`BELEAGUERED_GARRISON`. `TacticDefinitionRegistry` defines the full 100-kind
+`DetectiveAgency` registers evidence-supported structural investigators and
+static diagnostics. `TacticDefinitionRegistry` defines the full
 concept catalogue, including support, movement, convoy, retreat, center,
 multi-phase, agreement, and diagnostic concepts. Each kind has an explicit
 family, interpretation, evidence requirements, semantic version, and short
@@ -89,10 +88,11 @@ meaning. These identifiers are application vocabulary, not official
 Diplomacy terminology. Similar-looking variants have distinct definitions;
 none is silently aliased to another kind.
 
-Definitions do not imply implementation availability. Only the four kinds
-above have built-in structural investigators, and only those kinds currently
-have registered adjudicated-claim contracts. The remaining catalogue entries
-are definitions for future investigators; they do not produce speculative
+Definitions do not imply implementation availability. See
+[the complete implementation and deferral inventory](docs/detective-implementation-status.md)
+for every kind's preconditions, grouping, evidence limits, and verification.
+Only the original four kinds have registered adjudicated-claim contracts.
+Deferred catalogue entries are definitions for future investigators; they do not produce speculative
 matches or fabricated assessment outcomes. Structural order candidates do
 not establish legality, effective support, intent, hostility, agreements, or
 strategic value. Agreement and multi-phase concepts explicitly require
@@ -116,7 +116,26 @@ java -cp out testing.selfcheck.DetectiveSelfCheck
 java -cp out testing.selfcheck.DetectiveAgencySelfCheck
 java -cp out testing.selfcheck.TacticArchitectureSelfCheck
 java -cp out testing.selfcheck.InvestigationReportSelfCheck
+java -cp out testing.selfcheck.DefaultDetectivesSelfCheck
+java -cp out testing.selfcheck.StructuralSupportMovementSelfCheck
+java -cp out testing.selfcheck.ConvoyConstructionSelfCheck
+java -cp out testing.selfcheck.RegisteredDetectivesSelfCheck
+java -cp out testing.selfcheck.ConvoyRoutePerformanceSelfCheck
+node --test src/testing/selfcheck/GamesDetectivesSelfCheck.js
 ```
+
+The parser/serializer and read-only HTTP integration check also needs the
+configured SQLite JDBC jar (`SQLITE_JDBC_JAR` is its local path):
+
+```text
+java -cp "out:$SQLITE_JDBC_JAR" testing.selfcheck.GameInvestigationIntegrationSelfCheck
+```
+
+The game browser's labeled detective checkboxes default to all registered kinds,
+including those with no findings. Selected kinds are OR'ed, then combined with
+country and completeness filters using AND. Clearing the selection displays no
+findings; filtering never changes whole-snapshot coverage or reruns investigators.
+Country/completeness changes retain kind selection; a new snapshot/game resets it.
 
 ---
 

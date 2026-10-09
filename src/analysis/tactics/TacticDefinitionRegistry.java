@@ -61,13 +61,49 @@ public final class TacticDefinitionRegistry {
         add(definitions, TacticFamily.SUPPORT_AND_COOPERATION,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
                 "SUPPORT_TO_MOVE", "A known support order names a known move to the same destination.",
-                "SUPPORT_TO_HOLD", "A known support order names a known HOLD, SUPPORT, or CONVOY order.",
-                "MUTUAL_HOLD_SUPPORT", "Two units are each known to support the other's stationary order.",
-                "SUPPORT_NETWORK", "Known support orders form a connected chain or group through supported units.",
-                "SUPPORTING_A_SUPPORTER", "A known support order names a unit that is itself issuing support.",
-                "SUPPORTING_A_CONVOY_FLEET", "A known support order names a fleet issuing a convoy order.",
-                "CROSS_POWER_SUPPORT", "A known support order and the supported order are issued by different powers.",
-                "MULTINATIONAL_SUPPORTED_ATTACK", "A move is supported by units belonging to at least two powers.");
+                "SUPPORT_TO_HOLD", "A known support order names a known HOLD, SUPPORT, or CONVOY order.");
+
+        addVersioned(definitions, TacticFamily.SUPPORT_AND_COOPERATION,
+                TacticInterpretation.STRUCTURAL_PATTERN, movement(), V2,
+                "MUTUAL_HOLD_SUPPORT",
+                "Two distinct units issue reciprocal known support-to-hold. "
+                        + "One finding per unordered pair uses the first canonical "
+                        + "member location as focus and both supporter and recipient "
+                        + "roles. Unknown recipients and move-support are excluded. "
+                        + "Support legality and effectiveness are not assessed.",
+                "SUPPORT_NETWORK",
+                "One maximal weakly connected component of at least two complete "
+                        + "compatible known support edges through active recipients. "
+                        + "Hold and move edges may mix; cycles qualify. Participants "
+                        + "retain the union of supporter and recipient roles. Focus "
+                        + "is the first canonical member location. Unknown and "
+                        + "contradictory recipient orders are excluded. No effective "
+                        + "strength or network resilience is inferred.",
+                "SUPPORTING_A_SUPPORTER",
+                "One finding per known hold support naming a different active "
+                        + "recipient issuing known SUPPORT. Focus is the recipient, "
+                        + "with supporter and supported-unit roles. Unknown recipients "
+                        + "and support-to-move are excluded; no effectiveness claim.",
+                "SUPPORTING_A_CONVOY_FLEET",
+                "One finding per known hold support naming a different active fleet "
+                        + "issuing known CONVOY. Focus is the recipient, with supporter "
+                        + "and supported-unit roles. Unknown, non-fleet, and "
+                        + "support-to-move recipients are excluded. No usable convoy "
+                        + "route or fleet-protection outcome is established.",
+                "CROSS_POWER_SUPPORT",
+                "One finding per compatible known support and known supported order "
+                        + "issued by different powers. Support-to-move matches "
+                        + "canonical destination; hold support requires HOLD, "
+                        + "SUPPORT, or CONVOY. Focus and roles retain that relationship. "
+                        + "Unknown and contradictory recipients are excluded. "
+                        + "Agreement, necessity, and success are not inferred.",
+                "MULTINATIONAL_SUPPORTED_ATTACK",
+                "One finding per known non-self MOVE with matching known support-to-move "
+                        + "from at least two distinct supporter powers. The mover's "
+                        + "power alone does not count. Include all matching supporters "
+                        + "and the supported unit; focus destination. Unknown or "
+                        + "contradictory recipients do not qualify. No effective "
+                        + "support or successful attack is established.");
 
         addVersioned(definitions, TacticFamily.SUPPORT_AND_COOPERATION,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(), V2,
@@ -90,12 +126,46 @@ public final class TacticDefinitionRegistry {
 
         add(definitions, TacticFamily.COMPETITION_AND_MOVEMENT,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
-                "SELF_BOUNCE", "At least two same-power moves target the same territory.",
-                "CROSS_POWER_CONTEST", "Moves by different powers target the same territory.",
-                "MULTIWAY_CONTEST", "Moves by three or more distinct powers target the same territory.",
-                "FOLLOW_THE_LEADER", "A move targets the territory another known move vacates.",
-                "CHAIN_ADVANCE", "Two or more linked moves target the next unit's current territory.",
-                "VACATE_AND_REPLACE", "An occupant moves while another known move targets its current territory.");
+                "SELF_BOUNCE", "At least two same-power moves target the same territory.");
+
+        addVersioned(definitions, TacticFamily.COMPETITION_AND_MOVEMENT,
+                TacticInterpretation.STRUCTURAL_PATTERN, movement(), V2,
+                "CROSS_POWER_CONTEST",
+                "Known MOVE issuers from at least two distinct powers target one "
+                        + "canonical territory. One finding per destination includes "
+                        + "all incoming attackers. Unknown orders do not contribute "
+                        + "to the threshold. No legality or contest outcome is inferred.",
+                "MULTIWAY_CONTEST",
+                "Known MOVE issuers from at least three distinct powers target one "
+                        + "canonical territory. One finding per destination includes "
+                        + "all incoming attackers, including multiple units of a "
+                        + "qualifying power. Three units from fewer powers do not "
+                        + "qualify. No adjudicated outcome is inferred.",
+                "FOLLOW_THE_LEADER",
+                "One finding per known MOVE targeting a different occupant's "
+                        + "current canonical territory while the occupant has a known "
+                        + "MOVE away. Focus is the vacated territory; incoming issuer "
+                        + "and referenced departing occupant participate. Unknown "
+                        + "departures, stationary orders, and self-moves are excluded. "
+                        + "Reciprocal and circular links can overlap other categories; "
+                        + "successful following is not established.",
+                "CHAIN_ADVANCE",
+                "One maximal open path of at least two distinct known non-self "
+                        + "MOVE issuers, each targeting the next mover's current "
+                        + "canonical territory. The final mover may target empty, "
+                        + "unknown-order, or nonmoving occupancy. Unknown residents "
+                        + "are not path members. Branches produce distinct maximal "
+                        + "paths, not suffix groups. Closed cycles and paths feeding "
+                        + "cycles are excluded. Focus is the first canonical member "
+                        + "location; members are issuers. No successful advance is inferred.",
+                "VACATE_AND_REPLACE",
+                "One finding per known incoming MOVE and different occupant's "
+                        + "known MOVE away from its current canonical territory. "
+                        + "Focus is the vacated territory, with incoming issuer and "
+                        + "referenced departing occupant. Unknown, stationary, and "
+                        + "self-departures are excluded. All powers qualify; overlap "
+                        + "with FOLLOW_THE_LEADER is intentional. No replacement "
+                        + "outcome is inferred.");
 
         addVersioned(definitions, TacticFamily.COMPETITION_AND_MOVEMENT,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(), V2,
@@ -145,9 +215,17 @@ public final class TacticDefinitionRegistry {
                 "REDUNDANT_SUPPORT", "A support is shown unnecessary to the assessed result because other support suffices.",
                 "CRITICAL_SUPPORT", "A counterfactual comparison shows that removing one support changes the result.");
 
-        add(definitions, TacticFamily.COORDINATION_DISRUPTION,
-                TacticInterpretation.STRUCTURAL_PATTERN, movement(),
-                "ATTACK_FROM_SUPPORTED_DESTINATION", "A move originates in a territory targeted by a supported move; no cut outcome is implied.");
+        addVersioned(definitions, TacticFamily.COORDINATION_DISRUPTION,
+                TacticInterpretation.STRUCTURAL_PATTERN, movement(), V2,
+                "ATTACK_FROM_SUPPORTED_DESTINATION",
+                "A known outgoing non-self MOVE originates in the canonical territory "
+                        + "targeted by a different known supported non-self MOVE. One finding "
+                        + "per outgoing/incoming pair contains the outgoing attacker, "
+                        + "supported unit, and all matching known supporters; focus "
+                        + "is their shared territory. Unknown or contradictory "
+                        + "incoming orders and unsupported moves are excluded. "
+                        + "The outgoing move need not attack the supporter; no "
+                        + "support-cut or legality outcome is inferred.");
 
 
         // Self-bounce and assistance \\
@@ -194,17 +272,76 @@ public final class TacticDefinitionRegistry {
 
         // Convoy construction \\
 
+        addVersioned(definitions, TacticFamily.CONVOY_CONSTRUCTION,
+                TacticInterpretation.STRUCTURAL_PATTERN, movement(), V2,
+                "CONVOYED_MOVE",
+                "One finding per known army MOVE with matching known fleet CONVOY "
+                        + "submissions naming its actual canonical origin and "
+                        + "canonical destination. Include the army and all matching "
+                        + "fleets; focus destination. Unknown or contradictory army "
+                        + "orders are excluded. This is submission correspondence, "
+                        + "not static legality, a connected route, or transport success.",
+                "MULTI_FLEET_CONVOY",
+                "One known army MOVE has at least two distinct matching known fleet "
+                        + "CONVOY submissions. Group the army and all matching fleets; "
+                        + "focus destination. Unknown or contradictory army orders "
+                        + "are excluded. Coastal fleet submissions and disconnected "
+                        + "references are not proof of a usable sea route.",
+                "FOREIGN_CONVOY",
+                "One finding per known fleet CONVOY naming an active army of "
+                        + "another power at its actual canonical territory. Focus "
+                        + "is submitted destination; fleet and army participate. "
+                        + "The army's order may be unknown or contradictory because "
+                        + "this describes the issued reference, not a matching MOVE. "
+                        + "No sea route, agreement, kidnapping, or success is inferred.",
+                "MULTINATIONAL_CONVOY",
+                "One known army MOVE has matching known fleet CONVOY submissions "
+                        + "from at least two distinct fleet powers. Army nationality "
+                        + "alone does not count. Group all matching fleets and army; "
+                        + "focus destination. Unknown or contradictory army orders "
+                        + "are excluded. No usable route or success is established.",
+                "SUPPORTED_CONVOY_LANDING",
+                "One finding per matching known support-to-move for an army MOVE "
+                        + "with matching known fleet CONVOY submissions. Include all "
+                        + "matching fleets, that supporter, and the army in convoyed "
+                        + "and supported roles; focus destination. Self-support and "
+                        + "contradictory references are excluded. Submission matching "
+                        + "does not establish support legality or a usable sea route.");
+
+        addVersioned(definitions, TacticFamily.CONVOY_CONSTRUCTION,
+                TacticInterpretation.STRUCTURAL_PATTERN, convoyRoutes(), V2,
+                "MULTI_ROUTE_CONVOY",
+                "At least two distinct simple sea-fleet paths connect a known army "
+                        + "MOVE's distinct coastal endpoints through matching known "
+                        + "sea-fleet CONVOY submissions. One finding per army/destination "
+                        + "includes the army and union of fleets on all candidate paths, "
+                        + "excluding disconnected matching fleets. Paths do not repeat "
+                        + "a fleet, may share fleets, and may continue beyond an "
+                        + "endpoint-adjacent fleet. Unknown orders are not route nodes. "
+                        + "Distinct routes are not necessarily disjoint, redundant, "
+                        + "or surviving adjudication.",
+                "CONVOY_SWAP",
+                "Two distinct armies issue known reciprocal MOVE submissions, "
+                        + "each with a connected candidate sea route through matching "
+                        + "known sea-fleet CONVOYs. One finding per unordered pair "
+                        + "uses the first canonical origin as focus and includes both "
+                        + "armies and fleets on their candidate routes. Unknown "
+                        + "orders and incomplete routes are excluded. This may overlap "
+                        + "HEAD_TO_HEAD_CANDIDATE; no actual exchange or outcome is inferred.",
+                "ADJACENT_PROVINCE_CONVOY",
+                "One finding per known fleet CONVOY naming an active army at its "
+                        + "actual canonical territory and a distinct adjacent canonical "
+                        + "destination. Focus is destination; "
+                        + "army and issuing fleet "
+                        + "participate. Army order may be unknown or contradictory "
+                        + "because this describes the issued reference, not a matching "
+                        + "MOVE. No coastal endpoints, sea-fleet location, or connected route "
+                        + "is required. No convoy intent, kidnapping, static legality, "
+                        + "route survival, or actual transport is established.");
+
         add(definitions, TacticFamily.CONVOY_CONSTRUCTION,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
-                "CONVOYED_MOVE", "An army move and a fleet convoy order name the same army and destination.",
-                "MULTI_FLEET_CONVOY", "Two or more fleet convoy orders name the same army move.",
-                "MULTI_ROUTE_CONVOY", "Known convoying fleets provide distinct candidate routes for one army move.",
-                "FOREIGN_CONVOY", "A foreign-power fleet issues a convoy order for an army.",
-                "MULTINATIONAL_CONVOY", "Fleet convoy orders from multiple powers name the same army move.",
-                "SUPPORTED_CONVOY_LANDING", "An army's convoyed destination is also the target of a support order.",
                 "CONVOYED_SUPPORT_CUT", "A convoyed move targets the territory occupied by a support cutter.",
-                "CONVOY_SWAP", "Two army moves and their convoy orders form a reciprocal candidate convoy exchange.",
-                "ADJACENT_PROVINCE_CONVOY", "A convoy order describes an army move between adjacent provinces.",
                 "CONVOY_BEHIND_DEFENSIVE_LINE", "A candidate convoyed destination lies beyond a specified defensive line.");
 
         requireCapabilities(definitions, Set.of(

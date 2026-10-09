@@ -41,7 +41,27 @@ public final class DetectiveAgency {
                 new AttackOnSupporterDetective(),
                 new AttackOnConvoyFleetDetective(),
                 new MultipleSupportToMoveDetective(),
-                new MultipleSupportToHoldDetective()));
+                new MultipleSupportToHoldDetective(),
+                new MutualHoldSupportDetective(),
+                new SupportNetworkDetective(),
+                new SupportingASupporterDetective(),
+                new SupportingAConvoyFleetDetective(),
+                new CrossPowerSupportDetective(),
+                new MultinationalSupportedAttackDetective(),
+                new CrossPowerContestDetective(),
+                new MultiwayContestDetective(),
+                new FollowTheLeaderDetective(),
+                new ChainAdvanceDetective(),
+                new VacateAndReplaceDetective(),
+                new AttackFromSupportedDestinationDetective(),
+                new ConvoyedMoveDetective(),
+                new MultiFleetConvoyDetective(),
+                new MultiRouteConvoyDetective(),
+                new ForeignConvoyDetective(),
+                new MultinationalConvoyDetective(),
+                new SupportedConvoyLandingDetective(),
+                new ConvoySwapDetective(),
+                new AdjacentProvinceConvoyDetective()));
     }
 
     public DetectiveAgency(

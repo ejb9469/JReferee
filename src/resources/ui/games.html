@@ -95,12 +95,18 @@
             <p id="detectives-evidence" class="muted"></p>
 
             <div class="detectives-controls">
-                <label>
-                    Kind
-                    <select id="detectives-kind" disabled>
-                        <option value="">All registered kinds</option>
-                    </select>
-                </label>
+                <fieldset id="detectives-kinds" disabled
+                          aria-describedby="detectives-kind-help">
+                    <legend>Registered kinds</legend>
+                    <p id="detectives-kind-help" class="muted">
+                        Display any selected kind. No kinds selected means no findings.
+                    </p>
+                    <div class="detectives-kind-actions">
+                        <button id="detectives-select-all" type="button">Select all</button>
+                        <button id="detectives-clear-selection" type="button">Clear selection</button>
+                    </div>
+                    <div id="detectives-kind-options"></div>
+                </fieldset>
                 <label>
                     Local completeness
                     <select id="detectives-completeness" disabled>

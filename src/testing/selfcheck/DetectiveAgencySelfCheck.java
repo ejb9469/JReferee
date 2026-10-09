@@ -71,7 +71,7 @@ public final class DetectiveAgencySelfCheck {
 
     private static void standardInvestigation() {
 
-        DetectiveAgency agency = new DetectiveAgency();
+        DetectiveAgency agency = new DetectiveAgency(standardDetectives());
         TacticalContext context = standardContext();
 
         List<TacticMatch> findings = agency.investigate(context);
@@ -83,7 +83,7 @@ public final class DetectiveAgencySelfCheck {
                 TacticKind.BELEAGUERED_GARRISON);
 
         require(agency.kinds().equals(expectedKinds),
-                "Default registry must include the four standard categories");
+                "Explicit registry must include the four supplied categories");
 
         require(kinds(findings).equals(List.of(
                         TacticKind.SUPPORT_TO_MOVE,

@@ -3,7 +3,6 @@ package analysis.tactics.detective;
 import analysis.tactics.TacticKind;
 import analysis.tactics.TacticMatch;
 import analysis.tactics.TacticalContext;
-import domain.Geography;
 import domain.OrderType;
 import domain.Province;
 import domain.UnitType;
@@ -82,7 +81,7 @@ public final class IncompleteConvoyChainDetective extends Detective {
                 continue;
 
             Map<Province, UnitId> fleets =
-                    matchingFleets(context, origin, destination);
+                    CandidateConvoyGraph.matchingFleets(context, origin, destination);
 
             /*
              * Do not diagnose every unsupported coastal army move as an
@@ -91,7 +90,7 @@ public final class IncompleteConvoyChainDetective extends Detective {
             if (fleets.isEmpty())
                 continue;
 
-            if (hasRoute(origin, destination, fleets.keySet()))
+            if (CandidateConvoyGraph.hasRoute(origin, destination, fleets.keySet()))
                 continue;
 
             List<TacticMatch.Participant> participants = new ArrayList<>();
@@ -124,122 +123,6 @@ public final class IncompleteConvoyChainDetective extends Detective {
         }
 
         return findings;
-
-    }
-
-
-    // Matching route nodes \\
-
-    private static Map<Province, UnitId> matchingFleets(
-            TacticalContext context,
-            Province origin,
-            Province destination
-    ) {
-
-        Map<Province, UnitId> fleets = new EnumMap<>(Province.class);
-
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
-
-            Order convoy = evidence.order();
-
-            if (convoy.orderType() != OrderType.CONVOY
-                    || convoy.unitType() != UnitType.FLEET)
-                continue;
-
-            Province location = context.board().locationOf(convoy.unit());
-
-            if (location.geography != Geography.WATER)
-                continue;
-
-            if (Province.canonical(convoy.target()) != origin)
-                continue;
-
-            if (Province.canonical(convoy.auxiliaryTarget()) != destination)
-                continue;
-
-            fleets.put(location, convoy.unit());
-
-        }
-
-        return fleets;
-
-    }
-
-
-    // Known-route search \\
-
-    /**
-     * Searches the matching sea-fleet graph without adjudicating any order.
-     *
-     * <p>Only sea provinces are graph nodes. Coastal provinces are endpoints,
-     * never intermediate stepping stones.</p>
-     */
-    private static boolean hasRoute(
-            Province origin,
-            Province destination,
-            Set<Province> fleetLocations
-    ) {
-
-        Set<Province> visited = EnumSet.noneOf(Province.class);
-        Deque<Province> frontier = new ArrayDeque<>();
-
-        for (Province sea : fleetLocations) {
-
-            if (!touchesCoast(sea, origin))
-                continue;
-
-            visited.add(sea);
-            frontier.addLast(sea);
-
-        }
-
-        while (!frontier.isEmpty()) {
-
-            Province current = frontier.removeFirst();
-
-            if (touchesCoast(current, destination))
-                return true;
-
-            for (Province next : fleetLocations) {
-
-                if (visited.contains(next))
-                    continue;
-
-                if (!current.isAdjacentTo(next))
-                    continue;
-
-                visited.add(next);
-                frontier.addLast(next);
-
-            }
-
-        }
-
-        return false;
-
-    }
-
-    /**
-     * Checks whether a sea province touches any coast of an army endpoint.
-     *
-     * <p>Armies occupy canonical territories rather than a particular
-     * fleet coast. Exact source orders remain unchanged in the context.</p>
-     */
-    private static boolean touchesCoast(
-            Province sea,
-            Province endpoint
-    ) {
-
-        Province territory = Province.canonical(endpoint);
-
-        if (sea.isAdjacentTo(territory))
-            return true;
-
-        for (Province coast : Province.values())
-            if (coast.parent == territory && sea.isAdjacentTo(coast))
-                return true;
-
-        return false;
 
     }
 
