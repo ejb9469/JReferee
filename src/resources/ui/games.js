@@ -38,6 +38,23 @@ const MAP_COLOR_SAMPLES = {
     GERMANY: "ber", ITALY: "rom", RUSSIA: "mos", TURKEY: "ank"
 };
 
+/*
+ * Original national territories on the standard map, excluding all SCs.
+ *
+ * This is a map-presentation association, not dynamic territorial ownership.
+ * Explicit membership avoids accidentally recoloring neutral provinces or
+ * seas that happen to have a similar SVG fill.
+ */
+const NON_CENTER_HOME_TERRITORIES = Object.freeze({
+    AUSTRIA: Object.freeze(["Boh", "Gal", "Tyr"]),
+    ENGLAND: Object.freeze(["Cly", "Wal", "Yor"]),
+    FRANCE: Object.freeze(["Bur", "Gas", "Pic"]),
+    GERMANY: Object.freeze(["Pru", "Ruh", "Sil"]),
+    ITALY: Object.freeze(["Apu", "Pie", "Tus"]),
+    RUSSIA: Object.freeze(["Lvn", "Ukr"]),
+    TURKEY: Object.freeze(["Arm", "Syr"])
+});
+
 const RETREAT_SCALE = 0.6;
 
 let svgRoot;
@@ -48,6 +65,12 @@ let adjustmentLayer;
 
 let mapColors = Object.freeze({});
 let neutralMapColor;
+
+/*
+ * Capture before any snapshot coloring. Retain the original inline values
+ * and priorities so reset/backward navigation restores the original styling.
+ */
+const originalNonCenterStyles = new Map();
 
 let game = null;
 let phaseIndex = -1;
@@ -84,14 +107,19 @@ async function start() {
     svgRoot.querySelector("#units")?.replaceChildren();
 
     captureMapPalette();
+    captureNonCenterStyles();
 
     orderLayer = svgElement("g", { id: "game-orders" });
     unitLayer = svgElement("g", { id: "game-units" });
+
     retreatLayer = svgElement("g", {
-        id: "game-retreats", "pointer-events": "none"
+        id: "game-retreats",
+        "pointer-events": "none"
     });
+
     adjustmentLayer = svgElement("g", {
-        id: "game-adjustments", "pointer-events": "none"
+        id: "game-adjustments",
+        "pointer-events": "none"
     });
 
     svgRoot.append(orderLayer, unitLayer, retreatLayer, adjustmentLayer);
@@ -179,6 +207,41 @@ function captureMapPalette() {
 
     neutralMapColor = getComputedStyle(neutral).fill;
     mapColors = Object.freeze(colors);
+
+}
+
+function captureNonCenterStyles() {
+
+    originalNonCenterStyles.clear();
+
+    for (const [nation, provinces]
+            of Object.entries(NON_CENTER_HOME_TERRITORIES)) {
+
+        for (const province of provinces) {
+
+            if (Object.hasOwn(SUPPLY_CENTER_INDICATORS, province))
+                throw new Error(
+                    `Supply center incorrectly listed as a non-center: ${province}`);
+
+            const path = svgRoot.querySelector(
+                `#provinces > path#${CSS.escape(territoryKey(province))}`);
+
+            if (!path)
+                throw new Error(`Missing non-center map territory: ${province}`);
+
+            originalNonCenterStyles.set(province, {
+                nation,
+                path,
+                fill: path.style.getPropertyValue("fill"),
+                fillPriority: path.style.getPropertyPriority("fill"),
+                fillOpacity: path.style.getPropertyValue("fill-opacity"),
+                fillOpacityPriority:
+                    path.style.getPropertyPriority("fill-opacity")
+            });
+
+        }
+
+    }
 
 }
 
@@ -328,11 +391,13 @@ async function selectGame(entry) {
         $("#nation").disabled = false;
 
         game.phases.forEach((phase, index) => {
+
             $("#phase").append(new Option(
                 `${index + 1}. ${phase.board.year} `
                     + `${phase.board.phase.replaceAll("_", " ")} `
                     + `[${phase.status}]`,
                 String(index)));
+
         });
 
         $("#phase").disabled = game.phases.length === 0;
@@ -340,10 +405,14 @@ async function selectGame(entry) {
             "Snapshot order is preserved exactly as stored in the source.";
 
         if (game.phases.length > 0) {
+
             showPhase(0);
+
         } else {
+
             $("#game-status").textContent = "This game contains no snapshots.";
             DetectivePanel.reset("No snapshots to investigate.");
+
         }
 
     } catch (error) {
@@ -395,6 +464,7 @@ function resetGame() {
     for (const path of svgRoot.querySelectorAll(".province.selected"))
         path.classList.remove("selected");
 
+    restoreNonCenterColors();
     paintCenters({}, {});
     DetectivePanel.reset();
 
@@ -412,7 +482,6 @@ function showPhase(index) {
     $("#phase-previous").disabled = index === 0;
     $("#phase-next").disabled = index === game.phases.length - 1;
 
-    // A new snapshot starts a new finding selection.
     DetectivePanel.reset();
     renderPhase();
 
@@ -447,9 +516,20 @@ function renderPhase() {
         + `${orders.length}/${phase.orders.length} displayed orders · `
         + `${retreatCount} displayed retreat(s)`;
 
+    /*
+     * Always use the full snapshot, never filtered units or orders.
+     * Recompute from scratch so backward navigation restores national fills.
+     */
+    const neutralized = paintNonCenterTerritories(phase);
+
     paintCenters(phase.board.supplyCenterOwners, game.colors);
 
+    if (neutralized.length)
+        $("#phase-details").textContent +=
+            " · Neutral non-SC home territories: " + neutralized.join(", ");
+
     const warnings = [];
+
     renderUnits(phase.board.units, nation, phase.orders, warnings);
     renderOrders(orders, warnings);
 
@@ -457,10 +537,15 @@ function renderPhase() {
         ? "Some map elements could not be drawn: " + warnings.join("; ")
         : "";
 
-    fillList($("#orders"), orders, order => order.text,
+    fillList(
+        $("#orders"),
+        orders,
+        order => order.text,
         "No parsed orders for this selection.");
 
-    fillList($("#annotations"), annotations,
+    fillList(
+        $("#annotations"),
+        annotations,
         annotation =>
             `${annotation.retreatOrder ? "RETREAT" : "MAIN ORDERS"} · `
             + `${annotation.nation} ${annotation.origin}: `
@@ -486,17 +571,109 @@ function fillList(list, entries, text, emptyMessage) {
     list.replaceChildren();
 
     if (entries.length === 0) {
+
         const item = document.createElement("li");
         item.textContent = emptyMessage;
         list.append(item);
+
         return;
+
     }
 
     for (const entry of entries) {
+
         const item = document.createElement("li");
         item.textContent = text(entry);
         list.append(item);
+
     }
+
+}
+
+
+// Non-center territory colors \\
+
+function restoreNonCenterColors() {
+
+    for (const original of originalNonCenterStyles.values()) {
+
+        restoreStyleProperty(
+            original.path,
+            "fill",
+            original.fill,
+            original.fillPriority);
+
+        restoreStyleProperty(
+            original.path,
+            "fill-opacity",
+            original.fillOpacity,
+            original.fillOpacityPriority);
+
+    }
+
+}
+
+function restoreStyleProperty(path, name, value, priority) {
+
+    if (value)
+        path.style.setProperty(name, value, priority);
+    else
+        path.style.removeProperty(name);
+
+}
+
+function paintNonCenterTerritories(phase) {
+
+    restoreNonCenterColors();
+
+    const board = phase?.board;
+
+    /*
+     * Missing fields are not affirmative evidence of elimination.
+     * The normal browser payload supplies both complete collections.
+     */
+    if (!board
+            || !Array.isArray(board.units)
+            || !board.supplyCenterOwners
+            || typeof board.supplyCenterOwners !== "object"
+            || Array.isArray(board.supplyCenterOwners))
+        return [];
+
+    const active = new Set();
+
+    for (const unit of board.units)
+        active.add(unit.nation);
+
+    for (const owner of Object.values(board.supplyCenterOwners)) {
+        if (owner)
+            active.add(owner);
+    }
+
+    /*
+     * A retreating unit may not be represented among ordinary board units.
+     * Conservatively retain a power's national fill if a retreat submission
+     * is still recorded on the selected snapshot.
+     */
+    for (const order of phase.orders || []) {
+        if (order.type === "RETREAT")
+            active.add(order.nation);
+    }
+
+    const eliminated = new Set(
+        Object.keys(NON_CENTER_HOME_TERRITORIES)
+            .filter(nation => !active.has(nation)));
+
+    for (const original of originalNonCenterStyles.values()) {
+
+        if (!eliminated.has(original.nation))
+            continue;
+
+        original.path.style.setProperty("fill", neutralMapColor);
+        original.path.style.setProperty("fill-opacity", "1");
+
+    }
+
+    return [...eliminated];
 
 }
 
@@ -517,7 +694,8 @@ function paintCenters(owners, colors) {
         const owner = canonicalOwners.get(key);
 
         const territoryColor = owner && Object.hasOwn(mapColors, owner)
-            ? mapColors[owner] : neutralMapColor;
+            ? mapColors[owner]
+            : neutralMapColor;
 
         const path = svgRoot.querySelector(
             `#provinces > path#${CSS.escape(key)}`);
@@ -535,8 +713,10 @@ function paintCenters(owners, colors) {
 
         circles[0].style.fill = territoryColor;
         circles[0].style.stroke = "#111827";
+
         circles[1].style.fill =
             owner && Object.hasOwn(colors, owner) ? colors[owner] : "#ffffff";
+
         circles[1].style.stroke = "none";
 
     }
@@ -629,11 +809,15 @@ function renderUnits(units, selectedNation, orders, warnings) {
                 () => inspectProvince(unit.province));
 
             group.addEventListener("keydown", event => {
+
                 if (event.key === "Enter" || event.key === " ") {
+
                     event.preventDefault();
                     event.stopPropagation();
                     inspectProvince(unit.province);
+
                 }
+
             });
 
             unitLayer.append(group);
@@ -670,8 +854,12 @@ function renderOrders(orders, warnings) {
             if (order.type === "HOLD") {
 
                 orderLayer.append(svgElement("circle", {
-                    cx: origin.x, cy: origin.y, r: 2.5,
-                    fill: "none", stroke: color, "stroke-width": 0.7
+                    cx: origin.x,
+                    cy: origin.y,
+                    r: 2.5,
+                    fill: "none",
+                    stroke: color,
+                    "stroke-width": 0.7
                 }));
 
             } else if (order.type === "MOVE") {
@@ -691,8 +879,12 @@ function renderOrders(orders, warnings) {
                 drawLine(origin, target, color, dash, false);
 
                 if (order.auxiliaryTarget)
-                    drawLine(target, anchor(order.auxiliaryTarget),
-                        color, dash, true);
+                    drawLine(
+                        target,
+                        anchor(order.auxiliaryTarget),
+                        color,
+                        dash,
+                        true);
 
                 drawLabel(origin, convoy ? "C" : "S", color);
 
@@ -722,6 +914,7 @@ function renderOrders(orders, warnings) {
 function drawRetreat(origin, order, color) {
 
     const destination = anchor(order.target);
+
     const group = svgElement("g", {
         role: "img",
         "aria-label": `Submitted retreat: ${order.text}`
@@ -732,23 +925,42 @@ function drawRetreat(origin, order, color) {
     group.append(title);
 
     group.append(svgElement("circle", {
-        cx: origin.x, cy: origin.y, r: 2.1,
-        fill: "none", stroke: "#ffffff", "stroke-width": 0.7
+        cx: origin.x,
+        cy: origin.y,
+        r: 2.1,
+        fill: "none",
+        stroke: "#ffffff",
+        "stroke-width": 0.7
     }));
 
     group.append(svgElement("circle", {
-        cx: origin.x, cy: origin.y, r: 2.1,
-        fill: "none", stroke: color, "stroke-width": 0.4,
+        cx: origin.x,
+        cy: origin.y,
+        r: 2.1,
+        fill: "none",
+        stroke: color,
+        "stroke-width": 0.4,
         "stroke-dasharray": "0.9 0.6"
     }));
 
-    drawLine(origin, destination, color, "0.9 0.6", true, group, RETREAT_SCALE);
+    drawLine(
+        origin,
+        destination,
+        color,
+        "0.9 0.6",
+        true,
+        group,
+        RETREAT_SCALE);
 
     const label = svgElement("text", {
-        x: origin.x + 2, y: origin.y - 2,
-        fill: color, stroke: "#ffffff",
-        "stroke-width": 0.3, "paint-order": "stroke",
-        "font-size": 1.8, "font-weight": "bold"
+        x: origin.x + 2,
+        y: origin.y - 2,
+        fill: color,
+        stroke: "#ffffff",
+        "stroke-width": 0.3,
+        "paint-order": "stroke",
+        "font-size": 1.8,
+        "font-weight": "bold"
     });
 
     label.textContent = "R";
@@ -773,30 +985,46 @@ function drawBuild(point, order, color) {
     });
 
     const title = svgElement("title");
+
     title.textContent =
         `Submitted build: ${order.nation} ${order.unitType} at ${order.origin}`;
+
     group.append(title);
 
     group.append(svgElement("circle", {
-        r: 1.7, fill: color, "fill-opacity": 0.2, stroke: "none"
+        r: 1.7,
+        fill: color,
+        "fill-opacity": 0.2,
+        stroke: "none"
     }));
 
     group.append(svgElement("circle", {
-        r: 2.5, fill: "none", stroke: "#ffffff", "stroke-width": 1.1
+        r: 2.5,
+        fill: "none",
+        stroke: "#ffffff",
+        "stroke-width": 1.1
     }));
 
     group.append(svgElement("circle", {
-        r: 2.5, fill: "none", stroke: color,
-        "stroke-width": 0.65, "stroke-dasharray": "0.05 1.15",
+        r: 2.5,
+        fill: "none",
+        stroke: color,
+        "stroke-width": 0.65,
+        "stroke-dasharray": "0.05 1.15",
         "stroke-linecap": "round"
     }));
 
     const label = svgElement("text", {
-        x: 0, y: 0,
-        "text-anchor": "middle", "dominant-baseline": "central",
-        "font-size": 1.9, "font-weight": "bold",
-        fill: color, stroke: "#ffffff",
-        "stroke-width": 0.25, "paint-order": "stroke"
+        x: 0,
+        y: 0,
+        "text-anchor": "middle",
+        "dominant-baseline": "central",
+        "font-size": 1.9,
+        "font-weight": "bold",
+        fill: color,
+        stroke: "#ffffff",
+        "stroke-width": 0.25,
+        "paint-order": "stroke"
     });
 
     label.textContent = order.unitType === "ARMY" ? "A" : "F";
@@ -825,14 +1053,18 @@ function drawDisband(point, order) {
 
     for (const diagonal of diagonals)
         group.append(svgElement("line", {
-            ...diagonal, stroke: "#ffffff",
-            "stroke-width": 1.35, "stroke-linecap": "round"
+            ...diagonal,
+            stroke: "#ffffff",
+            "stroke-width": 1.35,
+            "stroke-linecap": "round"
         }));
 
     for (const diagonal of diagonals)
         group.append(svgElement("line", {
-            ...diagonal, stroke: "#dc2626",
-            "stroke-width": 0.8, "stroke-linecap": "round"
+            ...diagonal,
+            stroke: "#dc2626",
+            "stroke-width": 0.8,
+            "stroke-linecap": "round"
         }));
 
     adjustmentLayer.append(group);
@@ -845,9 +1077,14 @@ function drawDisband(point, order) {
 function drawLabel(point, text, color) {
 
     const label = svgElement("text", {
-        x: point.x + 2, y: point.y - 2,
-        fill: color, stroke: "#ffffff", "stroke-width": 0.45,
-        "paint-order": "stroke", "font-size": 3, "font-weight": "bold"
+        x: point.x + 2,
+        y: point.y - 2,
+        fill: color,
+        stroke: "#ffffff",
+        "stroke-width": 0.45,
+        "paint-order": "stroke",
+        "font-size": 3,
+        "font-weight": "bold"
     });
 
     label.textContent = text;
@@ -856,7 +1093,13 @@ function drawLabel(point, text, color) {
 }
 
 function drawLine(
-    from, to, color, dash, arrow, layer = orderLayer, scale = 1
+    from,
+    to,
+    color,
+    dash,
+    arrow,
+    layer = orderLayer,
+    scale = 1
 ) {
 
     const dx = to.x - from.x;
@@ -870,20 +1113,34 @@ function drawLine(
     const uy = dy / distance;
     const trim = Math.min(2, distance / 4);
 
-    const start = { x: from.x + ux * trim, y: from.y + uy * trim };
-    const end = { x: to.x - ux * trim, y: to.y - uy * trim };
+    const start = {
+        x: from.x + ux * trim,
+        y: from.y + uy * trim
+    };
+
+    const end = {
+        x: to.x - ux * trim,
+        y: to.y - uy * trim
+    };
 
     const coordinates = {
-        x1: start.x, y1: start.y, x2: end.x, y2: end.y,
+        x1: start.x,
+        y1: start.y,
+        x2: end.x,
+        y2: end.y,
         "stroke-linecap": "round"
     };
 
     layer.append(svgElement("line", {
-        ...coordinates, stroke: "#ffffff", "stroke-width": 1.25 * scale
+        ...coordinates,
+        stroke: "#ffffff",
+        "stroke-width": 1.25 * scale
     }));
 
     layer.append(svgElement("line", {
-        ...coordinates, stroke: color, "stroke-width": 0.7 * scale,
+        ...coordinates,
+        stroke: color,
+        "stroke-width": 0.7 * scale,
         "stroke-dasharray": dash
     }));
 
@@ -898,7 +1155,9 @@ function drawLine(
             points: `${end.x},${end.y} `
                 + `${x - uy * width},${y + ux * width} `
                 + `${x + uy * width},${y - ux * width}`,
-            fill: color, stroke: "#ffffff", "stroke-width": 0.2 * scale
+            fill: color,
+            stroke: "#ffffff",
+            "stroke-width": 0.2 * scale
         }));
 
     }
@@ -959,8 +1218,10 @@ function anchor(province) {
             `#${CSS.escape(indicator)} circle`);
 
         if (circle)
-            return rootPoint(circle,
-                circle.cx.baseVal.value, circle.cy.baseVal.value);
+            return rootPoint(
+                circle,
+                circle.cx.baseVal.value,
+                circle.cy.baseVal.value);
 
     }
 
@@ -972,8 +1233,10 @@ function anchor(province) {
 
     const bounds = path.getBBox();
 
-    return rootPoint(path,
-        bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    return rootPoint(
+        path,
+        bounds.x + bounds.width / 2,
+        bounds.y + bounds.height / 2);
 
 }
 
@@ -995,10 +1258,14 @@ function installProvinceInteractions() {
         path.addEventListener("click", () => inspectProvince(path.id));
 
         path.addEventListener("keydown", event => {
+
             if (event.key === "Enter" || event.key === " ") {
+
                 event.preventDefault();
                 inspectProvince(path.id);
+
             }
+
         });
 
     }
@@ -1045,6 +1312,7 @@ function inspectProvince(province) {
 start().catch(error => {
 
     console.error(error);
+
     $("#summary").textContent =
         "Unable to start game browser: " + error.message;
 
