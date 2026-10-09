@@ -1,0 +1,98 @@
+.detectives-panel {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    border: 1px solid #b4bfcd;
+    border-radius: 0.5rem;
+    background: #f8fafc;
+}
+
+.detectives-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.detectives-controls label {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.detectives-controls select {
+    max-width: min(32rem, 80vw);
+}
+
+#detectives-evidence,
+#detectives-status {
+    overflow-wrap: anywhere;
+}
+
+.detective-finding {
+    margin: 0.8rem 0;
+    padding: 0.85rem;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-left: 4px solid #2563eb;
+    border-radius: 0.3rem;
+}
+
+.detective-finding.incomplete {
+    border-left-color: #b45309;
+}
+
+.detective-finding.diagnostic {
+    background: #fffaf0;
+}
+
+.detective-finding h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.detective-finding li {
+    margin: 0.4rem 0;
+    overflow-wrap: anywhere;
+    font-family: ui-monospace, monospace;
+}
+
+.detective-finding button {
+    padding: 0.4rem 0.65rem;
+    margin: 0.3rem 0;
+}
+
+.detective-missing {
+    color: #92400e;
+}
+
+.detectives-table-wrap {
+    overflow-x: auto;
+}
+
+#detectives-coverage {
+    margin-top: 1rem;
+}
+
+#detectives-coverage summary {
+    cursor: pointer;
+}
+
+#detectives-coverage table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+#detectives-coverage th,
+#detectives-coverage td {
+    padding: 0.5rem;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid #d1d5db;
+    overflow-wrap: anywhere;
+}
+
+#detectives-coverage caption {
+    text-align: left;
+    padding: 0.5rem 0;
+}

@@ -4,52 +4,26 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const $ = selector => document.querySelector(selector);
 
 const SUPPLY_CENTER_INDICATORS = {
-    Bel: "g5246",
-    Hol: "g5246-3",
-    Kie: "g5246-6",
-    Ber: "g5246-9",
-    Mun: "g5246-0",
-    Vie: "g5246-8",
-    Bud: "g5246-02",
-    Tri: "g5246-92",
-    Ser: "g5246-36",
-    Bul: "g5246-93",
-    Rum: "g5246-7",
-    Con: "g5246-03",
-    Ank: "g5246-63",
-    Smy: "g5246-5",
-    Sev: "g5246-56",
-    Mos: "g5246-74",
-    Stp: "g5246-84",
-    War: "g5246-2",
-    Ven: "g5246-926",
-    Rom: "g5246-04",
-    Nap: "g5246-72",
-    Tun: "g5246-1",
-    Mar: "g5246-94",
-    Spa: "g5246-77",
-    Por: "g5246-776",
-    Par: "g5246-639",
-    Bre: "g5246-939",
-    Lon: "g5246-50",
-    Lvp: "g5246-561",
-    Edi: "g5246-4",
-    Den: "g5246-044",
-    Swe: "g5246-17",
-    Nwy: "g5246-178",
+    Bel: "g5246", Hol: "g5246-3", Kie: "g5246-6",
+    Ber: "g5246-9", Mun: "g5246-0", Vie: "g5246-8",
+    Bud: "g5246-02", Tri: "g5246-92", Ser: "g5246-36",
+    Bul: "g5246-93", Rum: "g5246-7", Con: "g5246-03",
+    Ank: "g5246-63", Smy: "g5246-5", Sev: "g5246-56",
+    Mos: "g5246-74", Stp: "g5246-84", War: "g5246-2",
+    Ven: "g5246-926", Rom: "g5246-04", Nap: "g5246-72",
+    Tun: "g5246-1", Mar: "g5246-94", Spa: "g5246-77",
+    Por: "g5246-776", Par: "g5246-639", Bre: "g5246-939",
+    Lon: "g5246-50", Lvp: "g5246-561", Edi: "g5246-4",
+    Den: "g5246-044", Swe: "g5246-17", Nwy: "g5246-178",
     Gre: "g5246-85"
 };
 
 const COAST_PARENTS = {
-    StpNC: "Stp",
-    StpSC: "Stp",
-    SpaNC: "Spa",
-    SpaSC: "Spa",
-    BulEC: "Bul",
-    BulSC: "Bul"
+    StpNC: "Stp", StpSC: "Stp",
+    SpaNC: "Spa", SpaSC: "Spa",
+    BulEC: "Bul", BulSC: "Bul"
 };
 
-// Positions in standard.svg's root coordinate system.
 const COAST_ANCHORS = {
     StpNC: { x: 113, y: 10 },
     StpSC: { x: 108, y: 34 },
@@ -59,15 +33,9 @@ const COAST_ANCHORS = {
     BulSC: { x: 103, y: 88 }
 };
 
-// Sample the original SVG before any ownership coloring is applied.
 const MAP_COLOR_SAMPLES = {
-    AUSTRIA: "vie",
-    ENGLAND: "lon",
-    FRANCE: "par",
-    GERMANY: "ber",
-    ITALY: "rom",
-    RUSSIA: "mos",
-    TURKEY: "ank"
+    AUSTRIA: "vie", ENGLAND: "lon", FRANCE: "par",
+    GERMANY: "ber", ITALY: "rom", RUSSIA: "mos", TURKEY: "ank"
 };
 
 const RETREAT_SCALE = 0.6;
@@ -111,37 +79,22 @@ async function start() {
             || parsed.documentElement.localName !== "svg")
         throw new Error("The map asset is not valid SVG.");
 
-    // Only the application's local SVG asset is inserted as markup.
     svgRoot = document.importNode(parsed.documentElement, true);
     $("#map-host").replaceChildren(svgRoot);
     svgRoot.querySelector("#units")?.replaceChildren();
 
     captureMapPalette();
 
-    orderLayer = svgElement("g", {
-        id: "game-orders"
-    });
-
-    unitLayer = svgElement("g", {
-        id: "game-units"
-    });
-
+    orderLayer = svgElement("g", { id: "game-orders" });
+    unitLayer = svgElement("g", { id: "game-units" });
     retreatLayer = svgElement("g", {
-        id: "game-retreats",
-        "pointer-events": "none"
+        id: "game-retreats", "pointer-events": "none"
     });
-
     adjustmentLayer = svgElement("g", {
-        id: "game-adjustments",
-        "pointer-events": "none"
+        id: "game-adjustments", "pointer-events": "none"
     });
 
-    // Upper overlays do not intercept unit hover or click events.
-    svgRoot.append(
-        orderLayer,
-        unitLayer,
-        retreatLayer,
-        adjustmentLayer);
+    svgRoot.append(orderLayer, unitLayer, retreatLayer, adjustmentLayer);
 
     installProvinceInteractions();
     resetGame();
@@ -152,8 +105,6 @@ async function start() {
     $("#search").addEventListener("input", () => {
 
         clearTimeout(searchTimer);
-
-        // Invalidate immediately, not only when the debounce expires.
         listVersion++;
         listRequest?.abort();
 
@@ -190,19 +141,14 @@ async function start() {
 
         if (event.target instanceof Element
                 && event.target.closest(
-                    "input, select, textarea, button, [contenteditable]"))
+                    "input, select, textarea, button, summary, [contenteditable]"))
             return;
 
-        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
-            return;
-
-        if (!game)
+        if (!game || !["ArrowLeft", "ArrowRight"].includes(event.key))
             return;
 
         event.preventDefault();
-
-        showPhase(
-            phaseIndex + (event.key === "ArrowLeft" ? -1 : 1));
+        showPhase(phaseIndex + (event.key === "ArrowLeft" ? -1 : 1));
 
     });
 
@@ -254,7 +200,6 @@ async function json(url, signal) {
 async function loadGames(requestedOffset) {
 
     const version = ++listVersion;
-
     listRequest?.abort();
     listRequest = new AbortController();
 
@@ -299,22 +244,15 @@ async function loadGames(requestedOffset) {
         for (const entry of result.games) {
 
             const button = document.createElement("button");
-
             button.type = "button";
             button.className = "opening";
             button.dataset.id = entry.id;
-
-            button.setAttribute(
-                "aria-pressed",
-                String(entry.id === selectedId));
+            button.setAttribute("aria-pressed", String(entry.id === selectedId));
 
             const title = document.createElement("strong");
-
-            title.textContent =
-                entry.title || `Game ${entry.externalKey}`;
+            title.textContent = entry.title || `Game ${entry.externalKey}`;
 
             const description = document.createElement("span");
-
             description.className = "game-description";
             description.textContent =
                 `${entry.competition || "No competition"} · `
@@ -323,18 +261,14 @@ async function loadGames(requestedOffset) {
 
             button.append(title, description);
             button.addEventListener("click", () => selectGame(entry));
-
             $("#game-list").append(button);
 
         }
 
         if (result.games.length === 0) {
-
             const empty = document.createElement("p");
             empty.textContent = "No matching games.";
-
             $("#game-list").append(empty);
-
         }
 
     } catch (error) {
@@ -344,9 +278,7 @@ async function loadGames(requestedOffset) {
 
         $("#game-list").replaceChildren();
         $("#page-position").textContent = "";
-
-        $("#summary").textContent =
-            "Unable to list games: " + error.message;
+        $("#summary").textContent = "Unable to list games: " + error.message;
 
     }
 
@@ -358,17 +290,15 @@ async function loadGames(requestedOffset) {
 async function selectGame(entry) {
 
     const version = ++gameVersion;
-
     gameRequest?.abort();
     gameRequest = new AbortController();
 
     selectedId = entry.id;
     resetGame();
 
-    $("#game-title").textContent =
-        entry.title || `Game ${entry.externalKey}`;
-
-    $("#game-status").textContent = "Loading stored game…";
+    $("#game-title").textContent = entry.title || `Game ${entry.externalKey}`;
+    $("#game-status").textContent = "Loading stored game and investigations…";
+    DetectivePanel.reset("Loading snapshot investigations…");
 
     markSelectedGame();
 
@@ -386,9 +316,7 @@ async function selectGame(entry) {
 
         game = result;
 
-        $("#game-title").textContent =
-            game.title || `Game ${game.externalKey}`;
-
+        $("#game-title").textContent = game.title || `Game ${game.externalKey}`;
         $("#game-details").textContent =
             `${game.competition || "No competition"} · DBN ${game.externalKey}`;
 
@@ -400,25 +328,23 @@ async function selectGame(entry) {
         $("#nation").disabled = false;
 
         game.phases.forEach((phase, index) => {
-
             $("#phase").append(new Option(
                 `${index + 1}. ${phase.board.year} `
                     + `${phase.board.phase.replaceAll("_", " ")} `
                     + `[${phase.status}]`,
                 String(index)));
-
         });
 
         $("#phase").disabled = game.phases.length === 0;
-
         $("#game-status").textContent =
             "Snapshot order is preserved exactly as stored in the source.";
 
-        if (game.phases.length > 0)
+        if (game.phases.length > 0) {
             showPhase(0);
-        else
-            $("#game-status").textContent =
-                "This game contains no snapshots.";
+        } else {
+            $("#game-status").textContent = "This game contains no snapshots.";
+            DetectivePanel.reset("No snapshots to investigate.");
+        }
 
     } catch (error) {
 
@@ -426,9 +352,8 @@ async function selectGame(entry) {
             return;
 
         resetGame();
-
-        $("#game-status").textContent =
-            "Unable to open game: " + error.message;
+        $("#game-status").textContent = "Unable to open game: " + error.message;
+        DetectivePanel.reset("No report: game loading failed.");
 
     }
 
@@ -438,8 +363,7 @@ function markSelectedGame() {
 
     for (const button of $("#game-list").querySelectorAll("button"))
         button.setAttribute(
-            "aria-pressed",
-            String(button.dataset.id === selectedId));
+            "aria-pressed", String(button.dataset.id === selectedId));
 
 }
 
@@ -451,24 +375,18 @@ function resetGame() {
 
     $("#phase").replaceChildren();
     $("#phase").disabled = true;
-
     $("#nation").replaceChildren(new Option("All countries", ""));
     $("#nation").disabled = true;
-
     $("#phase-previous").disabled = true;
     $("#phase-next").disabled = true;
-
     $("#game-details").textContent = "";
     $("#phase-details").textContent = "";
-    $("#province-details").textContent =
-        "Select a province to inspect it.";
-
+    $("#province-details").textContent = "Select a province to inspect it.";
     $("#map-warning").textContent = "";
 
     $("#orders").replaceChildren();
     $("#annotations").replaceChildren();
 
-    // Removing tokens also removes their old tooltip contents.
     unitLayer.replaceChildren();
     orderLayer.replaceChildren();
     retreatLayer.replaceChildren();
@@ -478,6 +396,7 @@ function resetGame() {
         path.classList.remove("selected");
 
     paintCenters({}, {});
+    DetectivePanel.reset();
 
 }
 
@@ -493,6 +412,8 @@ function showPhase(index) {
     $("#phase-previous").disabled = index === 0;
     $("#phase-next").disabled = index === game.phases.length - 1;
 
+    // A new snapshot starts a new finding selection.
+    DetectivePanel.reset();
     renderPhase();
 
 }
@@ -513,7 +434,6 @@ function renderPhase() {
 
     const nation = $("#nation").value;
     const visible = item => !nation || item.nation === nation;
-
     const orders = phase.orders.filter(visible);
     const annotations = phase.annotations.filter(visible);
 
@@ -530,11 +450,6 @@ function renderPhase() {
     paintCenters(phase.board.supplyCenterOwners, game.colors);
 
     const warnings = [];
-
-    /*
-     * Tooltips use every source order, including orders for dimmed units.
-     * The country filter controls visible overlays and list entries only.
-     */
     renderUnits(phase.board.units, nation, phase.orders, warnings);
     renderOrders(orders, warnings);
 
@@ -542,15 +457,10 @@ function renderPhase() {
         ? "Some map elements could not be drawn: " + warnings.join("; ")
         : "";
 
-    fillList(
-        $("#orders"),
-        orders,
-        order => order.text,
+    fillList($("#orders"), orders, order => order.text,
         "No parsed orders for this selection.");
 
-    fillList(
-        $("#annotations"),
-        annotations,
+    fillList($("#annotations"), annotations,
         annotation =>
             `${annotation.retreatOrder ? "RETREAT" : "MAIN ORDERS"} · `
             + `${annotation.nation} ${annotation.origin}: `
@@ -565,8 +475,9 @@ function renderPhase() {
     if (selectedProvince)
         inspectProvince(selectedProvince);
     else
-        $("#province-details").textContent =
-            "Select a province to inspect it.";
+        $("#province-details").textContent = "Select a province to inspect it.";
+
+    DetectivePanel.show(phase.investigation, nation, inspectProvince);
 
 }
 
@@ -575,21 +486,16 @@ function fillList(list, entries, text, emptyMessage) {
     list.replaceChildren();
 
     if (entries.length === 0) {
-
         const item = document.createElement("li");
         item.textContent = emptyMessage;
         list.append(item);
-
         return;
-
     }
 
     for (const entry of entries) {
-
         const item = document.createElement("li");
         item.textContent = text(entry);
         list.append(item);
-
     }
 
 }
@@ -611,8 +517,7 @@ function paintCenters(owners, colors) {
         const owner = canonicalOwners.get(key);
 
         const territoryColor = owner && Object.hasOwn(mapColors, owner)
-            ? mapColors[owner]
-            : neutralMapColor;
+            ? mapColors[owner] : neutralMapColor;
 
         const path = svgRoot.querySelector(
             `#provinces > path#${CSS.escape(key)}`);
@@ -628,13 +533,10 @@ function paintCenters(owners, colors) {
         if (circles.length < 2)
             continue;
 
-        // Repaint every center, including neutral or previously captured ones.
         circles[0].style.fill = territoryColor;
         circles[0].style.stroke = "#111827";
-
         circles[1].style.fill =
             owner && Object.hasOwn(colors, owner) ? colors[owner] : "#ffffff";
-
         circles[1].style.stroke = "none";
 
     }
@@ -642,7 +544,7 @@ function paintCenters(owners, colors) {
 }
 
 
-// Unit order tooltips \\
+// Unit tooltips \\
 
 function ordersForUnit(unit, orders) {
 
@@ -650,7 +552,6 @@ function ordersForUnit(unit, orders) {
 
     return orders.filter(order => {
 
-        // A proposed new unit is not the existing unit at that location.
         if (order.type === "BUILD" || order.type === "WAIVE")
             return false;
 
@@ -674,12 +575,6 @@ function unitTooltip(unit, orders) {
         return `${unit.nation} ${unit.type} ${unit.province}\n`
             + "Order unknown / not supplied in this snapshot";
 
-    /*
-     * The server formats order.text using OrderForm.format(...).
-     * Preserve its standard notation rather than rebuilding it in JavaScript.
-     *
-     * A combined snapshot may contain both movement and retreat submissions.
-     */
     return matching.map(order => order.text).join("\n");
 
 }
@@ -708,7 +603,6 @@ function renderUnits(units, selectedNation, orders, warnings) {
                 "aria-label": tooltip.replaceAll("\n", "; ")
             });
 
-            // Native SVG hover tooltip. Text is never inserted as HTML.
             const title = svgElement("title");
             title.textContent = tooltip;
 
@@ -729,24 +623,17 @@ function renderUnits(units, selectedNation, orders, warnings) {
             });
 
             label.textContent = unit.type === "ARMY" ? "A" : "F";
-
             group.append(title, circle, label);
 
-            group.addEventListener(
-                "click",
+            group.addEventListener("click",
                 () => inspectProvince(unit.province));
 
             group.addEventListener("keydown", event => {
-
                 if (event.key === "Enter" || event.key === " ") {
-
                     event.preventDefault();
                     event.stopPropagation();
-
                     inspectProvince(unit.province);
-
                 }
-
             });
 
             unitLayer.append(group);
@@ -783,12 +670,8 @@ function renderOrders(orders, warnings) {
             if (order.type === "HOLD") {
 
                 orderLayer.append(svgElement("circle", {
-                    cx: origin.x,
-                    cy: origin.y,
-                    r: 2.5,
-                    fill: "none",
-                    stroke: color,
-                    "stroke-width": 0.7
+                    cx: origin.x, cy: origin.y, r: 2.5,
+                    fill: "none", stroke: color, "stroke-width": 0.7
                 }));
 
             } else if (order.type === "MOVE") {
@@ -808,12 +691,8 @@ function renderOrders(orders, warnings) {
                 drawLine(origin, target, color, dash, false);
 
                 if (order.auxiliaryTarget)
-                    drawLine(
-                        target,
-                        anchor(order.auxiliaryTarget),
-                        color,
-                        dash,
-                        true);
+                    drawLine(target, anchor(order.auxiliaryTarget),
+                        color, dash, true);
 
                 drawLabel(origin, convoy ? "C" : "S", color);
 
@@ -843,7 +722,6 @@ function renderOrders(orders, warnings) {
 function drawRetreat(origin, order, color) {
 
     const destination = anchor(order.target);
-
     const group = svgElement("g", {
         role: "img",
         "aria-label": `Submitted retreat: ${order.text}`
@@ -853,59 +731,34 @@ function drawRetreat(origin, order, color) {
     title.textContent = `Submitted retreat: ${order.text}`;
     group.append(title);
 
-    // A smaller, thinner departure ring around the existing unit.
     group.append(svgElement("circle", {
-        cx: origin.x,
-        cy: origin.y,
-        r: 2.1,
-        fill: "none",
-        stroke: "#ffffff",
-        "stroke-width": 0.7
+        cx: origin.x, cy: origin.y, r: 2.1,
+        fill: "none", stroke: "#ffffff", "stroke-width": 0.7
     }));
 
     group.append(svgElement("circle", {
-        cx: origin.x,
-        cy: origin.y,
-        r: 2.1,
-        fill: "none",
-        stroke: color,
-        "stroke-width": 0.4,
+        cx: origin.x, cy: origin.y, r: 2.1,
+        fill: "none", stroke: color, "stroke-width": 0.4,
         "stroke-dasharray": "0.9 0.6"
     }));
 
-    /*
-     * Keep the line connected to its actual destination.
-     * Scale its thickness and arrowhead, not its geographical length.
-     */
-    drawLine(
-        origin,
-        destination,
-        color,
-        "0.9 0.6",
-        true,
-        group,
-        RETREAT_SCALE);
+    drawLine(origin, destination, color, "0.9 0.6", true, group, RETREAT_SCALE);
 
     const label = svgElement("text", {
-        x: origin.x + 2,
-        y: origin.y - 2,
-        fill: color,
-        stroke: "#ffffff",
-        "stroke-width": 0.3,
-        "paint-order": "stroke",
-        "font-size": 1.8,
-        "font-weight": "bold"
+        x: origin.x + 2, y: origin.y - 2,
+        fill: color, stroke: "#ffffff",
+        "stroke-width": 0.3, "paint-order": "stroke",
+        "font-size": 1.8, "font-weight": "bold"
     });
 
     label.textContent = "R";
-
     group.append(label);
     retreatLayer.append(group);
 
 }
 
 
-// Submitted adjustment markers \\
+// Adjustment markers \\
 
 function drawBuild(point, order, color) {
 
@@ -920,50 +773,33 @@ function drawBuild(point, order, color) {
     });
 
     const title = svgElement("title");
-
     title.textContent =
         `Submitted build: ${order.nation} ${order.unitType} at ${order.origin}`;
-
     group.append(title);
 
     group.append(svgElement("circle", {
-        r: 1.7,
-        fill: color,
-        "fill-opacity": 0.2,
-        stroke: "none"
+        r: 1.7, fill: color, "fill-opacity": 0.2, stroke: "none"
     }));
 
     group.append(svgElement("circle", {
-        r: 2.5,
-        fill: "none",
-        stroke: "#ffffff",
-        "stroke-width": 1.1
+        r: 2.5, fill: "none", stroke: "#ffffff", "stroke-width": 1.1
     }));
 
     group.append(svgElement("circle", {
-        r: 2.5,
-        fill: "none",
-        stroke: color,
-        "stroke-width": 0.65,
-        "stroke-dasharray": "0.05 1.15",
+        r: 2.5, fill: "none", stroke: color,
+        "stroke-width": 0.65, "stroke-dasharray": "0.05 1.15",
         "stroke-linecap": "round"
     }));
 
     const label = svgElement("text", {
-        x: 0,
-        y: 0,
-        "text-anchor": "middle",
-        "dominant-baseline": "central",
-        "font-size": 1.9,
-        "font-weight": "bold",
-        fill: color,
-        stroke: "#ffffff",
-        "stroke-width": 0.25,
-        "paint-order": "stroke"
+        x: 0, y: 0,
+        "text-anchor": "middle", "dominant-baseline": "central",
+        "font-size": 1.9, "font-weight": "bold",
+        fill: color, stroke: "#ffffff",
+        "stroke-width": 0.25, "paint-order": "stroke"
     });
 
     label.textContent = order.unitType === "ARMY" ? "A" : "F";
-
     group.append(label);
     adjustmentLayer.append(group);
 
@@ -980,7 +816,6 @@ function drawDisband(point, order) {
 
     const title = svgElement("title");
     title.textContent = `Submitted disband: ${order.text}`;
-
     group.append(title);
 
     const diagonals = [
@@ -990,18 +825,14 @@ function drawDisband(point, order) {
 
     for (const diagonal of diagonals)
         group.append(svgElement("line", {
-            ...diagonal,
-            stroke: "#ffffff",
-            "stroke-width": 1.35,
-            "stroke-linecap": "round"
+            ...diagonal, stroke: "#ffffff",
+            "stroke-width": 1.35, "stroke-linecap": "round"
         }));
 
     for (const diagonal of diagonals)
         group.append(svgElement("line", {
-            ...diagonal,
-            stroke: "#dc2626",
-            "stroke-width": 0.8,
-            "stroke-linecap": "round"
+            ...diagonal, stroke: "#dc2626",
+            "stroke-width": 0.8, "stroke-linecap": "round"
         }));
 
     adjustmentLayer.append(group);
@@ -1009,19 +840,14 @@ function drawDisband(point, order) {
 }
 
 
-// Order drawing helpers \\
+// Drawing helpers \\
 
 function drawLabel(point, text, color) {
 
     const label = svgElement("text", {
-        x: point.x + 2,
-        y: point.y - 2,
-        fill: color,
-        stroke: "#ffffff",
-        "stroke-width": 0.45,
-        "paint-order": "stroke",
-        "font-size": 3,
-        "font-weight": "bold"
+        x: point.x + 2, y: point.y - 2,
+        fill: color, stroke: "#ffffff", "stroke-width": 0.45,
+        "paint-order": "stroke", "font-size": 3, "font-weight": "bold"
     });
 
     label.textContent = text;
@@ -1030,13 +856,7 @@ function drawLabel(point, text, color) {
 }
 
 function drawLine(
-    from,
-    to,
-    color,
-    dash,
-    arrow,
-    layer = orderLayer,
-    scale = 1
+    from, to, color, dash, arrow, layer = orderLayer, scale = 1
 ) {
 
     const dx = to.x - from.x;
@@ -1050,34 +870,20 @@ function drawLine(
     const uy = dy / distance;
     const trim = Math.min(2, distance / 4);
 
-    const start = {
-        x: from.x + ux * trim,
-        y: from.y + uy * trim
-    };
-
-    const end = {
-        x: to.x - ux * trim,
-        y: to.y - uy * trim
-    };
+    const start = { x: from.x + ux * trim, y: from.y + uy * trim };
+    const end = { x: to.x - ux * trim, y: to.y - uy * trim };
 
     const coordinates = {
-        x1: start.x,
-        y1: start.y,
-        x2: end.x,
-        y2: end.y,
+        x1: start.x, y1: start.y, x2: end.x, y2: end.y,
         "stroke-linecap": "round"
     };
 
     layer.append(svgElement("line", {
-        ...coordinates,
-        stroke: "#ffffff",
-        "stroke-width": 1.25 * scale
+        ...coordinates, stroke: "#ffffff", "stroke-width": 1.25 * scale
     }));
 
     layer.append(svgElement("line", {
-        ...coordinates,
-        stroke: color,
-        "stroke-width": 0.7 * scale,
+        ...coordinates, stroke: color, "stroke-width": 0.7 * scale,
         "stroke-dasharray": dash
     }));
 
@@ -1092,9 +898,7 @@ function drawLine(
             points: `${end.x},${end.y} `
                 + `${x - uy * width},${y + ux * width} `
                 + `${x + uy * width},${y - ux * width}`,
-            fill: color,
-            stroke: "#ffffff",
-            "stroke-width": 0.2 * scale
+            fill: color, stroke: "#ffffff", "stroke-width": 0.2 * scale
         }));
 
     }
@@ -1132,7 +936,6 @@ function rootPoint(element, x, y) {
         throw new Error("Map coordinates are unavailable.");
 
     const point = svgRoot.createSVGPoint();
-
     point.x = x;
     point.y = y;
 
@@ -1156,10 +959,8 @@ function anchor(province) {
             `#${CSS.escape(indicator)} circle`);
 
         if (circle)
-            return rootPoint(
-                circle,
-                circle.cx.baseVal.value,
-                circle.cy.baseVal.value);
+            return rootPoint(circle,
+                circle.cx.baseVal.value, circle.cy.baseVal.value);
 
     }
 
@@ -1171,10 +972,8 @@ function anchor(province) {
 
     const bounds = path.getBBox();
 
-    return rootPoint(
-        path,
-        bounds.x + bounds.width / 2,
-        bounds.y + bounds.height / 2);
+    return rootPoint(path,
+        bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
 
 }
 
@@ -1193,17 +992,13 @@ function installProvinceInteractions() {
         path.setAttribute("role", "button");
         path.setAttribute("aria-label", path.id.toUpperCase());
 
-        path.addEventListener(
-            "click",
-            () => inspectProvince(path.id));
+        path.addEventListener("click", () => inspectProvince(path.id));
 
         path.addEventListener("keydown", event => {
-
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 inspectProvince(path.id);
             }
-
         });
 
     }
@@ -1218,7 +1013,6 @@ function inspectProvince(province) {
         return;
 
     selectedProvince = province;
-
     const key = territoryKey(province);
 
     for (const path of svgRoot.querySelectorAll(".province"))
@@ -1238,8 +1032,7 @@ function inspectProvince(province) {
     $("#province-details").textContent = [
         key.toUpperCase(),
         owner ? `Owner: ${owner}` : "No recorded supply-center owner",
-        ...units.map(unit =>
-            `${unit.nation} ${unit.type} ${unit.province}`),
+        ...units.map(unit => `${unit.nation} ${unit.type} ${unit.province}`),
         ...orders.map(order => order.text),
         "Inspector includes all countries."
     ].join(" · ");
@@ -1252,8 +1045,9 @@ function inspectProvince(province) {
 start().catch(error => {
 
     console.error(error);
-
     $("#summary").textContent =
         "Unable to start game browser: " + error.message;
+
+    DetectivePanel.reset("Browser startup failed; no investigation displayed.");
 
 });

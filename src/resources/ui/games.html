@@ -7,46 +7,32 @@
 
     <link rel="stylesheet" href="/ui/openings.css">
     <link rel="stylesheet" href="/ui/games.css">
+    <link rel="stylesheet" href="/ui/games-detectives.css">
 
+    <script defer src="/ui/games-detectives.js"></script>
     <script defer src="/ui/games.js"></script>
 </head>
-
 <body>
 <header class="toolbar">
     <h1>JReferee Games</h1>
-
     <label class="search">
         Search database
-        <input id="search"
-               type="search"
-               maxlength="200"
-               placeholder="Title, competition, game ID…"
-               disabled>
+        <input id="search" type="search" maxlength="200"
+               placeholder="Title, competition, game ID…" disabled>
     </label>
-
     <button id="refresh" type="button" disabled>Refresh list</button>
 </header>
 
-<p id="summary" class="summary" role="status">
-    Loading database games…
-</p>
+<p id="summary" class="summary" role="status">Loading database games…</p>
 
 <main class="browser-layout">
     <aside class="opening-panel" aria-label="Database games">
         <h2>Games</h2>
-
         <nav class="navigation" aria-label="Game-list pages">
-            <button id="page-previous" type="button" disabled>
-                Previous page
-            </button>
-
+            <button id="page-previous" type="button" disabled>Previous page</button>
             <span id="page-position"></span>
-
-            <button id="page-next" type="button" disabled>
-                Next page
-            </button>
+            <button id="page-next" type="button" disabled>Next page</button>
         </nav>
-
         <div id="game-list"></div>
     </aside>
 
@@ -59,16 +45,11 @@
             <button id="phase-previous" type="button" disabled>
                 Previous snapshot
             </button>
-
             <label>
                 Source snapshot
                 <select id="phase" disabled></select>
             </label>
-
-            <button id="phase-next" type="button" disabled>
-                Next snapshot
-            </button>
-
+            <button id="phase-next" type="button" disabled>Next snapshot</button>
             <label>
                 Country
                 <select id="nation" disabled>
@@ -78,56 +59,101 @@
         </div>
 
         <p id="phase-details" class="muted"></p>
-
         <p class="muted">
-            Positions and ownership are stored source snapshots, not a local replay.
-            Overlays show submitted orders, not confirmed outcomes.
+            Positions and ownership are source snapshots, not a local replay.
+            Overlays show submissions, not confirmed outcomes.
             Missing orders are not converted to holds.
         </p>
 
         <div id="map-host"></div>
 
         <p class="legend">
-            Solid arrow: move · R + dashed arrow: retreat ·
-            Ring: hold · Dashed line: support ·
-            Dotted line: convoy · Dotted circle with A/F: proposed build ·
-            Red X over unit: proposed disband
+            Solid arrow: move · R + dashed arrow: retreat · Ring: hold ·
+            Dashed: support · Dotted line: convoy ·
+            Dotted A/F circle: proposed build · Red X: proposed disband
         </p>
-
         <p class="muted">
-            Supply-center territories use their recorded owner's map color.
-            Centers with no recorded owner use the neutral map color.
-            A source snapshot may contain both movement and retreat submissions;
-            these are displayed together, not replayed into a new board.
+            Supply centers use their recorded owner's map color.
+            Combined source snapshots can show movement and retreat submissions together.
+            Hover over a unit for its submitted order.
         </p>
 
         <p id="map-warning" role="status"></p>
-
         <p id="province-details" aria-live="polite">
             Select a province to inspect it.
         </p>
 
+        <section class="detectives-panel" aria-labelledby="detectives-title">
+            <h2 id="detectives-title">Detectives</h2>
+            <p class="muted">
+                Structural patterns and diagnostics—not tactical success or strategic advice.
+                Complete means local prerequisites are known, not that the tactic works.
+                Findings may overlap.
+            </p>
+
+            <p id="detectives-status" role="status">Select a game.</p>
+            <p id="detectives-evidence" class="muted"></p>
+
+            <div class="detectives-controls">
+                <label>
+                    Kind
+                    <select id="detectives-kind" disabled>
+                        <option value="">All registered kinds</option>
+                    </select>
+                </label>
+                <label>
+                    Local completeness
+                    <select id="detectives-completeness" disabled>
+                        <option value="">All findings</option>
+                        <option value="complete">Complete patterns</option>
+                        <option value="incomplete">Incomplete patterns</option>
+                    </select>
+                </label>
+            </div>
+
+            <p class="muted">
+                The Country control selects findings involving that country.
+                All participants remain visible within a selected finding.
+                Coverage below always describes the entire snapshot.
+            </p>
+
+            <div id="detectives-findings"></div>
+
+            <details id="detectives-coverage">
+                <summary>Whole-snapshot investigation coverage</summary>
+                <p id="detectives-coverage-summary" class="muted"></p>
+                <div class="detectives-table-wrap">
+                    <table>
+                        <caption>Coverage is unaffected by display filters</caption>
+                        <thead>
+                        <tr>
+                            <th scope="col">Kind</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Findings</th>
+                            <th scope="col">Missing capabilities</th>
+                        </tr>
+                        </thead>
+                        <tbody id="detectives-coverage-body"></tbody>
+                    </table>
+                </div>
+            </details>
+        </section>
+
         <div class="game-records">
             <section>
                 <h3>Submitted orders</h3>
-
                 <p class="muted">
-                    Retreat arrows show recorded submissions, not hypothetical
-                    retreat options. The parser does not expose explicit
-                    retreat-disband orders as RetreatOrder entries.
+                    Retreat arrows show submissions, not hypothetical options.
+                    Explicit retreat disbands omitted by the parser are not invented.
                 </p>
-
                 <ul id="orders"></ul>
             </section>
-
             <section>
                 <h3>DBN result annotations</h3>
-
                 <p class="muted">
-                    Historical source annotations, not JReferee verdicts.
-                    Main-order and retreat annotations are labeled separately.
+                    Source annotations, not JReferee verdicts.
+                    These annotations are not detective assessment evidence.
                 </p>
-
                 <ul id="annotations"></ul>
             </section>
         </div>

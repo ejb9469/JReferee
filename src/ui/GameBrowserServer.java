@@ -31,16 +31,10 @@ import static io.json.JsonEscaper.appendString;
 
 
 /**
- * Read-only HTTP browser for cataloged game snapshots.<br><br>
+ * Read-only browser for cataloged game snapshots and tactical investigations.
  *
- * Database connections are opened per request. No schema initialization,
- * importing, adjudication, or database mutation is performed.
- *
- * <p>Game metadata is paginated. A selected game's stored payload is parsed
- * only when requested. Source snapshots retain their original ordering.</p>
- *
- * <p>Movement and retreat submissions may coexist in a source snapshot.
- * Both are serialized when supplied; no intermediate board is invented.</p>
+ * <p>Stored snapshots are not replayed or adjudicated. Movement snapshots
+ * are independently passed to the currently registered detectives.</p>
  */
 public final class GameBrowserServer implements AutoCloseable {
 
@@ -101,37 +95,28 @@ public final class GameBrowserServer implements AutoCloseable {
         this.databaseUrl =
                 "jdbc:sqlite:" + databasePath.toUri().toASCIIString() + "?mode=ro";
 
-        // Verify the existing schema without creating or changing anything.
         try (Connection connection = connect();
              Statement statement = connection.createStatement();
              ResultSet ignored = statement.executeQuery(
                      "SELECT " + GAME_COLUMNS
                              + ", source_payload FROM catalog_game LIMIT 0")) {
-
-            // Opening the result verifies the columns used by this browser.
-
+            // Verify the existing schema without initializing or changing it.
         }
 
-        /*
-         * Only these application assets are served. Request paths are never
-         * converted into arbitrary filesystem paths.
-         */
         this.assets = Map.of(
-                "/", asset(
-                        assetRoot.resolve("games.html"),
-                        "text/html"),
+                "/", asset(assetRoot.resolve("games.html"), "text/html"),
                 "/ui/games.js", asset(
-                        assetRoot.resolve("games.js"),
-                        "text/javascript"),
+                        assetRoot.resolve("games.js"), "text/javascript"),
+                "/ui/games-detectives.js", asset(
+                        assetRoot.resolve("games-detectives.js"), "text/javascript"),
                 "/ui/games.css", asset(
-                        assetRoot.resolve("games.css"),
-                        "text/css"),
+                        assetRoot.resolve("games.css"), "text/css"),
+                "/ui/games-detectives.css", asset(
+                        assetRoot.resolve("games-detectives.css"), "text/css"),
                 "/ui/openings.css", asset(
-                        assetRoot.resolve("openings.css"),
-                        "text/css"),
+                        assetRoot.resolve("openings.css"), "text/css"),
                 "/ui/maps/standard.svg", asset(
-                        assetRoot.resolve("maps/standard.svg"),
-                        "image/svg+xml"));
+                        assetRoot.resolve("maps/standard.svg"), "image/svg+xml"));
 
         this.server = HttpServer.create(
                 new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port),
@@ -174,10 +159,6 @@ public final class GameBrowserServer implements AutoCloseable {
 
         try {
 
-            /*
-             * Loopback binding alone does not reject requests addressed
-             * through a DNS name resolving to loopback.
-             */
             if (!trustedRequest(exchange)) {
                 send(exchange, 403, "text/plain", bytes("Forbidden"));
                 return;
@@ -204,15 +185,13 @@ public final class GameBrowserServer implements AutoCloseable {
                 int offset;
 
                 try {
-                    offset = Integer.parseInt(
-                            query.getOrDefault("offset", "0"));
+                    offset = Integer.parseInt(query.getOrDefault("offset", "0"));
                 } catch (NumberFormatException exception) {
                     throw new RequestFailure(400, "Invalid offset");
                 }
 
                 if (offset < 0)
-                    throw new RequestFailure(
-                            400, "Offset must not be negative");
+                    throw new RequestFailure(400, "Offset must not be negative");
 
                 sendJson(exchange, gamesJson(search, offset));
                 return;
@@ -221,12 +200,10 @@ public final class GameBrowserServer implements AutoCloseable {
 
             if (path.equals("/api/game")) {
 
-                Map<String, String> query = query(exchange, Set.of("id"));
-                String id = query.get("id");
+                String id = query(exchange, Set.of("id")).get("id");
 
                 if (id == null || id.isBlank() || id.length() > 128)
-                    throw new RequestFailure(
-                            400, "A catalog ID is required");
+                    throw new RequestFailure(400, "A catalog ID is required");
 
                 sendJson(exchange, gameJson(id));
                 return;
@@ -339,11 +316,11 @@ public final class GameBrowserServer implements AutoCloseable {
                 .replace("_", "\\_") + "%";
 
         StringBuilder out = new StringBuilder();
-        long total;
 
         try (Connection connection = connect()) {
 
             connection.setAutoCommit(false);
+            long total;
 
             try (PreparedStatement statement = connection.prepareStatement(
                     "SELECT COUNT(*) FROM catalog_game " + SEARCH)) {
@@ -462,20 +439,15 @@ public final class GameBrowserServer implements AutoCloseable {
         DiploBNGame game;
 
         try {
-
             game = new DiploBNParser().parse(payload);
-
         } catch (IllegalArgumentException exception) {
-
             throw new RequestFailure(
                     422, "Stored game payload could not be decoded: "
                     + exception.getMessage());
-
         }
 
-        StringBuilder out = new StringBuilder();
+        StringBuilder out = new StringBuilder("{");
 
-        out.append('{');
         field(out, "id", id);
         out.append(',');
         field(out, "title", title == null ? game.gameLabel() : title);
@@ -486,7 +458,6 @@ public final class GameBrowserServer implements AutoCloseable {
         field(out, "externalKey", externalKey);
 
         out.append(",\"colors\":{");
-
         boolean first = true;
 
         for (Nation nation : Nation.values()) {
@@ -551,25 +522,16 @@ public final class GameBrowserServer implements AutoCloseable {
 
         } else {
 
-            /*
-             * Source status does not decide whether stored movement
-             * submissions should be discarded from the browser.
-             */
             for (Order order : phase.movementOrders())
                 orders.add(new DisplayedOrder(
-                        order,
-                        phase.board().locationOf(order.unit())));
+                        order, phase.board().locationOf(order.unit())));
 
         }
 
-        /*
-         * RetreatOrders may coexist with movement submissions in a source
-         * snapshot. Include them whenever present.
-         */
+        // Preserve retreat submissions even on combined source snapshots.
         for (RetreatOrder order : phase.retreatOrders())
             orders.add(new DisplayedOrder(
-                    order,
-                    phase.board().locationOf(order.unit())));
+                    order, phase.board().locationOf(order.unit())));
 
         out.append(",\"orders\":[");
 
@@ -601,7 +563,6 @@ public final class GameBrowserServer implements AutoCloseable {
         }
 
         List<DiploBNOrderResolution> annotations = new ArrayList<>();
-
         annotations.addAll(phase.resolutions());
         annotations.addAll(phase.retreatResolutions());
 
@@ -614,33 +575,31 @@ public final class GameBrowserServer implements AutoCloseable {
             if (annotationIndex > 0)
                 out.append(',');
 
-            DiploBNOrderResolution annotation =
-                    annotations.get(annotationIndex);
+            DiploBNOrderResolution annotation = annotations.get(annotationIndex);
 
             out.append('{');
             field(out, "nation", annotation.nation().name());
             out.append(',');
             field(out, "origin", annotation.issuingProvince().name());
-
-            out.append(",\"retreatOrder\":")
-                    .append(annotation.retreatOrder());
-
+            out.append(",\"retreatOrder\":").append(annotation.retreatOrder());
             out.append(",\"successful\":").append(
                     annotation.successful() == null
                             ? "null" : annotation.successful().toString());
-
             out.append(',');
             field(out, "reason", annotation.reason());
             out.append('}');
 
         }
 
-        out.append("]}");
+        out.append("],\"investigation\":")
+                .append(GameInvestigationJsonWriter.toJson(phase));
+
+        out.append('}');
 
     }
 
 
-    // JSON and HTTP helpers \\
+    // Serialization and HTTP helpers \\
 
     private static void field(StringBuilder out, String key, String value) {
 
@@ -662,17 +621,12 @@ public final class GameBrowserServer implements AutoCloseable {
         return value.getBytes(StandardCharsets.UTF_8);
     }
 
-    private static Asset asset(
-            Path path,
-            String contentType
-    ) throws IOException {
+    private static Asset asset(Path path, String contentType) throws IOException {
         return new Asset(Files.readAllBytes(path), contentType);
     }
 
-    private static void sendJson(
-            HttpExchange exchange,
-            String json
-    ) throws IOException {
+    private static void sendJson(HttpExchange exchange, String json)
+            throws IOException {
         send(exchange, 200, "application/json", bytes(json));
     }
 
@@ -684,9 +638,8 @@ public final class GameBrowserServer implements AutoCloseable {
 
         StringBuilder out = new StringBuilder("{");
         field(out, "error", message);
-        out.append('}');
 
-        send(exchange, status, "application/json", bytes(out.toString()));
+        send(exchange, status, "application/json", bytes(out.append('}').toString()));
 
     }
 
@@ -699,7 +652,6 @@ public final class GameBrowserServer implements AutoCloseable {
 
         exchange.getResponseHeaders().set(
                 "Content-Type", contentType + "; charset=utf-8");
-
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
         exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
         exchange.getResponseHeaders().set("Referrer-Policy", "no-referrer");
