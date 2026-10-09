@@ -4,18 +4,22 @@ import java.util.*;
 
 
 /**
- * Immutable catalogue of the tactical concepts represented by this API.
+ * Immutable catalogue of tactical concepts and diagnostic contracts.
  *
- * <p>A catalogue entry describes a concept; it does not claim that an
- * investigator for that concept exists. Implementations are registered
- * separately with {@link DetectiveAgency}.</p>
+ * <p>Definitions do not establish implementation availability.
+ * DetectiveAgency separately registers the algorithms that can run.</p>
+ *
+ * <p>Definition versions and detective versions are independent.</p>
  */
 public final class TacticDefinitionRegistry {
 
 
     // Registry \\
 
-    private static final String VERSION = "tactic-definition-v1";
+    private static final String DEFAULT_VERSION = "tactic-definition-v1";
+    private static final String REVISED_VERSION = "tactic-definition-v2";
+    private static final String SUPPORT_MISMATCH_VERSION = "tactic-definition-v3";
+
     private static final Map<TacticKind, TacticDefinition> DEFINITIONS =
             createDefinitions();
 
@@ -53,6 +57,9 @@ public final class TacticDefinitionRegistry {
         Map<TacticKind, TacticDefinition> definitions =
                 new EnumMap<>(TacticKind.class);
 
+
+        // Support and cooperation \\
+
         add(definitions, TacticFamily.SUPPORT_AND_COOPERATION,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
                 "SUPPORT_TO_MOVE", "A known support order names a known move to the same destination.",
@@ -66,6 +73,9 @@ public final class TacticDefinitionRegistry {
                 "CROSS_POWER_SUPPORT", "A known support order and the supported order are issued by different powers.",
                 "MULTINATIONAL_SUPPORTED_ATTACK", "A move is supported by units belonging to at least two powers.");
 
+
+        // Competition and movement \\
+
         add(definitions, TacticFamily.COMPETITION_AND_MOVEMENT,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
                 "SELF_BOUNCE", "At least two same-power moves target the same territory.",
@@ -76,12 +86,34 @@ public final class TacticDefinitionRegistry {
                 "FOLLOW_THE_LEADER", "A move targets the territory another known move vacates.",
                 "CHAIN_ADVANCE", "Two or more linked moves target the next unit's current territory.",
                 "FRIENDLY_OCCUPANT_COLLISION", "A move targets a territory occupied by a same-power unit.",
-                "BELEAGUERED_GARRISON", "Two or more attacks target a territory with a stationary occupant.",
                 "VACATE_AND_REPLACE", "An occupant moves while another known move targets its current territory.");
+
+        addVersioned(
+                definitions,
+                TacticFamily.COMPETITION_AND_MOVEMENT,
+                TacticInterpretation.STRUCTURAL_PATTERN,
+                movement(),
+                REVISED_VERSION,
+                "BELEAGUERED_GARRISON",
+                "At least two distinct active units other than the initial occupant "
+                        + "have known MOVE orders targeting the same occupied canonical "
+                        + "territory. Each move has at least one matching known "
+                        + "support-to-move submission from a different unit. "
+                        + "References use current canonical origins and destinations. "
+                        + "Unsupported incoming moves are excluded; multiple supports "
+                        + "for one mover count as one attack. Participants include "
+                        + "the occupant, qualifying attackers, and their supporters. "
+                        + "The occupant's order may be unknown or moving. Legality, "
+                        + "effective support, survival, and causal protection "
+                        + "are not established.");
+
+
+        // Coordination disruption \\
 
         add(definitions, TacticFamily.COORDINATION_DISRUPTION,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
                 "ATTACK_ON_SUPPORTER", "A known move targets the territory occupied by a known supporter.");
+
         add(definitions, TacticFamily.COORDINATION_DISRUPTION,
                 TacticInterpretation.ASSESSMENT_OUTCOME, adjudicatedMovement(),
                 "SUPPORT_CUT", "Adjudication establishes that an attack invalidates a support order.",
@@ -92,9 +124,13 @@ public final class TacticDefinitionRegistry {
                 "SUPPORT_NETWORK_BREAK", "Adjudication establishes that a disruption disconnects a support network.",
                 "REDUNDANT_SUPPORT", "A support is shown unnecessary to the assessed result because other support suffices.",
                 "CRITICAL_SUPPORT", "A counterfactual comparison shows that removing one support changes the result.");
+
         add(definitions, TacticFamily.COORDINATION_DISRUPTION,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
                 "ATTACK_FROM_SUPPORTED_DESTINATION", "A move originates in a territory targeted by a supported move; no cut outcome is implied.");
+
+
+        // Self-bounce and assistance \\
 
         add(definitions, TacticFamily.SELF_BOUNCE_AND_ASSISTANCE,
                 TacticInterpretation.ASSESSMENT_OUTCOME, adjudicatedMovement(),
@@ -108,27 +144,42 @@ public final class TacticDefinitionRegistry {
                 "SUPPORT_AGAINST_OWN_UNIT", "A support order names a same-power unit as the beneficiary of an attack.",
                 "UNREQUESTED_FOREIGN_SUPPORT", "A foreign-power support order exists without evidence of an agreement or request.",
                 "ASSISTED_THIRD_PARTY_ATTACK", "A third-party unit supports an attack between two other powers.");
+
         requireCapabilities(definitions, Set.of(
-                TacticKind.SUPPORT_FORCES_VACANCY,
-                TacticKind.SUPPORT_FORCES_UNWANTED_ADVANCE,
-                TacticKind.HOSTILE_SUPPORT_PRESERVES_GARRISON),
-                with(adjudicatedMovement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+                        TacticKind.SUPPORT_FORCES_VACANCY,
+                        TacticKind.SUPPORT_FORCES_UNWANTED_ADVANCE,
+                        TacticKind.HOSTILE_SUPPORT_PRESERVES_GARRISON),
+                with(adjudicatedMovement(),
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+
         requireCapabilities(definitions, Set.of(
-                TacticKind.HOSTILE_SUPPORT_BREAKS_SELF_BOUNCE,
-                TacticKind.SUPPORT_AGAINST_OWN_UNIT),
+                        TacticKind.HOSTILE_SUPPORT_BREAKS_SELF_BOUNCE,
+                        TacticKind.SUPPORT_AGAINST_OWN_UNIT),
                 with(adjudicatedMovement(), EvidenceCapability.RULESET_POLICY));
-        requireCapabilities(definitions, Set.of(TacticKind.UNREQUESTED_FOREIGN_SUPPORT),
-                with(movement(), EvidenceCapability.AGREEMENT_RECORD,
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.UNREQUESTED_FOREIGN_SUPPORT),
+                with(movement(),
+                        EvidenceCapability.AGREEMENT_RECORD,
                         EvidenceCapability.INTENT_EVIDENCE));
+
         requireCapabilities(definitions, Set.of(
-                TacticKind.SELF_BOUNCE_UNBALANCED_BY_SUPPORT,
-                TacticKind.HOSTILE_SUPPORT_PRESERVES_GARRISON),
-                with(adjudicatedMovement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
-        requireCapabilities(definitions, Set.of(TacticKind.REDUNDANT_SUPPORT),
-                with(adjudicatedMovement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
-        requireCapabilities(definitions, Set.of(
-                TacticKind.SELF_BOUNCE_CREATES_RETREAT_DENIAL),
+                        TacticKind.SELF_BOUNCE_UNBALANCED_BY_SUPPORT,
+                        TacticKind.HOSTILE_SUPPORT_PRESERVES_GARRISON),
+                with(adjudicatedMovement(),
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.REDUNDANT_SUPPORT),
+                with(adjudicatedMovement(),
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.SELF_BOUNCE_CREATES_RETREAT_DENIAL),
                 with(adjudicatedMovement(), EvidenceCapability.RETREAT_ORDERS));
+
+
+        // Convoy construction \\
 
         add(definitions, TacticFamily.CONVOY_CONSTRUCTION,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
@@ -142,14 +193,21 @@ public final class TacticDefinitionRegistry {
                 "CONVOY_SWAP", "Two army moves and their convoy orders form a reciprocal candidate convoy exchange.",
                 "ADJACENT_PROVINCE_CONVOY", "A convoy order describes an army move between adjacent provinces.",
                 "CONVOY_BEHIND_DEFENSIVE_LINE", "A candidate convoyed destination lies beyond a specified defensive line.");
+
         requireCapabilities(definitions, Set.of(
-                TacticKind.MULTI_ROUTE_CONVOY,
-                TacticKind.CONVOY_SWAP,
-                TacticKind.ADJACENT_PROVINCE_CONVOY,
-                TacticKind.CONVOY_BEHIND_DEFENSIVE_LINE),
+                        TacticKind.MULTI_ROUTE_CONVOY,
+                        TacticKind.CONVOY_SWAP,
+                        TacticKind.ADJACENT_PROVINCE_CONVOY,
+                        TacticKind.CONVOY_BEHIND_DEFENSIVE_LINE),
                 convoyRoutes());
-        requireCapabilities(definitions, Set.of(TacticKind.CONVOY_BEHIND_DEFENSIVE_LINE),
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.CONVOY_BEHIND_DEFENSIVE_LINE),
                 with(convoyRoutes(), EvidenceCapability.OBJECTIVE_STATE));
+
+
+        // Convoy interference \\
+
         add(definitions, TacticFamily.CONVOY_INTERFERENCE,
                 TacticInterpretation.ASSESSMENT_OUTCOME, adjudicatedConvoy(),
                 "CONVOY_DISRUPTION", "Adjudication establishes that a convoy route is disrupted.",
@@ -158,34 +216,75 @@ public final class TacticDefinitionRegistry {
                 "CONVOY_FLEET_PROTECTION", "A counterfactual comparison shows an action protects a required convoy fleet.",
                 "CONVOY_KIDNAPPING", "A foreign army's move matches convoy orders under the active ruleset's kidnapping policy.",
                 "CONVOY_PARADOX_DEPENDENCY", "Adjudicated convoy and move outcomes form a cyclic dependency.");
+
         add(definitions, TacticFamily.CONVOY_INTERFERENCE,
                 TacticInterpretation.STRUCTURAL_PATTERN, movement(),
-                "ATTACK_ON_CONVOY_FLEET", "A known move targets a convoying fleet; attack alone does not establish convoy disruption.",
-                "UNMATCHED_CONVOY_ORDER", "A convoy order has no matching army move in the known order set.",
-                "INCOMPLETE_CONVOY_CHAIN", "Known convoy orders do not establish a complete route to the army's destination.");
-        requireCapabilities(definitions, Set.of(TacticKind.INCOMPLETE_CONVOY_CHAIN),
-                convoyRoutes());
+                "ATTACK_ON_CONVOY_FLEET", "A known move targets a convoying fleet; attack alone does not establish convoy disruption.");
+
+        addVersioned(
+                definitions,
+                TacticFamily.CONVOY_INTERFERENCE,
+                TacticInterpretation.DIAGNOSTIC,
+                movement(),
+                REVISED_VERSION,
+                "UNMATCHED_CONVOY_ORDER",
+                "One finding per known CONVOY submission without a matching known "
+                        + "army MOVE to the referenced canonical destination. "
+                        + "Absent or non-army recipients and known contradictory "
+                        + "orders produce complete local diagnostics. An existing "
+                        + "army with an unknown order produces an incomplete finding. "
+                        + "A matching known move suppresses this diagnostic regardless "
+                        + "of route connectivity. Issuer legality and convoy success "
+                        + "are not assessed.");
+
+        addVersioned(
+                definitions,
+                TacticFamily.CONVOY_INTERFERENCE,
+                TacticInterpretation.DIAGNOSTIC,
+                convoyRoutes(),
+                REVISED_VERSION,
+                "INCOMPLETE_CONVOY_CHAIN",
+                "One finding per known army MOVE between distinct coastal "
+                        + "territories when at least one matching sea-fleet CONVOY "
+                        + "exists but the known matching fleets provide no connected "
+                        + "sea route between the canonical endpoints. Any coast of "
+                        + "an endpoint may connect to the route. Participants include "
+                        + "the army and matching sea fleets. No finding is produced "
+                        + "for a complete candidate route, no matching sea-fleet "
+                        + "submissions, or an unknown army move. This describes the "
+                        + "known graph, not inevitable failure under unknown orders.");
+
         add(definitions, TacticFamily.CONVOY_INTERFERENCE,
                 TacticInterpretation.PLANNING,
-                with(adjudicatedConvoy(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION,
+                with(adjudicatedConvoy(),
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION,
                         EvidenceCapability.SEARCH_HORIZON),
                 "PARADOX_POLICY_SENSITIVE_PLAN", "A plan's result varies with the configured convoy-paradox resolution policy.");
+
         requireCapabilities(definitions, Set.of(
-                TacticKind.CRITICAL_CONVOY_FLEET,
-                TacticKind.REDUNDANT_CONVOY_ROUTE,
-                TacticKind.CONVOY_FLEET_PROTECTION),
-                with(adjudicatedConvoy(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
-        requireCapabilities(definitions, Set.of(
-                TacticKind.CONVOY_KIDNAPPING),
+                        TacticKind.CRITICAL_CONVOY_FLEET,
+                        TacticKind.REDUNDANT_CONVOY_ROUTE,
+                        TacticKind.CONVOY_FLEET_PROTECTION),
+                with(adjudicatedConvoy(),
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.CONVOY_KIDNAPPING),
                 with(adjudicatedConvoy(), EvidenceCapability.RULESET_POLICY));
-        requireCapabilities(definitions, Set.of(
-                TacticKind.CONVOY_PARADOX_DEPENDENCY),
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.CONVOY_PARADOX_DEPENDENCY),
                 with(adjudicatedConvoy(), EvidenceCapability.RULESET_POLICY));
-        requireCapabilities(definitions, Set.of(
-                TacticKind.PARADOX_POLICY_SENSITIVE_PLAN),
-                with(adjudicatedConvoy(), EvidenceCapability.RULESET_POLICY,
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.PARADOX_POLICY_SENSITIVE_PLAN),
+                with(adjudicatedConvoy(),
+                        EvidenceCapability.RULESET_POLICY,
                         EvidenceCapability.COUNTERFACTUAL_RESOLUTION,
                         EvidenceCapability.SEARCH_HORIZON));
+
+
+        // Dislodgement and retreat \\
 
         add(definitions, TacticFamily.DISLODGEMENT_AND_RETREAT,
                 TacticInterpretation.ASSESSMENT_OUTCOME, retreatEvidence(),
@@ -199,16 +298,29 @@ public final class TacticDefinitionRegistry {
                 "RETREAT_BEHIND_ENEMY_LINE", "A legal retreat destination lies behind a defined enemy line.",
                 "VOLUNTARY_DISBAND_INSTEAD_OF_RETREAT", "An adjustment choice disbands a dislodged unit instead of retreating.",
                 "COOPERATIVE_DISLODGEMENT", "An agreed action contributes to dislodging a unit.");
-        requireCapabilities(definitions, Set.of(TacticKind.RETREAT_INTO_SUPPLY_CENTER),
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.RETREAT_INTO_SUPPLY_CENTER),
                 with(retreatEvidence(), EvidenceCapability.SUPPLY_CENTER_STATE));
-        requireCapabilities(definitions, Set.of(TacticKind.RETREAT_BEHIND_ENEMY_LINE),
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.RETREAT_BEHIND_ENEMY_LINE),
                 with(retreatEvidence(), EvidenceCapability.OBJECTIVE_STATE));
-        requireCapabilities(definitions, Set.of(TacticKind.FORCED_RETREAT_DESTINATION),
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.FORCED_RETREAT_DESTINATION),
                 with(retreatEvidence(), EvidenceCapability.MAP_ADJACENCY));
-        requireCapabilities(definitions, Set.of(TacticKind.VOLUNTARY_DISBAND_INSTEAD_OF_RETREAT),
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.VOLUNTARY_DISBAND_INSTEAD_OF_RETREAT),
                 with(retreatEvidence(), EvidenceCapability.ADJUSTMENT_STATE));
-        requireCapabilities(definitions, Set.of(TacticKind.COOPERATIVE_DISLODGEMENT),
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.COOPERATIVE_DISLODGEMENT),
                 with(retreatEvidence(), EvidenceCapability.AGREEMENT_RECORD));
+
+
+        // Centers and winter \\
 
         add(definitions, TacticFamily.CENTERS_AND_WINTER,
                 TacticInterpretation.PLANNING, centerPlanning(),
@@ -222,26 +334,33 @@ public final class TacticDefinitionRegistry {
                 "FORCED_DISBAND_PRESSURE", "A unit count exceeds controlled supply centers and requires a disband.",
                 "DISBAND_AND_REBUILD_REDEPLOYMENT", "A plan disbands a unit to enable a later build in another location.",
                 "UNIT_TYPE_REBALANCING", "A build plan changes the army-to-fleet composition of a power.");
+
         requireCapabilities(definitions, EnumSet.of(
-                TacticKind.FALL_CENTER_CAPTURE,
-                TacticKind.FALL_CENTER_DEFENSE,
-                TacticKind.CENTER_EXCHANGE,
-                TacticKind.CENTER_RAID,
-                TacticKind.BUILD_SITE_VACATION),
+                        TacticKind.FALL_CENTER_CAPTURE,
+                        TacticKind.FALL_CENTER_DEFENSE,
+                        TacticKind.CENTER_EXCHANGE,
+                        TacticKind.CENTER_RAID,
+                        TacticKind.BUILD_SITE_VACATION),
                 with(centerPlanning(), EvidenceCapability.MULTI_PHASE_HISTORY));
+
         requireCapabilities(definitions, EnumSet.of(
-                TacticKind.BUILD_SITE_VACATION,
-                TacticKind.BUILD_SITE_BLOCKADE,
-                TacticKind.BUILD_DENIAL,
-                TacticKind.FORCED_DISBAND_PRESSURE,
-                TacticKind.DISBAND_AND_REBUILD_REDEPLOYMENT,
-                TacticKind.UNIT_TYPE_REBALANCING),
+                        TacticKind.BUILD_SITE_VACATION,
+                        TacticKind.BUILD_SITE_BLOCKADE,
+                        TacticKind.BUILD_DENIAL,
+                        TacticKind.FORCED_DISBAND_PRESSURE,
+                        TacticKind.DISBAND_AND_REBUILD_REDEPLOYMENT,
+                        TacticKind.UNIT_TYPE_REBALANCING),
                 with(centerPlanning(), EvidenceCapability.ADJUSTMENT_STATE));
+
         requireCapabilities(definitions, EnumSet.of(
-                TacticKind.DISBAND_AND_REBUILD_REDEPLOYMENT,
-                TacticKind.UNIT_TYPE_REBALANCING),
-                with(centerPlanning(), EvidenceCapability.ADJUSTMENT_STATE,
+                        TacticKind.DISBAND_AND_REBUILD_REDEPLOYMENT,
+                        TacticKind.UNIT_TYPE_REBALANCING),
+                with(centerPlanning(),
+                        EvidenceCapability.ADJUSTMENT_STATE,
                         EvidenceCapability.MULTI_PHASE_HISTORY));
+
+
+        // Position and multi-phase planning \\
 
         add(definitions, TacticFamily.POSITION_AND_MULTI_PHASE,
                 TacticInterpretation.PLANNING, planningEvidence(),
@@ -255,49 +374,60 @@ public final class TacticDefinitionRegistry {
                 "DEFENSIVE_LINE_FORMATION", "A plan places units along a represented defensive boundary.",
                 "STALEMATE_LINE_HOLD", "A position is assessed as maintaining a represented stalemate line.",
                 "STALEMATE_LINE_BREACH", "A plan is assessed as opening a represented stalemate line.");
+
         requireCapabilities(definitions, EnumSet.of(
-                TacticKind.DEFLECTION,
-                TacticKind.DIVERSIONARY_ATTACK,
-                TacticKind.SACRIFICIAL_SUPPORT_CUT,
-                TacticKind.BREAKTHROUGH,
-                TacticKind.FLANKING_REDEPLOYMENT,
-                TacticKind.DEFENSIVE_LINE_FORMATION,
-                TacticKind.STALEMATE_LINE_HOLD,
-                TacticKind.STALEMATE_LINE_BREACH),
+                        TacticKind.DEFLECTION,
+                        TacticKind.DIVERSIONARY_ATTACK,
+                        TacticKind.SACRIFICIAL_SUPPORT_CUT,
+                        TacticKind.BREAKTHROUGH,
+                        TacticKind.FLANKING_REDEPLOYMENT,
+                        TacticKind.DEFENSIVE_LINE_FORMATION,
+                        TacticKind.STALEMATE_LINE_HOLD,
+                        TacticKind.STALEMATE_LINE_BREACH),
                 with(planningEvidence(), EvidenceCapability.MULTI_PHASE_HISTORY));
+
         requireCapabilities(definitions, EnumSet.of(
-                TacticKind.MULTIPLE_OBJECTIVE_THREAT,
-                TacticKind.DEFENDER_OVERLOAD,
-                TacticKind.DEFLECTION,
-                TacticKind.DIVERSIONARY_ATTACK,
-                TacticKind.BREAKTHROUGH,
-                TacticKind.FLANKING_REDEPLOYMENT,
-                TacticKind.STALEMATE_LINE_HOLD,
-                TacticKind.STALEMATE_LINE_BREACH),
+                        TacticKind.MULTIPLE_OBJECTIVE_THREAT,
+                        TacticKind.DEFENDER_OVERLOAD,
+                        TacticKind.DEFLECTION,
+                        TacticKind.DIVERSIONARY_ATTACK,
+                        TacticKind.BREAKTHROUGH,
+                        TacticKind.FLANKING_REDEPLOYMENT,
+                        TacticKind.STALEMATE_LINE_HOLD,
+                        TacticKind.STALEMATE_LINE_BREACH),
                 with(planningEvidence(), EvidenceCapability.OBJECTIVE_STATE));
+
         requireCapabilities(definitions, EnumSet.of(
-                TacticKind.DEFLECTION,
-                TacticKind.DIVERSIONARY_ATTACK,
-                TacticKind.SACRIFICIAL_SUPPORT_CUT,
-                TacticKind.BREAKTHROUGH,
-                TacticKind.STALEMATE_LINE_BREACH),
-                with(planningEvidence(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
-        requireCapabilities(definitions, EnumSet.of(
-                TacticKind.SACRIFICIAL_SUPPORT_CUT,
-                TacticKind.BREAKTHROUGH),
-                with(planningEvidence(), EvidenceCapability.ADJUDICATION_OUTCOME));
-        requireCapabilities(definitions, EnumSet.of(
-                TacticKind.BREAKTHROUGH,
-                TacticKind.FLANKING_REDEPLOYMENT,
-                TacticKind.DEFENSIVE_LINE_FORMATION,
-                TacticKind.STALEMATE_LINE_HOLD,
-                TacticKind.STALEMATE_LINE_BREACH),
-                with(planningEvidence(), EvidenceCapability.MAP_ADJACENCY));
-        requireCapabilities(definitions, EnumSet.of(
-                TacticKind.STALEMATE_LINE_HOLD,
-                TacticKind.STALEMATE_LINE_BREACH),
-                with(planningEvidence(), EvidenceCapability.RULESET_POLICY,
+                        TacticKind.DEFLECTION,
+                        TacticKind.DIVERSIONARY_ATTACK,
+                        TacticKind.SACRIFICIAL_SUPPORT_CUT,
+                        TacticKind.BREAKTHROUGH,
+                        TacticKind.STALEMATE_LINE_BREACH),
+                with(planningEvidence(),
                         EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+
+        requireCapabilities(definitions, EnumSet.of(
+                        TacticKind.SACRIFICIAL_SUPPORT_CUT,
+                        TacticKind.BREAKTHROUGH),
+                with(planningEvidence(), EvidenceCapability.ADJUDICATION_OUTCOME));
+
+        requireCapabilities(definitions, EnumSet.of(
+                        TacticKind.BREAKTHROUGH,
+                        TacticKind.FLANKING_REDEPLOYMENT,
+                        TacticKind.DEFENSIVE_LINE_FORMATION,
+                        TacticKind.STALEMATE_LINE_HOLD,
+                        TacticKind.STALEMATE_LINE_BREACH),
+                with(planningEvidence(), EvidenceCapability.MAP_ADJACENCY));
+
+        requireCapabilities(definitions, EnumSet.of(
+                        TacticKind.STALEMATE_LINE_HOLD,
+                        TacticKind.STALEMATE_LINE_BREACH),
+                with(planningEvidence(),
+                        EvidenceCapability.RULESET_POLICY,
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION));
+
+
+        // Agreements and diagnostics \\
 
         add(definitions, TacticFamily.AGREEMENTS_AND_DIAGNOSTICS,
                 TacticInterpretation.AGREEMENT, agreementEvidence(),
@@ -307,30 +437,68 @@ public final class TacticDefinitionRegistry {
                 "PROMISED_SUPPORT_WITHHELD", "A recorded support commitment lacks the promised support order.",
                 "PROMISED_CONVOY_WITHHELD", "A recorded convoy commitment lacks the promised convoy order.",
                 "COORDINATED_STAB", "A recorded cooperation plan is followed by an order that betrays that plan.");
+
         requireCapabilities(definitions, Set.of(
-                TacticKind.ARRANGED_BOUNCE,
-                TacticKind.FAKE_ARRANGED_BOUNCE),
+                        TacticKind.ARRANGED_BOUNCE,
+                        TacticKind.FAKE_ARRANGED_BOUNCE),
                 with(agreementEvidence(), EvidenceCapability.ADJUDICATION_OUTCOME));
-        add(definitions, TacticFamily.AGREEMENTS_AND_DIAGNOSTICS,
+
+        addVersioned(
+                definitions,
+                TacticFamily.AGREEMENTS_AND_DIAGNOSTICS,
                 TacticInterpretation.DIAGNOSTIC,
-                movement(),
-                "SUPPORT_ORDER_MISMATCH", "A support order's named beneficiary or destination conflicts with its paired plan.",
+                convoyRoutes(),
+                SUPPORT_MISMATCH_VERSION,
+                "SUPPORT_ORDER_MISMATCH",
+                "One finding per SUPPORT submission accepted by JReferee's "
+                        + "static validity helper whose reference names an absent "
+                        + "unit, itself, or a known contradictory recipient order. "
+                        + "Support-to-move requires a MOVE to the same canonical "
+                        + "destination. Support-to-hold requires HOLD, SUPPORT, "
+                        + "or CONVOY. Unknown recipient orders are not contradictions. "
+                        + "Support rejected by the shared static check belongs to "
+                        + "BOGUS_MOVES and is excluded here. This does not establish "
+                        + "full legality, effectiveness, intent, or adjudicated success.");
+
+        add(definitions,
+                TacticFamily.AGREEMENTS_AND_DIAGNOSTICS,
+                TacticInterpretation.DIAGNOSTIC,
+                convoyRoutes(),
+                "BOGUS_MOVES",
+                "One finding per known movement-phase submission rejected by "
+                        + "adjudication.util.Orders.orderIsValid using its actual "
+                        + "board origin. Applies to MOVE, SUPPORT, CONVOY, and HOLD "
+                        + "submissions admitted by TacticalContext. The submitting "
+                        + "unit is the ISSUER and its current territory is the focus. "
+                        + "The category reuses the existing standard static policy; "
+                        + "it is not an exhaustive legality test. Missing convoy "
+                        + "routes, unknown orders, cut support, bounces, and other "
+                        + "dynamic failures are not automatically bogus.");
+
+        add(definitions, TacticFamily.AGREEMENTS_AND_DIAGNOSTICS,
+                TacticInterpretation.DIAGNOSTIC, movement(),
                 "FOREIGN_COOPERATION_DEPENDENCY", "A plan's result depends on support or convoy orders from another power.",
                 "MUTUALLY_INCOMPATIBLE_ORDER_BUNDLE", "Two or more orders in a proposed bundle cannot all be satisfied.",
                 "TACTICAL_SINGLE_POINT_OF_FAILURE", "A counterfactual comparison identifies one required order whose loss defeats a plan.");
-        requireCapabilities(definitions, Set.of(
-                TacticKind.SUPPORT_ORDER_MISMATCH),
-                with(movement(), EvidenceCapability.INTENT_EVIDENCE));
-        requireCapabilities(definitions, Set.of(
-                TacticKind.FOREIGN_COOPERATION_DEPENDENCY),
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.FOREIGN_COOPERATION_DEPENDENCY),
                 adjudicatedMovement());
-        requireCapabilities(definitions, Set.of(
-                TacticKind.MUTUALLY_INCOMPATIBLE_ORDER_BUNDLE),
-                with(movement(), EvidenceCapability.ADJUDICATION_OUTCOME,
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.MUTUALLY_INCOMPATIBLE_ORDER_BUNDLE),
+                with(movement(),
+                        EvidenceCapability.ADJUDICATION_OUTCOME,
                         EvidenceCapability.INTENT_EVIDENCE));
-        requireCapabilities(definitions, Set.of(TacticKind.TACTICAL_SINGLE_POINT_OF_FAILURE),
-                with(movement(), EvidenceCapability.COUNTERFACTUAL_RESOLUTION,
+
+        requireCapabilities(definitions,
+                Set.of(TacticKind.TACTICAL_SINGLE_POINT_OF_FAILURE),
+                with(movement(),
+                        EvidenceCapability.COUNTERFACTUAL_RESOLUTION,
                         EvidenceCapability.SEARCH_HORIZON));
+
+
+        // Completeness validation \\
 
         if (!definitions.keySet().equals(EnumSet.allOf(TacticKind.class)))
             throw new ExceptionInInitializerError(
@@ -350,16 +518,44 @@ public final class TacticDefinitionRegistry {
             Set<EvidenceCapability> evidence,
             String... pairs
     ) {
+        addVersioned(
+                definitions,
+                family,
+                interpretation,
+                evidence,
+                DEFAULT_VERSION,
+                pairs);
+    }
+
+    private static void addVersioned(
+            Map<TacticKind, TacticDefinition> definitions,
+            TacticFamily family,
+            TacticInterpretation interpretation,
+            Set<EvidenceCapability> evidence,
+            String semanticVersion,
+            String... pairs
+    ) {
+
+        Objects.requireNonNull(semanticVersion, "semanticVersion");
+
+        if (semanticVersion.isBlank())
+            throw new ExceptionInInitializerError(
+                    "Definition version must not be blank");
 
         if (pairs.length % 2 != 0)
             throw new ExceptionInInitializerError(
-                    "Each tactic definition requires a name and semantics");
+                    "Each definition requires a name and semantics");
 
         for (int index = 0; index < pairs.length; index += 2) {
 
             TacticKind kind = TacticKind.valueOf(pairs[index]);
+
             TacticDefinition definition = new TacticDefinition(
-                    kind, family, interpretation, evidence, VERSION,
+                    kind,
+                    family,
+                    interpretation,
+                    evidence,
+                    semanticVersion,
                     pairs[index + 1]);
 
             if (definitions.putIfAbsent(kind, definition) != null)
@@ -370,6 +566,10 @@ public final class TacticDefinitionRegistry {
 
     }
 
+    /**
+     * Replaces the full capability set, preserving existing catalogue behavior.
+     * This is not an additive operation.
+     */
     private static void requireCapabilities(
             Map<TacticKind, TacticDefinition> definitions,
             Set<TacticKind> kinds,
@@ -382,7 +582,7 @@ public final class TacticDefinitionRegistry {
 
             if (definition == null)
                 throw new ExceptionInInitializerError(
-                        "Cannot extend missing definition: " + kind);
+                        "Cannot update missing definition: " + kind);
 
             definitions.put(kind, new TacticDefinition(
                     kind,
@@ -396,6 +596,9 @@ public final class TacticDefinitionRegistry {
 
     }
 
+
+    // Evidence groups \\
+
     private static Set<EvidenceCapability> movement() {
         return EnumSet.of(
                 EvidenceCapability.MOVEMENT_POSITION,
@@ -406,12 +609,8 @@ public final class TacticDefinitionRegistry {
         return with(movement(), EvidenceCapability.ADJUDICATION_OUTCOME);
     }
 
-    private static Set<EvidenceCapability> convoyStructure() {
-        return movement();
-    }
-
     private static Set<EvidenceCapability> convoyRoutes() {
-        return with(convoyStructure(), EvidenceCapability.MAP_ADJACENCY);
+        return with(movement(), EvidenceCapability.MAP_ADJACENCY);
     }
 
     private static Set<EvidenceCapability> adjudicatedConvoy() {
@@ -430,12 +629,16 @@ public final class TacticDefinitionRegistry {
     }
 
     private static Set<EvidenceCapability> planningEvidence() {
-        return with(movement(), EvidenceCapability.SEARCH_HORIZON,
+        return with(
+                movement(),
+                EvidenceCapability.SEARCH_HORIZON,
                 EvidenceCapability.OBJECTIVE_STATE);
     }
 
     private static Set<EvidenceCapability> agreementEvidence() {
-        return with(movement(), EvidenceCapability.AGREEMENT_RECORD,
+        return with(
+                movement(),
+                EvidenceCapability.AGREEMENT_RECORD,
                 EvidenceCapability.INTENT_EVIDENCE);
     }
 
@@ -446,8 +649,10 @@ public final class TacticDefinitionRegistry {
 
         EnumSet<EvidenceCapability> result =
                 EnumSet.noneOf(EvidenceCapability.class);
+
         result.addAll(source);
         result.addAll(Arrays.asList(additions));
+
         return result;
 
     }

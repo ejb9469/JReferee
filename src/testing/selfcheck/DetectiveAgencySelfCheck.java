@@ -76,20 +76,25 @@ public final class DetectiveAgencySelfCheck {
 
         List<TacticMatch> findings = agency.investigate(context);
 
-        List<TacticKind> expected = List.of(
+        List<TacticKind> expectedKinds = List.of(
                 TacticKind.SUPPORT_TO_MOVE,
                 TacticKind.SUPPORT_TO_HOLD,
                 TacticKind.SELF_BOUNCE,
                 TacticKind.BELEAGUERED_GARRISON);
 
-        require(agency.kinds().equals(expected),
+        require(agency.kinds().equals(expectedKinds),
                 "Default registry must include the four standard categories");
 
-        require(kinds(findings).equals(expected),
-                "Expected one occurrence of every category in kind order");
+        require(kinds(findings).equals(List.of(
+                        TacticKind.SUPPORT_TO_MOVE,
+                        TacticKind.SUPPORT_TO_MOVE,
+                        TacticKind.SUPPORT_TO_HOLD,
+                        TacticKind.SELF_BOUNCE,
+                        TacticKind.BELEAGUERED_GARRISON)),
+                "Expected five occurrences in category order");
 
-        TacticMatch selfBounce = findings.get(2);
-        TacticMatch garrison = findings.get(3);
+        TacticMatch selfBounce = findings.get(3);
+        TacticMatch garrison = findings.get(4);
 
         require(selfBounce.focus() == Province.Bur
                         && garrison.focus() == Province.Bur,
@@ -101,6 +106,11 @@ public final class DetectiveAgencySelfCheck {
 
         require(garrison.units(TacticMatch.Role.DEFENDER).size() == 1,
                 "Garrison finding must retain its distinct defender role");
+
+        require(garrison.units(TacticMatch.Role.SUPPORTER).equals(List.of(
+                        army(Nation.FRANCE, Province.Gas),
+                        army(Nation.FRANCE, Province.Mun))),
+                "Garrison must include support evidence for both attacks");
 
         for (TacticMatch match : findings) {
 
@@ -290,9 +300,8 @@ public final class DetectiveAgencySelfCheck {
         }
 
         /*
-         * Supply deliberately unsorted findings from a valid interface
-         * implementation. This tests the agency's own sorting rather than
-         * relying on Detective.investigate(...) to do it first.
+         * Supply deliberately unsorted findings from an interface-level
+         * implementation to exercise the agency's own ordering.
          */
         UnitId par = army(Nation.FRANCE, Province.Par);
         UnitId bre = army(Nation.FRANCE, Province.Bre);
@@ -515,8 +524,8 @@ public final class DetectiveAgencySelfCheck {
     /**
      * Interface-level test double.<br><br>
      *
-     * Some checks deliberately return invalid findings. These deputies
-     * exercise agency validation without weakening the concrete detectives.
+     * Some checks deliberately return invalid findings to exercise
+     * agency validation without weakening the concrete detectives.
      */
     private static TacticDetector deputy(
             TacticKind kind,
@@ -557,9 +566,10 @@ public final class DetectiveAgencySelfCheck {
     }
 
     /**
-     * Produces one occurrence of each category.<br><br>
+     * Produces two support-to-move occurrences and one of each other
+     * implemented category.<br><br>
      *
-     * The two French incoming moves are both a self-bounce candidate
+     * The two supported French moves are both a self-bounce candidate
      * and part of the German occupant's garrison candidate.
      */
     private static TacticalContext standardContext() {
@@ -567,15 +577,17 @@ public final class DetectiveAgencySelfCheck {
         UnitId par = army(Nation.FRANCE, Province.Par);
         UnitId mar = army(Nation.FRANCE, Province.Mar);
         UnitId gas = army(Nation.FRANCE, Province.Gas);
+        UnitId mun = army(Nation.FRANCE, Province.Mun);
 
         UnitId bur = army(Nation.GERMANY, Province.Bur);
         UnitId ruh = army(Nation.GERMANY, Province.Ruh);
 
         return context(
-                board(par, mar, gas, bur, ruh),
+                board(par, mar, gas, mun, bur, ruh),
                 Order.move(par, Province.Bur),
                 Order.move(mar, Province.Bur),
                 Order.supportMove(gas, Province.Par, Province.Bur),
+                Order.supportMove(mun, Province.Mar, Province.Bur),
                 Order.hold(bur),
                 Order.supportHold(ruh, Province.Bur));
 
@@ -594,7 +606,7 @@ public final class DetectiveAgencySelfCheck {
     }
 
     /**
-     * Initial fixture placement only. Production detectives use board locations.
+     * Initial fixture placement only. Detectives use actual board locations.
      */
     private static BoardState board(UnitId... units) {
 

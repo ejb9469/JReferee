@@ -2,11 +2,12 @@ package analysis.tactics;
 
 
 /**
- * Structural tactical categories.<br><br>
+ * Tactical concepts and diagnostic categories.<br><br>
  *
- * A category identifies an order pattern, not its legality, outcome,
+ * A category does not by itself establish legality, outcome,
  * intended purpose, or strategic value.
- * Enum names are identifiers; enum ordinals are not persistent IDs.
+ *
+ * <p>Enum names are identifiers; ordinals are not persistent IDs.</p>
  */
 public enum TacticKind {
 
@@ -109,6 +110,7 @@ public enum TacticKind {
     SUPPORT_ORDER_MISMATCH,
     FOREIGN_COOPERATION_DEPENDENCY,
     MUTUALLY_INCOMPATIBLE_ORDER_BUNDLE,
-    TACTICAL_SINGLE_POINT_OF_FAILURE
+    TACTICAL_SINGLE_POINT_OF_FAILURE,
+    BOGUS_MOVES
 
 }

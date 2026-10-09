@@ -7,13 +7,13 @@ import java.util.*;
 
 
 /**
- * Immutable occurrence of a structural tactical pattern.<br><br>
+ * Immutable occurrence of a tactical pattern or diagnostic.<br><br>
  *
- * A detector is responsible for its category-specific matching rules.
- * This record validates the shared participant and prerequisite structure.
+ * Detectives enforce category-specific semantics. This record validates
+ * common participant and missing-prerequisite invariants.
  *
- * <p>Equality identifies a concrete occurrence and its context.
- * It is not a UUID-independent historical pattern identity.</p>
+ * <p>Equality describes a concrete occurrence and its context, not a
+ * UUID-independent historical pattern identity.</p>
  */
 public record TacticMatch(
         TacticKind kind,
@@ -76,7 +76,6 @@ public record TacticMatch(
 
         }
 
-        // The tactical focus is a territory; exact coasts remain in context.
         focus = Province.canonical(focus);
 
         TacticalContext position = context;
@@ -107,10 +106,8 @@ public record TacticMatch(
     // Pattern queries \\
 
     /**
-     * Returns whether the local pattern prerequisites are complete.<br><br>
-     *
-     * This does not imply that every order in the surrounding scenario
-     * is known, or that the pattern will succeed.
+     * Completeness of local prerequisites, not scenario completeness
+     * or a successful adjudicated outcome.
      */
     public boolean completePattern() {
         return missingOrders.isEmpty();
@@ -138,7 +135,11 @@ public record TacticMatch(
         SUPPORTER,
         SUPPORTED_UNIT,
         ATTACKER,
-        DEFENDER
+        DEFENDER,
+        REFERENCED_UNIT,
+        CONVOYING_UNIT,
+        CONVOYED_ARMY,
+        ISSUER
 
     }
 

@@ -374,90 +374,7 @@ public final class DetectiveSelfCheck {
     // Beleaguered garrison \\
 
     private static void beleagueredGarrison() {
-
-        Detective detective = new BeleagueredGarrisonDetective();
-
-        UnitId bur = army(Nation.GERMANY, Province.Bur);
-        UnitId par = army(Nation.FRANCE, Province.Par);
-        UnitId mun = army(Nation.ITALY, Province.Mun);
-        UnitId mar = army(Nation.FRANCE, Province.Mar);
-
-        BoardState board = board(bur, par, mun, mar);
-
-        Order first = Order.move(par, Province.Bur);
-        Order second = Order.move(mun, Province.Bur);
-
-        TacticalContext partial = context(board, first, second);
-        TacticMatch match = only(detective, partial);
-
-        require(match.focus() == Province.Bur,
-                "Garrison focus must be the occupied destination");
-
-        require(match.units(TacticMatch.Role.DEFENDER).equals(List.of(bur)),
-                "Wrong original occupant");
-
-        require(match.units(TacticMatch.Role.ATTACKER)
-                        .equals(List.of(mun, par)),
-                "Wrong incoming attackers");
-
-        require(match.completePattern() && match.missingOrders().isEmpty(),
-                "Unknown defender order is not a structural prerequisite");
-
-        require(partial.orderOf(bur).isEmpty() && !partial.complete(),
-                "The detective must not synthesize a defender HOLD");
-
-        require(investigate(detective, context(board, first)).isEmpty(),
-                "One incoming move is not a garrison competition");
-
-        require(investigate(detective, context(
-                        board(par, mun), first, second)).isEmpty(),
-                "Competing moves into an empty province are not a garrison");
-
-        require(investigate(detective, context(
-                        board,
-                        first,
-                        Order.move(mun, Province.Ruh))).isEmpty(),
-                "Moves to different destinations must not be grouped");
-
-        require(only(detective, context(
-                        board,
-                        first,
-                        second,
-                        Order.move(bur, Province.Bel))).completePattern(),
-                "A departing defender remains a structural candidate");
-
-        TacticMatch triple = only(detective, context(
-                board,
-                first,
-                second,
-                Order.move(mar, Province.Bur)));
-
-        require(triple.units(TacticMatch.Role.ATTACKER).size() == 3,
-                "Three attackers must form one garrison occurrence");
-
-        UnitId friendlyMun = army(Nation.GERMANY, Province.Mun);
-
-        require(only(detective, context(
-                        board(bur, par, friendlyMun),
-                        first,
-                        Order.move(friendlyMun, Province.Bur))).completePattern(),
-                "An incoming mover may belong to the defender's nation");
-
-        require(investigate(detective, context(
-                        board(bur, par),
-                        Order.move(bur, Province.Bur),
-                        first)).isEmpty(),
-                "The occupant's self-move must not count as another attacker");
-
-        TacticalContext overlap = context(
-                board(bur, par, mar),
-                first,
-                Order.move(mar, Province.Bur));
-
-        require(investigate(new SelfBounceDetective(), overlap).size() == 1
-                        && investigate(detective, overlap).size() == 1,
-                "Self-bounce and garrison patterns must be allowed to overlap");
-
+        checks += BeleagueredGarrisonSelfCheck.runChecks();
     }
 
 
@@ -469,19 +386,28 @@ public final class DetectiveSelfCheck {
         UnitId mao = fleet(Nation.FRANCE, Province.MAO);
         UnitId spa = fleet(Nation.GERMANY, Province.SpaSC);
         UnitId gas = army(Nation.FRANCE, Province.Gas);
+        UnitId wes = fleet(Nation.ITALY, Province.WES);
 
         TacticalContext competition = context(
-                board(por, mao, spa),
+                board(por, mao, spa, gas, wes),
                 Order.move(por, Province.SpaNC),
-                Order.move(mao, Province.SpaSC));
+                Order.move(mao, Province.SpaSC),
+                Order.supportMove(gas, Province.Por, Province.SpaSC),
+                Order.supportMove(wes, Province.MAO, Province.SpaNC));
 
         require(only(new SelfBounceDetective(), competition).focus()
                         == Province.Spa,
                 "Different destination coasts must share one self-bounce focus");
 
-        require(only(new BeleagueredGarrisonDetective(), competition)
-                        .units(TacticMatch.Role.DEFENDER).equals(List.of(spa)),
+        TacticMatch garrison =
+                only(new BeleagueredGarrisonDetective(), competition);
+
+        require(garrison.units(TacticMatch.Role.DEFENDER).equals(List.of(spa)),
                 "Garrison lookup must find the occupant on either coast");
+
+        require(garrison.units(TacticMatch.Role.SUPPORTER)
+                        .equals(List.of(gas, wes)),
+                "Canonical support matching must retain both supporters");
 
         require(competition.orderOf(por).orElseThrow().order().target()
                         == Province.SpaNC
@@ -582,14 +508,35 @@ public final class DetectiveSelfCheck {
                         .equals(List.of(Province.Bel, Province.Bur)),
                 "Self-bounce groups must be ordered by focus");
 
-        require(focuses(investigate(new BeleagueredGarrisonDetective(), moves))
+        /*
+         * Keep the earlier fixture unchanged: other assertions depend on
+         * its support counts. Garrison ordering requires two independently
+         * supported moves into each occupied destination.
+         */
+        UnitId hol = army(Nation.FRANCE, Province.Hol);
+
+        TacticalContext garrisonMoves = context(
+                board(par, mar, gas, mun, bre, pic, ruh, hol, bur, bel),
+                Order.move(par, Province.Bur),
+                Order.move(mar, Province.Bur),
+                Order.supportMove(gas, Province.Par, Province.Bur),
+                Order.supportMove(mun, Province.Mar, Province.Bur),
+                Order.move(bre, Province.Bel),
+                Order.move(pic, Province.Bel),
+                Order.supportMove(ruh, Province.Bre, Province.Bel),
+                Order.supportMove(hol, Province.Pic, Province.Bel),
+                Order.hold(bur),
+                Order.hold(bel));
+
+        require(focuses(investigate(
+                        new BeleagueredGarrisonDetective(), garrisonMoves))
                         .equals(List.of(Province.Bel, Province.Bur)),
                 "Garrison groups must be ordered by focus");
 
         checkOrdering(new SupportToMoveDetective(), moves);
         checkOrdering(new SupportToHoldDetective(), holds);
         checkOrdering(new SelfBounceDetective(), moves);
-        checkOrdering(new BeleagueredGarrisonDetective(), moves);
+        checkOrdering(new BeleagueredGarrisonDetective(), garrisonMoves);
 
         // Include incomplete matches in ordering and identity checks.
         checkOrdering(new SupportToMoveDetective(), context(
@@ -951,11 +898,11 @@ public final class DetectiveSelfCheck {
     // UUID-independent comparison \\
 
     /**
-     * Describes the classified structure using current locations.<br><br>
+     * Describes classified structure using current locations.<br><br>
      *
-     * Record equality intentionally includes concrete unit identities.
-     * This projection instead checks that UUIDs and creation origins do
-     * not change recognition, role assignment, prerequisites, or ordering.
+     * Record equality includes concrete unit identities. This projection
+     * checks that UUIDs and creation origins do not change recognition,
+     * roles, prerequisites, or ordering.
      */
     private static List<String> describe(List<TacticMatch> findings) {
 
@@ -1080,22 +1027,19 @@ public final class DetectiveSelfCheck {
     }
 
     /**
-     * Convenience for initial fixtures only.
+     * Convenience for initial-position fixtures only.
      *
-     * Reidentified fixtures supply actual locations separately so that
-     * production behavior is never tested using creation origin as location.
+     * Reidentified fixtures supply actual locations separately to test
+     * that production code does not use creation origin as current location.
      */
     private static BoardState board(UnitId... units) {
 
         Map<UnitId, Province> locations = new LinkedHashMap<>();
 
-        for (UnitId unit : units) {
-
+        for (UnitId unit : units)
             if (locations.putIfAbsent(unit, unit.origin()) != null)
                 throw new IllegalArgumentException(
                         "Duplicate fixture unit: " + unit);
-
-        }
 
         return new BoardState(locations, Map.of());
 
@@ -1109,13 +1053,10 @@ public final class DetectiveSelfCheck {
         Map<UnitId, TacticalContext.KnownOrder> orders =
                 new LinkedHashMap<>();
 
-        for (Order order : submissions) {
-
+        for (Order order : submissions)
             if (orders.putIfAbsent(order.unit(), submitted(order)) != null)
                 throw new IllegalArgumentException(
                         "Duplicate fixture submission: " + order.unit());
-
-        }
 
         return new TacticalContext(RULESET, MOMENT, board, orders);
 

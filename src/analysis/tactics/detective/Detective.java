@@ -17,13 +17,52 @@ import java.util.*;
  *
  * <p>This class owns the common investigation boundary:
  * context validation, stable result ordering, and immutable output.</p>
+ *
+ * <p>Each instance retains an immutable algorithm version. A detective
+ * whose matching semantics change must explicitly select a new version.</p>
  */
 public abstract class Detective implements TacticDetector {
 
 
+    // abstract class is justified here given our polymorphic architecture
+
+
     // Constants \\
 
-    private static final String VERSION = "structure-v1";
+    private static final String LEGACY_VERSION = "structure-v1";
+
+
+    // Core state \\
+
+    private final String version;
+
+
+    // Constructors \\
+
+    /**
+     * Preserves the original version for unchanged detective subclasses.
+     */
+    protected Detective() {
+        this(LEGACY_VERSION);
+    }
+
+    /**
+     * Assigns the version of this detective's matching algorithm.<br><br>
+     *
+     * The version is independent of the catalogue definition's semantic
+     * version. It must not change during the lifetime of the detective.
+     */
+    protected Detective(String version) {
+
+        Objects.requireNonNull(version, "version");
+
+        if (version.isBlank())
+            throw new IllegalArgumentException(
+                    "Detective version must not be blank");
+
+        this.version = version;
+
+    }
 
 
     // Detective identity \\
@@ -33,7 +72,7 @@ public abstract class Detective implements TacticDetector {
 
     @Override
     public final String version() {
-        return VERSION;
+        return version;
     }
 
 
@@ -71,6 +110,8 @@ public abstract class Detective implements TacticDetector {
      * The context is non-null. Implementations must return a non-null,
      * duplicate-free collection of matches belonging to this detective
      * and the supplied context.
+     *
+     * <p>Every match must use this detective's kind() and version().</p>
      *
      * <p>The returned list may be mutable and unsorted; investigate(...)
      * copies and orders it before exposing the results.</p>

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JReferee Game Browser</title>
+
+    <link rel="stylesheet" href="/ui/openings.css">
+    <link rel="stylesheet" href="/ui/games.css">
+
+    <script defer src="/ui/games.js"></script>
+</head>
+
+<body>
+<header class="toolbar">
+    <h1>JReferee Games</h1>
+
+    <label class="search">
+        Search database
+        <input id="search"
+               type="search"
+               maxlength="200"
+               placeholder="Title, competition, game ID…"
+               disabled>
+    </label>
+
+    <button id="refresh" type="button" disabled>Refresh list</button>
+</header>
+
+<p id="summary" class="summary" role="status">
+    Loading database games…
+</p>
+
+<main class="browser-layout">
+    <aside class="opening-panel" aria-label="Database games">
+        <h2>Games</h2>
+
+        <nav class="navigation" aria-label="Game-list pages">
+            <button id="page-previous" type="button" disabled>
+                Previous page
+            </button>
+
+            <span id="page-position"></span>
+
+            <button id="page-next" type="button" disabled>
+                Next page
+            </button>
+        </nav>
+
+        <div id="game-list"></div>
+    </aside>
+
+    <section class="map-panel" aria-label="Selected game">
+        <h2 id="game-title">Select a game</h2>
+        <p id="game-details" class="muted"></p>
+        <p id="game-status" role="status"></p>
+
+        <div class="phase-controls">
+            <button id="phase-previous" type="button" disabled>
+                Previous snapshot
+            </button>
+
+            <label>
+                Source snapshot
+                <select id="phase" disabled></select>
+            </label>
+
+            <button id="phase-next" type="button" disabled>
+                Next snapshot
+            </button>
+
+            <label>
+                Country
+                <select id="nation" disabled>
+                    <option value="">All countries</option>
+                </select>
+            </label>
+        </div>
+
+        <p id="phase-details" class="muted"></p>
+
+        <p class="muted">
+            Positions and ownership are stored source snapshots, not a local replay.
+            Overlays show submitted orders, not confirmed outcomes.
+            Missing orders are not converted to holds.
+        </p>
+
+        <div id="map-host"></div>
+
+        <p class="legend">
+            Solid arrow: move · R + dashed arrow: retreat ·
+            Ring: hold · Dashed line: support ·
+            Dotted line: convoy · Dotted circle with A/F: proposed build ·
+            Red X over unit: proposed disband
+        </p>
+
+        <p class="muted">
+            Supply-center territories use their recorded owner's map color.
+            Centers with no recorded owner use the neutral map color.
+            A source snapshot may contain both movement and retreat submissions;
+            these are displayed together, not replayed into a new board.
+        </p>
+
+        <p id="map-warning" role="status"></p>
+
+        <p id="province-details" aria-live="polite">
+            Select a province to inspect it.
+        </p>
+
+        <div class="game-records">
+            <section>
+                <h3>Submitted orders</h3>
+
+                <p class="muted">
+                    Retreat arrows show recorded submissions, not hypothetical
+                    retreat options. The parser does not expose explicit
+                    retreat-disband orders as RetreatOrder entries.
+                </p>
+
+                <ul id="orders"></ul>
+            </section>
+
+            <section>
+                <h3>DBN result annotations</h3>
+
+                <p class="muted">
+                    Historical source annotations, not JReferee verdicts.
+                    Main-order and retreat annotations are labeled separately.
+                </p>
+
+                <ul id="annotations"></ul>
+            </section>
+        </div>
+    </section>
+</main>
+</body>
+</html>

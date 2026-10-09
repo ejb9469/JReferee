@@ -1,22 +1,26 @@
 package analysis.tactics;
 
 import analysis.tactics.detective.BeleagueredGarrisonDetective;
+import analysis.tactics.detective.BogusMovesDetective;
+import analysis.tactics.detective.IncompleteConvoyChainDetective;
 import analysis.tactics.detective.SelfBounceDetective;
+import analysis.tactics.detective.SupportMismatchDetective;
 import analysis.tactics.detective.SupportToHoldDetective;
 import analysis.tactics.detective.SupportToMoveDetective;
+import analysis.tactics.detective.UnmatchedConvoyDetective;
 
 import java.util.*;
 
 
 /**
- * Coordinates structural investigations across tactical detectives.<br><br>
+ * Coordinates tactical patterns and diagnostics over known submissions.
  *
- * Each registered detective examines the same context. Findings from
- * different categories are retained even when their participants overlap.
+ * <p>Findings may overlap across categories. The support-mismatch detective
+ * explicitly excludes bogus support; the agency does not implement that
+ * semantic rule by deleting findings after investigation.</p>
  *
- * <p>The agency validates the returned findings, orders them consistently,
- * and exposes an immutable result. It does not adjudicate orders or select
- * a preferred tactical interpretation.</p>
+ * <p>This agency uses the standard Province map and static validation
+ * policy. It does not supply adjudication, history, intent, or agreements.</p>
  */
 public final class DetectiveAgency {
 
@@ -28,26 +32,18 @@ public final class DetectiveAgency {
 
     // Constructors \\
 
-    /**
-     * Registers the four standard structural detectives.
-     */
     public DetectiveAgency() {
         this(List.of(
                 new SupportToMoveDetective(),
                 new SupportToHoldDetective(),
                 new SelfBounceDetective(),
-                new BeleagueredGarrisonDetective()));
+                new BeleagueredGarrisonDetective(),
+                new SupportMismatchDetective(),
+                new UnmatchedConvoyDetective(),
+                new IncompleteConvoyChainDetective(),
+                new BogusMovesDetective()));
     }
 
-    /**
-     * Registers one detective per tactical category.<br><br>
-     *
-     * Subsets and an empty collection are allowed. Duplicate categories
-     * are rejected, including repeated registration of the same instance.
-     *
-     * <p>The collection is copied. Detective instances themselves are
-     * retained and must obey the pure investigation contract.</p>
-     */
     public DetectiveAgency(
             Collection<? extends TacticDetector> detectives
     ) {
@@ -71,8 +67,9 @@ public final class DetectiveAgency {
                 throw new IllegalArgumentException(
                         "Detective version must not be blank");
 
-            Assignment assignment = new Assignment(
-                    detective, kind, version);
+            TacticDefinitionRegistry.require(kind);
+
+            Assignment assignment = new Assignment(detective, kind, version);
 
             if (registered.putIfAbsent(kind, assignment) != null)
                 throw new IllegalArgumentException(
@@ -87,9 +84,6 @@ public final class DetectiveAgency {
 
     // Registry queries \\
 
-    /**
-     * Returns registered categories in TacticKind declaration order.
-     */
     public List<TacticKind> kinds() {
         return List.copyOf(assignments.keySet());
     }
@@ -97,29 +91,16 @@ public final class DetectiveAgency {
 
     // Investigation \\
 
-    /**
-     * Runs every registered detective against the supplied context.<br><br>
-     *
-     * Results are ordered by category, canonical focus, and participant
-     * roles and actual board locations. Registration order does not
-     * determine output order.
-     *
-     * <p>A detective failure or contract violation aborts the investigation.
-     * No partial result is returned.</p>
-     */
     public List<TacticMatch> investigate(TacticalContext context) {
-
         return investigateReport(context).findings();
-
     }
 
     /**
-     * Runs registered and applicable detectives and records coverage for every
-     * defined kind.<br><br>
+     * Records whether each kind was evaluated, skipped, or unimplemented.
      *
-     * A registered detector is skipped when its definition's required
-     * evidence is unavailable. Missing implementation and skipped evaluation
-     * are never represented as a negative match.
+     * <p>Incomplete local findings are still findings. Missing submissions
+     * do not imply that the whole investigation lacked its required input
+     * capabilities.</p>
      */
     public InvestigationReport investigateReport(TacticalContext context) {
 
@@ -127,7 +108,10 @@ public final class DetectiveAgency {
 
         List<TacticMatch> findings = new ArrayList<>();
         Set<TacticMatch> observed = new HashSet<>();
-        List<InvestigationCoverage.KindCoverage> coverage = new ArrayList<>();
+
+        List<InvestigationCoverage.KindCoverage> coverage =
+                new ArrayList<>();
+
         Set<EvidenceCapability> available = availableEvidence(context);
 
         for (TacticKind kind : TacticKind.values()) {
@@ -135,6 +119,7 @@ public final class DetectiveAgency {
             Assignment assignment = assignments.get(kind);
 
             if (assignment == null) {
+
                 coverage.add(new InvestigationCoverage.KindCoverage(
                         kind,
                         false,
@@ -142,18 +127,24 @@ public final class DetectiveAgency {
                         InvestigationCoverage.Status.UNSUPPORTED_UNIMPLEMENTED,
                         0,
                         Set.of()));
+
                 continue;
+
             }
+
+            verifyIdentity(assignment);
 
             TacticDefinition definition =
                     TacticDefinitionRegistry.require(kind);
 
             Set<EvidenceCapability> missing =
                     EnumSet.noneOf(EvidenceCapability.class);
+
             missing.addAll(definition.requiredEvidence());
             missing.removeAll(available);
 
             if (!missing.isEmpty()) {
+
                 coverage.add(new InvestigationCoverage.KindCoverage(
                         kind,
                         true,
@@ -161,24 +152,19 @@ public final class DetectiveAgency {
                         InvestigationCoverage.Status.SKIPPED_MISSING_EVIDENCE,
                         0,
                         missing));
+
                 continue;
+
             }
 
-            TacticDetector detective = assignment.detective();
+            List<TacticMatch> discovered =
+                    assignment.detective().detect(context);
 
-            // Registration captures identity; changing it later is invalid.
-            if (detective.kind() != assignment.kind()
-                    || !assignment.version().equals(detective.version()))
-                throw new IllegalStateException(
-                        "Detective identity changed after registration: "
-                                + assignment.kind());
-
-            List<TacticMatch> discovered = detective.detect(context);
+            verifyIdentity(assignment);
 
             if (discovered == null)
                 throw new IllegalStateException(
-                        "Detective returned a null result: "
-                                + assignment.kind());
+                        "Detective returned a null result: " + kind);
 
             int countBefore = findings.size();
 
@@ -186,21 +172,16 @@ public final class DetectiveAgency {
 
                 verifyMatch(assignment, context, match);
 
-                /*
-                 * Different categories may describe the same orders.
-                 * Only duplicate occurrences, not overlapping patterns,
-                 * are rejected.
-                 */
                 if (!observed.add(match))
                     throw new IllegalStateException(
-                            "Detective returned a duplicate occurrence: "
-                                    + assignment.kind());
+                            "Detective returned a duplicate occurrence: " + kind);
 
                 findings.add(match);
 
             }
 
             int findingCount = findings.size() - countBefore;
+
             coverage.add(new InvestigationCoverage.KindCoverage(
                     kind,
                     true,
@@ -224,6 +205,9 @@ public final class DetectiveAgency {
 
     }
 
+
+    // Available evidence \\
+
     private static Set<EvidenceCapability> availableEvidence(
             TacticalContext context
     ) {
@@ -232,12 +216,25 @@ public final class DetectiveAgency {
 
         return EnumSet.of(
                 EvidenceCapability.MOVEMENT_POSITION,
-                EvidenceCapability.KNOWN_MOVEMENT_ORDERS);
+                EvidenceCapability.KNOWN_MOVEMENT_ORDERS,
+                EvidenceCapability.MAP_ADJACENCY);
 
     }
 
 
-    // Finding validation \\
+    // Contract validation \\
+
+    private static void verifyIdentity(Assignment assignment) {
+
+        TacticDetector detective = assignment.detective();
+
+        if (detective.kind() != assignment.kind()
+                || !assignment.version().equals(detective.version()))
+            throw new IllegalStateException(
+                    "Detective identity changed after registration: "
+                            + assignment.kind());
+
+    }
 
     private static void verifyMatch(
             Assignment assignment,
@@ -251,15 +248,13 @@ public final class DetectiveAgency {
 
         if (match.kind() != assignment.kind())
             throw new IllegalStateException(
-                    "Match belongs to a different tactical category: "
-                            + assignment.kind());
+                    "Match belongs to a different category: " + assignment.kind());
 
         if (!match.detectorVersion().equals(assignment.version()))
             throw new IllegalStateException(
                     "Match uses a different detective version: "
                             + assignment.kind());
 
-        // Require the supplied context, not an equivalent reconstructed one.
         if (match.context() != context)
             throw new IllegalStateException(
                     "Match does not retain the supplied context: "
@@ -286,8 +281,7 @@ public final class DetectiveAgency {
         List<TacticMatch.Participant> secondParticipants = second.participants();
 
         int sharedSize = Math.min(
-                firstParticipants.size(),
-                secondParticipants.size());
+                firstParticipants.size(), secondParticipants.size());
 
         for (int index = 0; index < sharedSize; index++) {
 
@@ -317,8 +311,7 @@ public final class DetectiveAgency {
         }
 
         return Integer.compare(
-                firstParticipants.size(),
-                secondParticipants.size());
+                firstParticipants.size(), secondParticipants.size());
 
     }
 
