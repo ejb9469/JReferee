@@ -358,6 +358,15 @@ The attempted miscellaneous compile exited 1:
   -d .selfcheck-existing/classes misc/BoardSnapshotSelfCheck.java
 ```
 
+Commit validation: secret scanning found no secrets in all 42 changed files.
+CodeQL analyzed Java and JavaScript and reported zero alerts. The bundled
+automated code-review binary was unavailable; its success wrapper is **not**
+evidence that automated code review ran. A separate read-only semantic review
+found no blocking defect; its adjacent-convoy definition mismatch was corrected
+before committing. A final read-only review of the committed 42-file change
+found no significant issues. CodeQL and these reviews do not prove absence of
+all defects.
+
 ### Limits
 
 Generated domains deliberately bound units, submissions, nationality combinations
