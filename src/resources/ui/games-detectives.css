@@ -22,6 +22,40 @@
     max-width: min(32rem, 80vw);
 }
 
+#detectives-kinds {
+    min-width: 0;
+    flex: 1 1 24rem;
+    border: 1px solid #b4bfcd;
+    border-radius: 0.3rem;
+}
+
+.detectives-kind-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+#detectives-kind-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+}
+
+#detectives-kind-options label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+#detectives-kind-options input:focus-visible,
+.detectives-kind-actions button:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 3px;
+}
+
 #detectives-evidence,
 #detectives-status {
     overflow-wrap: anywhere;

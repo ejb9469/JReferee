@@ -7,7 +7,10 @@
  */
 const DetectivePanel = (() => {
 
-    const selectKind = document.querySelector("#detectives-kind");
+    const kindsGroup = document.querySelector("#detectives-kinds");
+    const kindsHost = document.querySelector("#detectives-kind-options");
+    const selectAll = document.querySelector("#detectives-select-all");
+    const clearSelection = document.querySelector("#detectives-clear-selection");
     const selectCompleteness =
         document.querySelector("#detectives-completeness");
 
@@ -21,6 +24,7 @@ const DetectivePanel = (() => {
     let report = null;
     let country = "";
     let inspect = null;
+    const selectedKinds = new Set();
 
     const labels = {
         EVALUATED_WITH_FINDINGS: "Evaluated — findings",
@@ -29,7 +33,21 @@ const DetectivePanel = (() => {
         UNSUPPORTED_UNIMPLEMENTED: "Not implemented / not registered"
     };
 
-    selectKind.addEventListener("change", renderFindings);
+    kindsHost.addEventListener("change", event => {
+        const checkbox = event.target;
+
+        if (checkbox.type !== "checkbox")
+            return;
+
+        if (checkbox.checked)
+            selectedKinds.add(checkbox.value);
+        else
+            selectedKinds.delete(checkbox.value);
+
+        renderFindings();
+    });
+    selectAll.addEventListener("click", () => selectKinds(true));
+    clearSelection.addEventListener("click", () => selectKinds(false));
     selectCompleteness.addEventListener("change", renderFindings);
 
 
@@ -41,8 +59,9 @@ const DetectivePanel = (() => {
         country = "";
         inspect = null;
 
-        selectKind.replaceChildren(new Option("All registered kinds", ""));
-        selectKind.disabled = true;
+        selectedKinds.clear();
+        kindsHost.replaceChildren();
+        kindsGroup.disabled = true;
         selectCompleteness.value = "";
         selectCompleteness.disabled = true;
 
@@ -80,16 +99,26 @@ const DetectivePanel = (() => {
         if (changed) {
 
             for (const entry of report.coverage) {
-                if (entry.implemented)
-                    selectKind.append(new Option(
-                        entry.kind.replaceAll("_", " "), entry.kind));
+                if (!entry.implemented)
+                    continue;
+
+                const label = document.createElement("label");
+                const checkbox = document.createElement("input");
+                checkbox.type = "checkbox";
+                checkbox.value = entry.kind;
+                checkbox.checked = true;
+                selectedKinds.add(entry.kind);
+
+                label.append(checkbox,
+                    element("span", entry.kind.replaceAll("_", " ")));
+                kindsHost.append(label);
             }
 
             renderCoverage();
 
         }
 
-        selectKind.disabled = false;
+        kindsGroup.disabled = false;
         selectCompleteness.disabled = false;
 
         const unknown = report.unknownUnits;
@@ -108,6 +137,20 @@ const DetectivePanel = (() => {
 
     // Finding selection \\
 
+    function selectKinds(checked) {
+
+        selectedKinds.clear();
+
+        for (const checkbox of kindsHost.querySelectorAll("input")) {
+            checkbox.checked = checked;
+            if (checked)
+                selectedKinds.add(checkbox.value);
+        }
+
+        renderFindings();
+
+    }
+
     function renderFindings() {
 
         findingsHost.replaceChildren();
@@ -115,11 +158,10 @@ const DetectivePanel = (() => {
         if (!report || report.status !== "EVALUATED")
             return;
 
-        const kind = selectKind.value;
         const completeness = selectCompleteness.value;
 
         const selected = report.findings.filter(finding =>
-            (!kind || finding.kind === kind)
+            selectedKinds.has(finding.kind)
             && (!country || finding.participants.some(
                 participant => participant.nation === country))
             && (!completeness
@@ -132,10 +174,12 @@ const DetectivePanel = (() => {
 
         if (selected.length === 0) {
 
-            const message = report.findings.length === 0
-                ? "Evaluated detectives found no patterns in the known submissions. "
-                    + "Unimplemented kinds were not tested."
-                : "No findings match the display filters.";
+            const message = selectedKinds.size === 0
+                ? "No kinds selected. Select one or more registered kinds to display findings."
+                : report.findings.length === 0
+                    ? "Evaluated detectives found no patterns in the known submissions. "
+                        + "Unimplemented kinds were not tested."
+                    : "No findings match the display filters.";
 
             findingsHost.append(element("p", message));
             return;
