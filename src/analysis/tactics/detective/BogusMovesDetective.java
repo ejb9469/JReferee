@@ -1,6 +1,7 @@
 package analysis.tactics.detective;
 
 import adjudication.util.Orders;
+import analysis.tactics.Detective;
 import analysis.tactics.TacticKind;
 import analysis.tactics.TacticMatch;
 import analysis.tactics.TacticalContext;

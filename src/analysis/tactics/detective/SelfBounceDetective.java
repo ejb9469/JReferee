@@ -1,5 +1,6 @@
 package analysis.tactics.detective;
 
+import analysis.tactics.Detective;
 import analysis.tactics.TacticKind;
 import analysis.tactics.TacticMatch;
 import analysis.tactics.TacticalContext;

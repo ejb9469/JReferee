@@ -1,7 +1,6 @@
 package ui;
 
 import analysis.tactics.*;
-import contracts.OrderForm;
 import game.GameMoment;
 import parsing.diplobn.DiploBNPhase;
 import phase.Order;
@@ -10,22 +9,25 @@ import phase.UnitId;
 import java.util.*;
 
 import static io.json.JsonEscaper.appendString;
+import static ui.TacticalJson.*;
 
 
 /**
- * Serializes a snapshot's structural tactical investigation for the browser.
+ * Browser serialization of three separate analysis products:
  *
- * <p>Only movement snapshots are investigated. Historical outcome annotations
- * are not supplied to detectives as adjudication evidence.</p>
+ * <ul>
+ *     <li>root structural findings and coverage;</li>
+ *     <li>resolvedEvents: outcome-agency findings and coverage;</li>
+ *     <li>localSupportAssessments: scenario-specific support claims.</li>
+ * </ul>
+ *
+ * <p>DBN historical annotations remain outside all three products.</p>
  */
 public final class GameInvestigationJsonWriter {
 
 
     // Constants \\
 
-    /*
-     * Identifies this source-inspection context, not DBN's adjudication policy.
-     */
     private static final String CONTEXT_ID =
             "diplobn-standard-browser-structural-v1";
 
@@ -42,10 +44,10 @@ public final class GameInvestigationJsonWriter {
         Objects.requireNonNull(phase, "phase");
 
         if (!phase.gamePhase().isMovement())
-            return message(
+            return unavailable(
                     "NOT_APPLICABLE",
-                    "These detectives inspect movement snapshots only. "
-                            + "Retreat and adjustment positions were not investigated.");
+                    "Movement investigators do not inspect retreat "
+                            + "or adjustment snapshots.");
 
         TacticalContext context;
 
@@ -63,10 +65,7 @@ public final class GameInvestigationJsonWriter {
 
                 if (orders.putIfAbsent(order.unit(), evidence) != null)
                     throw new IllegalArgumentException(
-                            "Multiple submissions for "
-                                    + OrderForm.unitText(
-                                    order.unit(),
-                                    phase.board().locationOf(order.unit())));
+                            "Multiple submissions for one active unit");
 
             }
 
@@ -80,41 +79,49 @@ public final class GameInvestigationJsonWriter {
 
         } catch (IllegalArgumentException exception) {
 
-            return message(
+            return unavailable(
                     "INVALID_INPUT",
                     "Snapshot was not investigated: " + exception.getMessage());
 
         }
 
+        InvestigationReport structural;
+
         try {
 
-            InvestigationReport report =
-                    new DetectiveAgency().investigateReport(context);
-
-            return reportJson(report);
+            structural = new DetectiveAgency().investigateReport(context);
 
         } catch (RuntimeException exception) {
 
             exception.printStackTrace(System.err);
 
-            return message(
+            return unavailable(
                     "ERROR",
-                    "Investigation failed. No complete report is available; "
-                            + "see the server log.");
+                    "Structural investigation failed; see the server log.");
 
         }
+
+        BrowserResolvedAnalysis.Sections resolved =
+                BrowserResolvedAnalysis.analyze(structural);
+
+        return reportJson(structural, resolved);
 
     }
 
 
-    // Report serialization \\
+    // Successful structural report \\
 
-    private static String reportJson(InvestigationReport report) {
+    private static String reportJson(
+            InvestigationReport report,
+            BrowserResolvedAnalysis.Sections resolved
+    ) {
 
         TacticalContext context = report.context();
         StringBuilder out = new StringBuilder("{");
 
         field(out, "status", "EVALUATED");
+        out.append(',');
+        field(out, "agency", "STRUCTURAL");
         out.append(',');
         field(out, "contextId", context.rulesetId());
 
@@ -144,46 +151,14 @@ public final class GameInvestigationJsonWriter {
 
         }
 
-        out.append("],\"coverageScope\":");
-        appendString(out, report.coverage().scope().name());
-        out.append(",\"coverage\":[");
+        out.append("],");
+        coverage(out, report.coverage());
 
-        List<InvestigationCoverage.KindCoverage> coverage =
-                report.coverage().byKind();
+        out.append(",\"resolvedEvents\":").append(resolved.resolvedEvents());
+        out.append(",\"localSupportAssessments\":")
+                .append(resolved.localSupportAssessments());
 
-        for (int index = 0; index < coverage.size(); index++) {
-
-            if (index > 0)
-                out.append(',');
-
-            InvestigationCoverage.KindCoverage entry = coverage.get(index);
-
-            out.append('{');
-            field(out, "kind", entry.kind().name());
-            out.append(',');
-            field(out, "status", entry.status().name());
-            out.append(",\"implemented\":").append(entry.implemented());
-            out.append(",\"applicable\":").append(entry.applicable());
-            out.append(",\"findingCount\":").append(entry.findingCount());
-            out.append(",\"missingEvidence\":[");
-
-            boolean first = true;
-
-            for (EvidenceCapability capability : entry.missingEvidence()) {
-
-                if (!first)
-                    out.append(',');
-
-                appendString(out, capability.name());
-                first = false;
-
-            }
-
-            out.append("]}");
-
-        }
-
-        return out.append("]}").toString();
+        return out.append('}').toString();
 
     }
 
@@ -194,22 +169,18 @@ public final class GameInvestigationJsonWriter {
     ) {
 
         TacticalContext context = match.context();
-        TacticDefinition definition =
-                TacticDefinitionRegistry.require(match.kind());
 
         out.append("{\"index\":").append(index);
         out.append(',');
-        field(out, "kind", match.kind().name());
+
+        definition(
+                out,
+                match.kind(),
+                match.detectorVersion(),
+                "detectiveVersion");
+
         out.append(',');
         field(out, "focus", match.focus().name());
-        out.append(',');
-        field(out, "detectiveVersion", match.detectorVersion());
-        out.append(',');
-        field(out, "definitionVersion", definition.semanticVersion());
-        out.append(',');
-        field(out, "interpretation", definition.interpretation().name());
-        out.append(',');
-        field(out, "semantics", definition.semantics());
 
         out.append(",\"complete\":").append(match.completePattern());
         out.append(",\"participants\":[");
@@ -224,27 +195,11 @@ public final class GameInvestigationJsonWriter {
             TacticMatch.Participant participant =
                     match.participants().get(participantIndex);
 
-            UnitId unit = participant.unit();
-            TacticalContext.KnownOrder evidence = context.orders().get(unit);
-
-            out.append('{');
-            field(out, "role", participant.role().name());
-            out.append(',');
-            field(out, "nation", unit.owner().name());
-            out.append(',');
-            field(out, "province", context.board().locationOf(unit).name());
-            out.append(',');
-            field(out, "unit", unitText(context, unit));
-            out.append(',');
-            field(out, "order", evidence == null
-                    ? null
-                    : OrderForm.format(
-                    evidence.order(),
-                    context.board().locationOf(unit)));
-            out.append(',');
-            field(out, "provenance",
-                    evidence == null ? null : evidence.provenance().name());
-            out.append('}');
+            TacticalJson.participant(
+                    out,
+                    participant.role().name(),
+                    participant.unit(),
+                    context);
 
         }
 
@@ -267,33 +222,36 @@ public final class GameInvestigationJsonWriter {
     }
 
 
-    // Formatting helpers \\
+    // No completed structural investigation \\
 
-    private static String unitText(TacticalContext context, UnitId unit) {
-        return OrderForm.unitText(unit, context.board().locationOf(unit));
-    }
-
-    private static String message(String status, String message) {
+    private static String unavailable(String status, String message) {
 
         StringBuilder out = new StringBuilder("{");
 
         field(out, "status", status);
         out.append(',');
+        field(out, "agency", "STRUCTURAL");
+        out.append(',');
         field(out, "message", message);
+        out.append(',');
+
+        coverage(out, InvestigationCoverage.notRecorded());
+
+        out.append(",\"findings\":[]");
+        out.append(",\"resolvedEvents\":")
+                .append(OutcomeReportJsonWriter.unavailable(
+                        status,
+                        "No resolved-event investigation was performed."));
+
+        out.append(",\"localSupportAssessments\":{");
+        field(out, "status", status);
+        out.append(',');
+        field(out, "message", "No local support assessment was performed.");
+
+        out.append(",\"eligibleCount\":0,\"evaluatedCount\":0,\"failedCount\":0");
+        out.append(",\"configuration\":null,\"entries\":[]}");
 
         return out.append('}').toString();
-
-    }
-
-    private static void field(StringBuilder out, String key, String value) {
-
-        appendString(out, key);
-        out.append(':');
-
-        if (value == null)
-            out.append("null");
-        else
-            appendString(out, value);
 
     }
 

@@ -1,0 +1,16 @@
+TacticInvestigator<C, F>               Shared kind/version/investigation contract
+│
+├── Detective                         Existing structural movement investigators
+│     TacticalContext → TacticMatch
+│
+├── OutcomeDetective                  Recognizes facts in an identified resolution
+│     ResolvedMovementContext → OutcomeFinding
+│
+├── RetreatDetective                  Recognizes retreat-phase relationships
+│     RetreatContext → RetreatFinding
+│
+└── AdjustmentDetective               Recognizes winter-phase relationships
+      AdjustmentContext → AdjustmentFinding
+
+TacticAssessor                        Separate claim-evaluation contract
+      Match + scenario + resolver → TacticalAssessment

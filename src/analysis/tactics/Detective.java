@@ -1,9 +1,4 @@
-package analysis.tactics.detective;
-
-import analysis.tactics.TacticDetector;
-import analysis.tactics.TacticKind;
-import analysis.tactics.TacticMatch;
-import analysis.tactics.TacticalContext;
+package analysis.tactics;
 
 import java.util.*;
 

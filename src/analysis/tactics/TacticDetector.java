@@ -4,43 +4,42 @@ import java.util.List;
 
 
 /**
- * Interface of structural tactical-pattern detectors.<br><br>
+ * Interface of structural tactical-pattern detectors.
  *
- * A detector recognizes submitted or proposed order relationships.
- * It does not adjudicate orders or assign strategic value.
+ * <p>A detector recognizes submitted or proposed movement relationships.
+ * It does not adjudicate orders or assign strategic value.</p>
  *
- * <p>Implementations must:</p>
- * <ul>
- *     <li>reject a null context;</li>
- *     <li>leave the supplied context unmodified;</li>
- *     <li>preserve unknown orders rather than inventing HOLDs;</li>
- *     <li>return all occurrences, including incomplete support relationships
- *         required by the category's detection contract;</li>
- *     <li>return an immutable list without duplicate occurrences;</li>
- *     <li>sort occurrences by focus, then participant roles and locations;</li>
- *     <li>attach the supplied context, kind(), and version() to every match.</li>
- * </ul>
+ * <p>Implementations must preserve unknown orders, retain the supplied
+ * context, and return immutable, deterministic, duplicate-free findings.
+ * Category contracts determine when incomplete findings are appropriate.</p>
  *
- * <p>An empty result does not establish that the position is strategically
- * safe or that no other tactical category applies.</p>
+ * <p>An empty result does not establish strategic safety or absence of
+ * categories that were not investigated.</p>
  */
-public interface TacticDetector {
+public interface TacticDetector
+        extends TacticInvestigator<TacticalContext, TacticMatch> {
 
 
     // Detector identity \\
 
+    @Override
     TacticKind kind();
 
-    /**
-     * Identifies the structural matching semantics.
-     * For example: "structure-v1".
-     */
+    @Override
     String version();
 
 
-    // Detection \\
+    // Existing detection API \\
 
     List<TacticMatch> detect(TacticalContext context);
+
+
+    // Shared investigation API \\
+
+    @Override
+    default List<TacticMatch> investigate(TacticalContext context) {
+        return detect(context);
+    }
 
 
 }
