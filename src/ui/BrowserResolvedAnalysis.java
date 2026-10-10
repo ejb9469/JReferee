@@ -2,19 +2,18 @@ package ui;
 
 import analysis.tactics.*;
 import analysis.tactics.assessment.ProcessorMovementResolver;
+import analysis.tactics.assessment.SupportAssessmentBatch;
 import analysis.tactics.outcome.*;
 import phase.movement.MovementProcessor;
 
 import java.util.Objects;
 
-import static ui.TacticalJson.field;
-
 
 /**
- * Performs optional local resolution once per browser snapshot.
+ * Optional local resolution and independent analysis products for one snapshot.
  *
- * <p>Structural detection has already completed. Resolution or outcome
- * failures do not invalidate that structural report.</p>
+ * <p>Resolution runs once. Outcome investigators and support assessors consume
+ * the same result. Failures do not invalidate the structural report.</p>
  */
 public final class BrowserResolvedAnalysis {
 
@@ -30,14 +29,14 @@ public final class BrowserResolvedAnalysis {
     private BrowserResolvedAnalysis() {  }
 
 
-    // Browser orchestration \\
+    // Orchestration \\
 
     public static Sections analyze(InvestigationReport structural) {
 
         Objects.requireNonNull(structural, "structural");
 
-        ProcessorMovementResolver resolver;
         ResolvedMovementContext resolved;
+        ResolutionConfiguration configuration;
 
         try {
 
@@ -46,7 +45,7 @@ public final class BrowserResolvedAnalysis {
             if (revision == null || revision.isBlank())
                 return unavailable(
                         structural,
-                        "DISABLED",
+                        SupportAssessmentBatch.Status.DISABLED,
                         "Local resolution is disabled. Set "
                                 + ENGINE_REVISION_PROPERTY
                                 + " to the actual adjudicator build identifier.");
@@ -54,11 +53,11 @@ public final class BrowserResolvedAnalysis {
             if (!structural.context().complete())
                 return unavailable(
                         structural,
-                        "INCOMPLETE_SCENARIO",
+                        SupportAssessmentBatch.Status.INCOMPLETE_SCENARIO,
                         "Local resolution was not run because active units "
                                 + "have unknown orders. No implicit HOLDs were added.");
 
-            resolver = new ProcessorMovementResolver(
+            ProcessorMovementResolver resolver = new ProcessorMovementResolver(
                     MovementProcessor.Policy.SZYKMAN_JUSTICE,
                     32,
                     0L,
@@ -80,6 +79,7 @@ public final class BrowserResolvedAnalysis {
                     local);
 
             resolved = ResolvedMovementContext.resolve(scenario, resolver);
+            configuration = ResolutionConfiguration.from(resolver, resolved);
 
         } catch (RuntimeException exception) {
 
@@ -87,43 +87,48 @@ public final class BrowserResolvedAnalysis {
 
             return unavailable(
                     structural,
-                    "ERROR",
+                    SupportAssessmentBatch.Status.ERROR,
                     "Local resolution failed. Structural findings remain "
                             + "available; see the server log.");
 
         }
 
-        String outcomeJson;
+        String outcomes;
 
         try {
 
-            OutcomeReport outcomes =
-                    new OutcomeAgency().investigateReport(resolved);
-
-            outcomeJson = OutcomeReportJsonWriter.toJson(outcomes);
+            outcomes = OutcomeReportJsonWriter.toJson(
+                    new OutcomeAgency().investigateReport(resolved));
 
         } catch (RuntimeException exception) {
 
             exception.printStackTrace(System.err);
 
-            outcomeJson = OutcomeReportJsonWriter.unavailable(
+            outcomes = OutcomeReportJsonWriter.unavailable(
                     "ERROR",
                     "Outcome investigation failed after local resolution. "
                             + "Outcome coverage was not recorded.");
 
         }
 
-        String supportJson;
+        String supports;
 
         try {
 
-            supportJson = BrowserSupportAssessments.toJson(structural, resolved);
+            SupportAssessmentBatch batch =
+                    SupportAssessmentBatch.assess(structural, resolved);
+
+            supports = BrowserSupportAssessments.toJson(
+                    batch,
+                    batch.status()
+                            == SupportAssessmentBatch.Status.NO_SUPPORTED_FINDINGS
+                            ? null : configuration);
 
         } catch (RuntimeException exception) {
 
             exception.printStackTrace(System.err);
 
-            supportJson = BrowserSupportAssessments.unavailable(
+            supports = BrowserSupportAssessments.unavailable(
                     structural,
                     "ERROR",
                     "Support assessment failed. Outcome and structural "
@@ -131,80 +136,28 @@ public final class BrowserResolvedAnalysis {
 
         }
 
-        /*
-         * Preserve explicit configuration fields expected by the earlier
-         * support-assessment renderer. Replace only the known serializer
-         * fragment, without parsing or modifying user-provided strings.
-         */
-        String basicConfiguration = configurationIdentity(resolved);
-        String fullConfiguration = configuration(resolver, resolved);
-
-        supportJson = supportJson.replace(
-                basicConfiguration,
-                fullConfiguration);
-
-        return new Sections(outcomeJson, supportJson);
+        return new Sections(outcomes, supports);
 
     }
 
 
-    // Unavailable sections \\
+    // Unavailable analysis \\
 
     private static Sections unavailable(
             InvestigationReport structural,
-            String status,
+            SupportAssessmentBatch.Status status,
             String message
     ) {
 
         return new Sections(
-                OutcomeReportJsonWriter.unavailable(status, message),
+                OutcomeReportJsonWriter.unavailable(status.name(), message),
                 BrowserSupportAssessments.unavailable(
-                        structural, status, message));
+                        structural, status.name(), message));
 
     }
 
 
-    // Configuration serialization \\
-
-    private static String configurationIdentity(
-            ResolvedMovementContext resolved
-    ) {
-
-        StringBuilder out = new StringBuilder("\"configuration\":{");
-
-        field(out, "rulesetId", resolved.rulesetId());
-        out.append(',');
-        field(out, "scenarioId", resolved.scenario().id());
-
-        return out.append('}').toString();
-
-    }
-
-    private static String configuration(
-            ProcessorMovementResolver resolver,
-            ResolvedMovementContext resolved
-    ) {
-
-        StringBuilder out = new StringBuilder("\"configuration\":{");
-
-        field(out, "rulesetId", resolver.rulesetId());
-        out.append(',');
-        field(out, "engineRevision", resolver.engineRevision());
-        out.append(',');
-        field(out, "policy", resolver.policy().name());
-
-        out.append(",\"trialCount\":").append(resolver.trialCount());
-        out.append(",\"shuffleSeed\":").append(resolver.shuffleSeed());
-        out.append(',');
-
-        field(out, "scenarioId", resolved.scenario().id());
-
-        return out.append('}').toString();
-
-    }
-
-
-    // Independent JSON sections \\
+    // Independently serialized products \\
 
     public record Sections(
             String resolvedEvents,
@@ -212,8 +165,11 @@ public final class BrowserResolvedAnalysis {
     ) {
 
         public Sections {
+
             Objects.requireNonNull(resolvedEvents, "resolvedEvents");
-            Objects.requireNonNull(localSupportAssessments, "localSupportAssessments");
+            Objects.requireNonNull(
+                    localSupportAssessments, "localSupportAssessments");
+
         }
 
     }

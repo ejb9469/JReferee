@@ -1,7 +1,6 @@
 package analysis.tactics.assessment;
 
 import analysis.tactics.*;
-import analysis.tactics.Detective;
 import analysis.tactics.detective.SupportToHoldDetective;
 import analysis.tactics.detective.SupportToMoveDetective;
 import domain.OrderType;
@@ -12,15 +11,11 @@ import java.util.*;
 
 
 /**
- * Shared baseline assessment for a single support relationship.
+ * Baseline assessment of a single support relationship.
  *
- * <p>SUPPORT_EFFECTIVE means accepted support under the resolver's verdict:
- * the effective type remains SUPPORT and its verdict is successful.
- * It does not mean necessary support, causal contribution, or contribution
- * to every attack/defend/prevent-strength calculation.</p>
- *
- * <p>A false verdict does not identify the failure reason. In particular,
- * it is not automatically evidence of a support cut.</p>
+ * <p>SUPPORT_EFFECTIVE is the adjudicator's order-level support verdict.
+ * It does not establish necessity, causation, or contribution to every
+ * strength calculation. A false verdict does not establish a support cut.</p>
  */
 public abstract class SupportAssessor implements TacticAssessor {
 
@@ -36,22 +31,22 @@ public abstract class SupportAssessor implements TacticAssessor {
 
     protected SupportAssessor(boolean moving) {
 
-        this.kind = moving
+        kind = moving
                 ? TacticKind.SUPPORT_TO_MOVE
                 : TacticKind.SUPPORT_TO_HOLD;
 
-        this.assessmentVersion = moving
+        assessmentVersion = moving
                 ? "support-to-move-baseline-v1"
                 : "support-to-hold-baseline-v1";
 
-        this.detective = moving
+        detective = moving
                 ? new SupportToMoveDetective()
                 : new SupportToHoldDetective();
 
     }
 
 
-    // Assessment \\
+    // Public single-match assessment \\
 
     @Override
     public final TacticalAssessment assess(
@@ -60,21 +55,88 @@ public abstract class SupportAssessor implements TacticAssessor {
             MovementResolver resolver
     ) {
 
-        Objects.requireNonNull(match, "match");
-        Objects.requireNonNull(scenario, "scenario");
         Objects.requireNonNull(resolver, "resolver");
+        validateInput(match, scenario);
 
-        validateMatch(match, scenario, resolver);
+        if (!scenario.context().rulesetId().equals(resolver.rulesetId()))
+            throw new IllegalArgumentException(
+                    "Resolver ruleset differs from the scenario");
 
-        String expectedRuleset = scenario.context().rulesetId();
+        if (!detective.investigate(match.context()).contains(match))
+            throw new IllegalArgumentException(
+                    "Finding is not recognized by the current support detective");
 
         MovementResult result = resolver.resolve(scenario);
 
-        if (!expectedRuleset.equals(resolver.rulesetId()))
+        if (!scenario.context().rulesetId().equals(resolver.rulesetId()))
             throw new IllegalStateException(
                     "Resolver identity changed during assessment");
 
         MovementResolutionChecks.requireCorrespondence(scenario, result);
+
+        return evaluate(match, scenario, result);
+
+    }
+
+
+    // Validated batch entry point \\
+
+    /**
+     * Called only after the batch validates the shared result and verifies
+     * membership in the current detective's recognition set.
+     */
+    final TacticalAssessment assessRecognized(
+            TacticMatch match,
+            TacticalScenario scenario,
+            MovementResult validatedResult
+    ) {
+
+        validateInput(match, scenario);
+        Objects.requireNonNull(validatedResult, "validatedResult");
+
+        return evaluate(match, scenario, validatedResult);
+
+    }
+
+    private void validateInput(
+            TacticMatch match,
+            TacticalScenario scenario
+    ) {
+
+        Objects.requireNonNull(match, "match");
+        Objects.requireNonNull(scenario, "scenario");
+
+        if (match.kind() != kind)
+            throw new IllegalArgumentException(
+                    "This assessor requires " + kind);
+
+        if (!match.completePattern())
+            throw new IllegalArgumentException(
+                    "Complete the scenario and re-detect the support relationship");
+
+        /*
+         * Batch matches already retain this exact complete context.
+         * Public callers may provide a genuine extension of an earlier context.
+         */
+        if (match.context() != scenario.context())
+            scenario.requireExtensionOf(match.context());
+
+        if (match.participants().size() != 2
+                || match.units(TacticMatch.Role.SUPPORTER).size() != 1
+                || match.units(TacticMatch.Role.SUPPORTED_UNIT).size() != 1)
+            throw new IllegalArgumentException(
+                    "Expected exactly one supporter and one recipient");
+
+    }
+
+
+    // Claim evaluation \\
+
+    private TacticalAssessment evaluate(
+            TacticMatch match,
+            TacticalScenario scenario,
+            MovementResult result
+    ) {
 
         UnitId supporter =
                 match.units(TacticMatch.Role.SUPPORTER).getFirst();
@@ -86,7 +148,6 @@ public abstract class SupportAssessor implements TacticAssessor {
         MovementResult.Outcome subject = result.outcomes().get(recipient);
 
         List<TacticalAssessment.Finding> findings = new ArrayList<>();
-
         findings.add(supportFinding(scenario, support));
 
         if (kind == TacticKind.SUPPORT_TO_MOVE) {
@@ -98,7 +159,8 @@ public abstract class SupportAssessor implements TacticAssessor {
                     "BASELINE_SUPPORTED_MOVE",
                     "The configured resolver reports the recipient's submitted "
                             + "move as "
-                            + (subject.successfulMove() ? "successful." : "unsuccessful.")
+                            + (subject.successfulMove()
+                            ? "successful." : "unsuccessful.")
                             + " This does not establish that this support was necessary."));
 
         } else {
@@ -125,53 +187,6 @@ public abstract class SupportAssessor implements TacticAssessor {
                 findings);
 
     }
-
-
-    // Input validation \\
-
-    private void validateMatch(
-            TacticMatch match,
-            TacticalScenario scenario,
-            MovementResolver resolver
-    ) {
-
-        if (match.kind() != kind)
-            throw new IllegalArgumentException(
-                    "This assessor requires " + kind);
-
-        if (!match.completePattern())
-            throw new IllegalArgumentException(
-                    "Complete the scenario and re-detect the support relationship");
-
-        scenario.requireExtensionOf(match.context());
-
-        if (!scenario.context().rulesetId().equals(resolver.rulesetId()))
-            throw new IllegalArgumentException(
-                    "Resolver ruleset differs from the scenario");
-
-        /*
-         * TacticMatch validates common structure, not category semantics.
-         * Re-recognize against the original context to reject fabricated
-         * participants, incorrect focus, and unsupported detective versions.
-         *
-         * A future change to support-detection semantics must update this
-         * assessor's compatibility and version deliberately.
-         */
-        if (!detective.investigate(match.context()).contains(match))
-            throw new IllegalArgumentException(
-                    "Finding is not a recognized support relationship "
-                            + "under the current detective version");
-
-        if (match.participants().size() != 2
-                || match.units(TacticMatch.Role.SUPPORTER).size() != 1
-                || match.units(TacticMatch.Role.SUPPORTED_UNIT).size() != 1)
-            throw new IllegalArgumentException(
-                    "Expected exactly one supporter and one recipient");
-
-    }
-
-
-    // Support verdict \\
 
     private static TacticalAssessment.Finding supportFinding(
             TacticalScenario scenario,
@@ -208,7 +223,7 @@ public abstract class SupportAssessor implements TacticAssessor {
     }
 
 
-    // Evidence construction \\
+    // Evidence \\
 
     private static TacticalAssessment.Truth truth(boolean value) {
         return value
@@ -233,9 +248,7 @@ public abstract class SupportAssessor implements TacticAssessor {
                 claim,
                 truth,
                 List.of(new TacticalAssessment.Evidence(
-                        code,
-                        scenario,
-                        detail)));
+                        code, scenario, detail)));
 
     }
 
