@@ -73,70 +73,87 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 
 ## Tactical analysis
 
-The tactical API lives in `analysis.tactics`. The abstract `Detective` and its
-implementations live in `analysis.tactics.detective` (this is a
-Java package, not a separate module). Callers that previously imported a
-detective from `analysis.tactics` must now import it from the `detective`
-subpackage; importing `analysis.tactics.*` does not import subpackages.
+The catalogue defines **101 `TacticKind`s**. Current implementations cover
+**36 structural/static kinds** in `DetectiveAgency` and
+**1 resolved-event kind** in `OutcomeAgency`: `SUPPORTER_DISLODGEMENT`.
+The remaining **64 kinds** require implementation, additional evidence, or
+clarified semantics. See
+[implementation status and prerequisites](docs/detective-implementation-status.md)
+for the complete inventory.
 
-`DetectiveAgency` registers evidence-supported structural investigators and
-static diagnostics. `TacticDefinitionRegistry` defines the full
-concept catalogue, including support, movement, convoy, retreat, center,
-multi-phase, agreement, and diagnostic concepts. Each kind has an explicit
-family, interpretation, evidence requirements, semantic version, and short
-meaning. These identifiers are application vocabulary, not official
-Diplomacy terminology. Similar-looking variants have distinct definitions;
-none is silently aliased to another kind.
+### Detection, outcomes, and assessment
 
-Definitions do not imply implementation availability. See
-[the complete implementation and deferral inventory](docs/detective-implementation-status.md)
-for every kind's preconditions, grouping, evidence limits, and verification.
-Only the original four kinds have registered adjudicated-claim contracts.
-Deferred catalogue entries are definitions for future investigators; they do not produce speculative
-matches or fabricated assessment outcomes. Structural order candidates do
-not establish legality, effective support, intent, hostility, agreements, or
-strategic value. Agreement and multi-phase concepts explicitly require
-evidence that the movement-only `TacticalContext` does not carry.
+- `TacticInvestigator<C, F>` is the shared typed investigation contract.
+- `analysis.tactics.Detective` is the structural base class; concrete
+  implementations live in `analysis.tactics.detective`.
+- `OutcomeDetective` consumes an identified `ResolvedMovementContext`;
+  it does not adjudicate independently.
+- `SupportToMoveAssessor` and `SupportToHoldAssessor` evaluate baseline support
+  claims. `SupportAssessmentBatch` shares one resolved result across findings.
+- `SELF_BOUNCE` and `BELEAGUERED_GARRISON` have assessment claim contracts,
+  but no concrete assessors.
 
-`DetectiveAgency.investigate(context)` retains its list-returning API.
-`investigateReport(context)` additionally reports, for every kind, whether an
-implementation is registered, whether required evidence makes it applicable,
-and whether it found matches, found none, was skipped for missing evidence,
-or is unsupported. A complete local match is not a complete scenario or proof
-that the entire investigation covered every kind. Filtering an
-`InvestigationReport` preserves its original investigation coverage and marks
-the result as a filtered view; it does not re-run detectors or turn an
-unselected finding into evidence of absence.
+Structural findings describe submissions, not successful tactics, agreements,
+or strategic value. Unknown instructions are not implicit HOLDs. A complete
+local pattern may still belong to an incomplete scenario.
 
-The standalone self-check entry points require no `-ea` flag. After compiling
-the project with OpenJDK 25, run:
+Local assessments distinguish accepted support, successful movement, and
+recipient survival. Accepted support is not necessarily decisive; rejected
+support does not by itself establish a cut. DBN outcome annotations remain
+separate from local adjudication.
+
+`TacticDefinitionRegistry` records each kind's semantics, evidence requirements,
+and definition version. Definition and investigator versions are independent.
+Catalogue entries do not imply implementation availability.
+
+### Reports and browser
+
+Each agency reports its own implementation, applicability, finding counts, and
+missing evidence through `InvestigationCoverage`. Filtering preserves the
+original counts. Unsupported, skipped, and evaluated-negative categories are
+distinct; unsupported counts from different agencies must not be added.
+
+The browser API keeps structural findings at the investigation root, resolved
+events under `resolvedEvents`, and support claims under
+`localSupportAssessments`. The current UI displays structural findings and
+support assessments; resolved-event rendering is not yet implemented.
+
+To enable local resolution, add this **VM option** to `GameBrowserApp`:
 
 ```text
-java -cp out testing.selfcheck.DetectiveSelfCheck
-java -cp out testing.selfcheck.DetectiveAgencySelfCheck
-java -cp out testing.selfcheck.TacticArchitectureSelfCheck
-java -cp out testing.selfcheck.InvestigationReportSelfCheck
-java -cp out testing.selfcheck.DefaultDetectivesSelfCheck
-java -cp out testing.selfcheck.StructuralSupportMovementSelfCheck
-java -cp out testing.selfcheck.ConvoyConstructionSelfCheck
-java -cp out testing.selfcheck.RegisteredDetectivesSelfCheck
-java -cp out testing.selfcheck.ConvoyRoutePerformanceSelfCheck
+-Djreferee.assessment.engineRevision=YOUR_BUILD_ID
+```
+
+Use the actual adjudicator build identifier. The browser resolves complete
+movement snapshots with `SZYKMAN_JUSTICE`, 32 trials, and seed 0, sharing each
+result between outcome investigation and support assessment. Unknown
+instructions block resolution; structural findings remain available.
+Retreat and adjustment snapshots are not investigated.
+
+Detective checkboxes select multiple kinds using OR, combined with country and
+completeness filters using AND. All kinds start selected; clearing selects none.
+Filtering does not rerun analysis or change whole-snapshot coverage.
+New snapshots reset selections.
+
+### Checks
+
+Compile with OpenJDK 25, then run the standalone checks without `-ea`:
+
+```sh
+java -cp "$CP" testing.selfcheck.DefaultDetectivesSelfCheck
+java -cp "$CP" testing.selfcheck.StructuralSupportMovementSelfCheck
+java -cp "$CP" testing.selfcheck.ConvoyConstructionSelfCheck
+java -cp "$CP" testing.selfcheck.RegisteredDetectivesSelfCheck
+java -cp "$CP" testing.selfcheck.SupportAssessmentSelfCheck
+java -cp "$CP" testing.selfcheck.OutcomeDetectiveSelfCheck
+java -cp "$CP" testing.selfcheck.GameInvestigationIntegrationSelfCheck
 node --test src/testing/selfcheck/GamesDetectivesSelfCheck.js
 ```
 
-The parser/serializer and read-only HTTP integration check also needs the
-configured SQLite JDBC jar (`SQLITE_JDBC_JAR` is its local path):
-
-```text
-java -cp "out:$SQLITE_JDBC_JAR" testing.selfcheck.GameInvestigationIntegrationSelfCheck
-```
-
-The game browser's labeled detective checkboxes default to all registered kinds,
-including those with no findings. Selected kinds are OR'ed, then combined with
-country and completeness filters using AND. Clearing the selection displays no
-findings; filtering never changes whole-snapshot coverage or reruns investigators.
-Country/completeness changes retain kind selection; a new snapshot/game resets it.
-
+`CP` includes compiled classes and required dependencies; the integration check
+requires SQLite JDBC. The implementation inventory lists the broader regression
+suite and distinguishes historical test results from current verification.
+Bounded tests do not prove universally zero false positives or false negatives.
 ---
 
 ## Tests
