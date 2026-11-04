@@ -2,8 +2,8 @@ package agents.generation;
 
 import contracts.OrderForm;
 import domain.Nation;
+import contracts.OrderForms;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -44,21 +44,12 @@ public record ActionCandidate(
             double logPrior,
             Source source
     ) {
-        this(power, copyOrders(orders), logPrior, source);
-    }
-
-    /**
-     * Produces a shallow copy of a list of Orders.
-     */
-    // TODO: Create an `OrderForm` abstract class akin to `adjudication.util.Orders`, & implement deep & shallow copy methods there
-    @Deprecated  // see above
-    private static List<OrderForm> copyOrders(
-            Collection<? extends OrderForm> orders
-    ) {
-        Objects.requireNonNull(orders, "orders");
-        List<OrderForm> copy = new ArrayList<>(orders.size());
-        copy.addAll(orders);
-        return copy;
+        this(
+                power,
+                OrderForms.shallowCopy(Objects.requireNonNull(orders, "orders")),
+                logPrior,
+                source
+        );
     }
 
     /**
