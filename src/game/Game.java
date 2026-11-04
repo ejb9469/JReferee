@@ -151,6 +151,53 @@ public class Game
 
 
     /**
+     * Returns an <i>immutable snapshot</i> of the current phase.
+     * (not to be confused with `contracts.Snapshot` - they are unrelated)
+     */
+    public GameState snapshot() {
+
+        // this method allocates new [Game]Moments , ...
+            // ... to create an immutable/separate 'snapshot'.
+        // we do this to avoid exposing `Game`'s private data, and entangling the references
+
+        GameMoment moment = new GameMoment(year, phase);
+        BoardState boardSnapshot =
+                new BoardState(
+                    this.board.locations(),
+                    this.board.owners());
+
+        return switch (phase) {
+            case SPRING_MOVEMENT, FALL_MOVEMENT ->
+                    new GameState_Movement(moment, boardSnapshot);
+
+            case SPRING_RETREAT, FALL_RETREAT -> {
+                if (pendingMovement == null)
+                    throw new IllegalStateException(
+                            "Retreat phase has no pending movement result");
+
+                yield new GameState_Retreats(
+                        moment,
+                        boardSnapshot,
+                        this.pendingMovement);
+            }
+
+            case WINTER_ADJUSTMENT -> {
+                if (latestFallRetreat == null)
+                    throw new IllegalStateException(
+                            "Adjustment phase has no Fall retreat result");
+
+                yield new GameState_Adjustments(
+                        moment,
+                        boardSnapshot,
+                        this.latestFallRetreat);
+            }
+
+        };
+
+    }
+
+
+    /**
      * Records caller-created press in the current game year and phase.
      *
      * <p>Press does not modify board state, submitted orders, phase state, or

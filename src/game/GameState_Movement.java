@@ -3,7 +3,7 @@ package game;
 import java.util.Objects;
 
 public record GameState_Movement(
-        Moment moment,
+        GameMoment moment,
         BoardState board
 ) implements GameState {
 

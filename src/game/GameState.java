@@ -7,7 +7,7 @@ public sealed interface GameState
                 GameState_Adjustments {
 
 
-    Moment      moment();
+    GameMoment  moment();
 
     BoardState  board();
 

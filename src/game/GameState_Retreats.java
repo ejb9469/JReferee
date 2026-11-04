@@ -6,7 +6,7 @@ import java.util.InputMismatchException;
 import java.util.Objects;
 
 public record GameState_Retreats(
-        Moment moment,
+        GameMoment moment,
         BoardState board,
         MovementResult movementResult
 ) implements GameState {
