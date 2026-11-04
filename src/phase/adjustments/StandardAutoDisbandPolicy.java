@@ -112,7 +112,7 @@ public final class StandardAutoDisbandPolicy
             frontier.addLast(ownedCenter);
         }
 
-        Map<Province, Province[]> adjacency = Province.getAdjacencyMapCopy();
+        Map<Province, Province[]> adjacency = Province.getAdjacencyMap();
 
         while (!frontier.isEmpty()) {
 

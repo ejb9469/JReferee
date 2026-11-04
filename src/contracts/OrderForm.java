@@ -25,7 +25,7 @@ public interface OrderForm {
     UnitType        unitType();             // F(leet)
 
     @Nullable   // i.e. in `WaiveOrder`
-    Province        origin();               // B(arents Sea)
+    Province        origin();               // BAR(ents Sea)
 
     @Nullable   // i.e. in `UnitId`
     OrderType       orderType();            // S(upports)

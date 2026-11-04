@@ -1,5 +1,7 @@
 package game;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.Objects;
 
 /**
@@ -18,18 +20,20 @@ public record GameMoment(int year, GamePhase gamePhase)
      * Orders game moments by year, then by standard Diplomacy phase order.
      */
     @Override
-    public int compareTo(GameMoment other) {
+    public int compareTo(@NotNull GameMoment other) {
 
         Objects.requireNonNull(other, "other");
 
-        int yearComparison = Integer.compare(year, other.year);
-
+        // break 1st by year
+        int yearComparison = Integer.compare(this.year, other.year);
         if (yearComparison != 0)
             return yearComparison;
 
+        // break 2nd by season
         return Integer.compare(
-                gamePhase.ordinal(),
-                other.gamePhase.ordinal());
+                this.gamePhase.ordinal(),
+                other.gamePhase.ordinal()
+        );
 
     }
 

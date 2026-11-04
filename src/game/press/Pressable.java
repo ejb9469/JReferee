@@ -4,6 +4,7 @@ import domain.Nation;
 
 import java.util.List;
 
+@Deprecated
 public interface Pressable {
 
     PressMessage            recordPress(PressMessage message);
