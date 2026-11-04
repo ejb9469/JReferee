@@ -1,6 +1,7 @@
 package adjudication.util;
 
 import adjudication.Order;
+import contracts.OrderForms;
 import domain.OrderType;
 import domain.UnitType;
 
@@ -17,98 +18,62 @@ public abstract class Convoys {
     private Convoys() { }
 
 
+    /**
+     * Stub that redirects to `contracts.OrderForms::convoyPathIsValid(...)`
+     */
+    @Deprecated (forRemoval = false)
     public static boolean convoyPathIsValid(
             Order moveOrder,
             List<Order> convoyPath
     ) {
-
-        if (moveOrder.orderType != OrderType.MOVE
-                || moveOrder.unitType != UnitType.ARMY
-                || !Orders.orderIsValid(moveOrder)
-                || convoyPath.isEmpty())
+        if (moveOrder == null)
             return false;
 
-        if (!convoyPath.getFirst().pos0.isAdjacentTo(moveOrder.pos0)
-                || !convoyPath.getLast().pos0.isAdjacentTo(moveOrder.pos1))
-            return false;
-
-        Set<Order> visited = new HashSet<>();
-        Order previous = null;
-
-        for (Order convoy : convoyPath) {
-
-            if (!matches(convoy, moveOrder)
-                    || !visited.add(convoy))
-                return false;
-
-            if (previous != null
-                    && !previous.pos0.isAdjacentTo(convoy.pos0))
-                return false;
-
-            previous = convoy;
-        }
-
-        return true;
-
+        return OrderForms.convoyPathIsValid(
+                moveOrder,
+                moveOrder.pos0,
+                convoyPath,
+                Order::origin
+        );
     }
 
+    /**
+     * Stub that redirects to `contracts.OrderForms::drawConvoyPath(...)`
+     */
+    @Deprecated (forRemoval = false)
     public static List<Order> drawConvoyPath(
             Order moveOrder,
             Collection<Order> orders
     ) {
-
-        if (moveOrder.orderType != OrderType.MOVE
-                || moveOrder.unitType != UnitType.ARMY
-                || !Orders.orderIsValid(moveOrder))
+        if (moveOrder == null)
             return new ArrayList<>();
 
-        List<Order> convoys = new ArrayList<>();
-
-        for (Order order : orders)
-            if (matches(order, moveOrder))
-                convoys.add(order);
-
-        for (Order first : convoys) {
-
-            if (!first.pos0.isAdjacentTo(moveOrder.pos0))
-                continue;
-
-            List<Order> path = new ArrayList<>();
-
-            if (findPath(first, moveOrder, convoys, new HashSet<>(), path))
-                return path;
-        }
-
-        return new ArrayList<>();
-
+        return OrderForms.drawConvoyPath(
+                moveOrder,
+                moveOrder.pos0,
+                orders,
+                Order::origin
+        );
     }
 
+
+    /**
+     * Stub that redirects to `contracts.OrderForms::findAdjacentConvoys(...)`
+     */
+    @Deprecated (forRemoval = false)
     public static List<Order> findAdjacentConvoys(
             Order convoyOrder,
             Collection<Order> excludedOrders,
             Collection<Order> orders
     ) {
-
-        List<Order> adjacentConvoys = new ArrayList<>();
-
-        for (Order order : orders) {
-
-            if (excludedOrders.contains(order)
-                    || order.equals(convoyOrder)
-                    || order.orderType != OrderType.CONVOY
-                    || !Orders.orderIsValid(order))
-                continue;
-
-            if (order.pos1 == convoyOrder.pos1
-                    && order.pos2 == convoyOrder.pos2
-                    && order.pos0.isAdjacentTo(convoyOrder.pos0))
-                adjacentConvoys.add(order);
-        }
-
-        return adjacentConvoys;
-
+        return OrderForms.findAdjacentConvoys(
+                convoyOrder,
+                excludedOrders,
+                orders,
+                Order::origin);
     }
 
+    @Deprecated (forRemoval = true)  // unused since stub-replacement [ @ 11-04-26 ]
     private static boolean findPath(
             Order current,
             Order moveOrder,
@@ -140,6 +105,7 @@ public abstract class Convoys {
 
     }
 
+    @Deprecated (forRemoval = true)  // unused since stub-replacement [ @ 11-04-26 ]
     private static boolean matches(Order convoy, Order moveOrder) {
         return convoy.orderType == OrderType.CONVOY
                 && Orders.orderIsValid(convoy)
