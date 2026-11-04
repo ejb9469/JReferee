@@ -22,6 +22,7 @@ import java.util.UUID;
  * {@code Moment.instant()}: imported records can contain equal or imperfect
  * timestamps, while append order always preserves the stored game timeline.</p>
  */
+@Deprecated
 public final class PressLedger {
 
 

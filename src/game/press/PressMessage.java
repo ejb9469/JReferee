@@ -17,6 +17,7 @@ import java.util.UUID;
  * <p>Callers supply the stable ID and {@link Moment}. This keeps replay,
  * importing, persistence, and testing deterministic.</p>
  */
+@Deprecated
 public record PressMessage(
         UUID id,
         Moment moment,
