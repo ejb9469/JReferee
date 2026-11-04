@@ -1,0 +1,2 @@
+legalOrders(snapshot, unit)                         ==> order options
+proposeActions(snapshot, power, limit, seed)        ==> complete action candidates
