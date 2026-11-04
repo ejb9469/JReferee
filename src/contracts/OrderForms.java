@@ -63,11 +63,11 @@ public abstract class OrderForms {
      */
     public static <T extends OrderForm> List<T> pruneForOrderType(
             @Nullable   OrderType orderType,  // may be null in the case of `phase.UnitId`
-                        Collection<? extends T> orderForms
+            Collection<? extends T> orderForms
     ) {
 
         // we cannot omit null order types b/c `pruneForOrderType(null,mixed) may occur, ...
-            // ... in the case of `phase.UnitId` (impl. `OrderForm`) - where a null order type refers to a unit without an order
+        // ... in the case of `phase.UnitId` (impl. `OrderForm`) - where a null order type refers to a unit without an order
         //Objects.requireNonNull(orderType, "orderType");
 
         List<T> result = new ArrayList<>();
@@ -134,9 +134,17 @@ public abstract class OrderForms {
                         || Province.equalsIgnoreCoast(currentLocation, target))
                     yield false;
 
-                if (order.unitType() == UnitType.ARMY)
-                    yield target.geography != Geography.WATER
-                            && target.coastType != CoastType.SPLIT;
+                if (order.unitType() == UnitType.ARMY) {
+                    if (!isLandProvince(currentLocation)
+                            || currentLocation.coastType == CoastType.SPLIT)
+                        yield false;
+
+                    yield isLandProvince(target)
+                            && target.coastType != CoastType.SPLIT
+                            && (currentLocation.isAdjacentTo(target)
+                            || (currentLocation.hasCoast()
+                            && target.hasCoast()));
+                }
 
                 yield target.geography != Geography.INLAND
                         && currentLocation.isAdjacentTo(target);
@@ -182,11 +190,51 @@ public abstract class OrderForms {
     }
 
     /**
+     * Checks the structural and geometric rules for a retreat order.
+     * Occupancy, standoffs, and the dislodging attack are not checked here.
+     */
+    public static boolean isValidRetreatOrder(
+            OrderForm order,
+            Province currentLocation
+    ) {
+        if (order == null
+                || currentLocation == null
+                || order.unitType() == null
+                || order.orderType() != OrderType.RETREAT
+                || order.target() == null
+                || order.auxiliaryTarget() != null
+                || Province.equalsIgnoreCoast(currentLocation, order.target()))
+            return false;
+
+        Province destination = order.target();
+
+        return switch (order.unitType()) {
+            case ARMY -> isLandProvince(currentLocation)
+                    && currentLocation.coastType != CoastType.SPLIT
+                    && isLandProvince(destination)
+                    && destination.coastType != CoastType.SPLIT
+                    && currentLocation.isAdjacentTo(destination);
+
+            case FLEET -> (currentLocation.geography == Geography.WATER
+                    || currentLocation.geography == Geography.COASTAL)
+                    && (destination.geography == Geography.WATER
+                    || destination.geography == Geography.COASTAL)
+                    && Province.adjacentBySea(currentLocation, destination);
+        };
+    }
+
+    private static boolean isLandProvince(Province province) {
+        return province.geography == Geography.INLAND
+                || province.geography == Geography.COASTAL;
+    }
+
+
+    /**
      * Checks whether {@code convoyPath} forms a route for the supplied Army
      * move. The resolver must return each convoying unit's current location.
      */
     public static <M extends OrderForm, C extends OrderForm>
-        boolean convoyPathIsValid(
+    boolean convoyPathIsValid(
             M armyMove,
             Province armyLocation,
             List<? extends C> convoyPath,

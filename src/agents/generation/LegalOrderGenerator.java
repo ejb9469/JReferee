@@ -18,7 +18,6 @@ import java.util.Objects;
 
 /**
  * Creates per-unit movement orders from a game state.
- * Does so immediately; in the constructor.
  *
  * <p>Coast-to-coast Army moves are included as convoy possibilities. The
  * completed candidate must contain orders that provide a usable convoy route.</p>

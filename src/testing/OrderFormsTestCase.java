@@ -26,6 +26,7 @@ public final class OrderFormsTestCase implements TestCase {
         checkCopies(checks);
         checkFilters(checks);
         checkMovementValidity(checks);
+        checkRetreatValidity(checks);
         checkSupportValidity(checks);
         checkOrdersAdapters(checks);
         checkConvoyHelpers(checks);
@@ -158,6 +159,24 @@ public final class OrderFormsTestCase implements TestCase {
                         Order.move(army, Province.Nwy),
                         Province.Bre));
 
+        checks.expect("Adjacent inland Army move is valid",
+                true,
+                OrderForms.isValidMovementOrder(
+                        Order.move(army, Province.Bur),
+                        Province.Par));
+
+        checks.expect("Nonadjacent inland Army move is invalid",
+                false,
+                OrderForms.isValidMovementOrder(
+                        Order.move(army, Province.Mos),
+                        Province.Par));
+
+        checks.expect("Coastal Army cannot convoy to inland province",
+                false,
+                OrderForms.isValidMovementOrder(
+                        Order.move(army, Province.Mun),
+                        Province.Bre));
+
         Order fleetToSouthCoast = Order.move(fleet, Province.SpaSC);
         checks.expect("Fleet move uses current location, not creation origin",
                 true,
@@ -192,6 +211,43 @@ public final class OrderFormsTestCase implements TestCase {
                 OrderForms.isValidMovementOrder(
                         new RetreatOrder(army, Province.Bur),
                         Province.Bre));
+    }
+
+    private static void checkRetreatValidity(TestEvaluation.Builder checks) {
+        UnitId army = new UnitId(
+                UUID.randomUUID(), Nation.FRANCE, UnitType.ARMY, Province.Par);
+        UnitId fleet = new UnitId(
+                UUID.randomUUID(), Nation.FRANCE, UnitType.FLEET, Province.Smy);
+
+        checks.expect("Adjacent Army retreat is valid",
+                true,
+                OrderForms.isValidRetreatOrder(
+                        new RetreatOrder(army, Province.Gas),
+                        Province.Bre));
+
+        checks.expect("Army retreat cannot use a convoy route",
+                false,
+                OrderForms.isValidRetreatOrder(
+                        new RetreatOrder(army, Province.Nwy),
+                        Province.Bre));
+
+        checks.expect("Army retreat cannot enter a sea province",
+                false,
+                OrderForms.isValidRetreatOrder(
+                        new RetreatOrder(army, Province.NTH),
+                        Province.Bre));
+
+        checks.expect("Fleet retreat follows sea adjacency",
+                true,
+                OrderForms.isValidRetreatOrder(
+                        new RetreatOrder(fleet, Province.SpaSC),
+                        Province.LYO));
+
+        checks.expect("Fleet retreat requires sea adjacency",
+                false,
+                OrderForms.isValidRetreatOrder(
+                        new RetreatOrder(fleet, Province.SpaNC),
+                        Province.NTH));
     }
 
     private static void checkSupportValidity(TestEvaluation.Builder checks) {
@@ -232,6 +288,8 @@ public final class OrderFormsTestCase implements TestCase {
     }
 
     private static void checkOrdersAdapters(TestEvaluation.Builder checks) {
+        UnitId army = new UnitId(
+                UUID.randomUUID(), Nation.FRANCE, UnitType.ARMY, Province.Par);
         UnitId fleet = new UnitId(
                 UUID.randomUUID(), Nation.FRANCE, UnitType.FLEET, Province.Smy);
         Order phaseMove = Order.move(fleet, Province.SpaSC);
@@ -257,6 +315,18 @@ public final class OrderFormsTestCase implements TestCase {
                 true, Orders.orderIsValid(validSupport));
         checks.expect("Orders adapter rejects land-only fleet support",
                 false, Orders.orderIsValid(invalidSupport));
+
+        adjudication.Order validRetreat = new adjudication.Order(
+                new RetreatOrder(army, Province.Gas),
+                Province.Bre);
+        adjudication.Order invalidRetreat = new adjudication.Order(
+                new RetreatOrder(army, Province.Nwy),
+                Province.Bre);
+
+        checks.expect("Orders adapter accepts a valid Army retreat",
+                true, Orders.orderIsValid(validRetreat));
+        checks.expect("Orders adapter rejects a nonadjacent Army retreat",
+                false, Orders.orderIsValid(invalidRetreat));
 
         adjudication.Order validConvoy = new adjudication.Order(
                 Nation.FRANCE,

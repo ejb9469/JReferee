@@ -13,16 +13,14 @@ public abstract class Orders {
     private Orders() {  }
 
 
+    @Deprecated (forRemoval = false)
     public static boolean orderIsValid(Order order) {
 
-        if (order.orderType == OrderType.RETREAT) {
-            // Keep the existing retreat handling separate from movement orders.
-            if (order.pos0 != order.pos2)
-                return false;
-            Order dummyMove = new Order(order);
-            dummyMove.orderType = OrderType.MOVE;
-            return orderIsValid(dummyMove);
-        }
+        if (order == null)
+            return false;
+
+        if (order.orderType == OrderType.RETREAT)
+            return OrderForms.isValidRetreatOrder(order, order.pos0);
 
         return OrderForms.isValidMovementOrder(order, order.pos0);
 
