@@ -53,17 +53,12 @@ public final class GameInvestigationJsonWriter {
 
         try {
 
-            Map<UnitId, TacticalContext.KnownOrder> orders =
+            Map<UnitId, Order> orders =
                     new LinkedHashMap<>();
 
             for (Order order : phase.movementOrders()) {
 
-                TacticalContext.KnownOrder evidence =
-                        new TacticalContext.KnownOrder(
-                                order,
-                                TacticalContext.Provenance.SUBMITTED);
-
-                if (orders.putIfAbsent(order.unit(), evidence) != null)
+                if (orders.putIfAbsent(order.unit(), order) != null)
                     throw new IllegalArgumentException(
                             "Multiple submissions for one active unit");
 

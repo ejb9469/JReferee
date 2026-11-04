@@ -41,8 +41,8 @@ public final class ChainAdvanceDetective extends Detective {
 
         Set<UnitId> movers = new LinkedHashSet<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
-            Order move = evidence.order();
+        for (Order evidence : context.orders().values()) {
+            Order move = evidence;
             if (move.orderType() == OrderType.MOVE
                     && Province.canonical(move.target())
                     != Province.canonical(context.board().locationOf(move.unit())))
@@ -54,7 +54,7 @@ public final class ChainAdvanceDetective extends Detective {
 
         for (UnitId mover : movers) {
             Optional<UnitId> occupant =
-                    context.unitAt(context.orders().get(mover).order().target());
+                    context.unitAt(context.orders().get(mover).target());
             if (occupant.isPresent() && movers.contains(occupant.get())) {
                 next.put(mover, occupant.get());
                 hasPredecessor.add(occupant.get());

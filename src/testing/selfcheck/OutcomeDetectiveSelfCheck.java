@@ -222,14 +222,13 @@ public final class OutcomeDetectiveSelfCheck {
             Order... orders
     ) {
 
-        Map<UnitId, TacticalContext.KnownOrder> known = new LinkedHashMap<>();
+        Map<UnitId, Order> known = new LinkedHashMap<>();
 
         for (Order order : orders) {
 
             if (known.putIfAbsent(
                     order.unit(),
-                    new TacticalContext.KnownOrder(
-                            order, TacticalContext.Provenance.SUBMITTED)) != null)
+                    order) != null)
                 throw new IllegalArgumentException("Duplicate fixture order");
 
         }
@@ -265,14 +264,14 @@ public final class OutcomeDetectiveSelfCheck {
                 List<Order> orders = new ArrayList<>();
 
                 // TacticalContext orders are sorted by actual location.
-                for (Map.Entry<UnitId, TacticalContext.KnownOrder> entry
+                for (Map.Entry<UnitId, Order> entry
                         : scenario.context().orders().entrySet()) {
 
                     positions.put(
                             entry.getKey(),
                             scenario.context().board().locationOf(entry.getKey()));
 
-                    orders.add(entry.getValue().order());
+                    orders.add(entry.getValue());
 
                 }
 

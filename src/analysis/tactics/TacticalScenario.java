@@ -1,5 +1,6 @@
 package analysis.tactics;
 
+import phase.Order;
 import phase.UnitId;
 
 import java.util.Map;
@@ -59,16 +60,18 @@ public record TacticalScenario(
             throw new IllegalArgumentException(
                     "Scenario changes the ruleset, moment, or starting board");
 
-        for (Map.Entry<UnitId, TacticalContext.KnownOrder> entry
+        for (Map.Entry<UnitId, Order> entry
                 : original.orders().entrySet()) {
 
-            TacticalContext.KnownOrder current =
-                    context.orders().get(entry.getKey());
+            UnitId unit = entry.getKey();
+            Order current = context.orders().get(unit);
 
-            if (!entry.getValue().equals(current))
+            if (!entry.getValue().equals(current)
+                    || original.provenance().get(unit)
+                    != context.provenance().get(unit))
                 throw new IllegalArgumentException(
                         "Scenario changes known order evidence for "
-                                + entry.getKey());
+                                + unit);
 
         }
 

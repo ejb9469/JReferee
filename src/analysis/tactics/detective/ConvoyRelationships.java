@@ -25,9 +25,9 @@ final class ConvoyRelationships {
 
         List<ArmyMove> moves = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE || move.unitType() != UnitType.ARMY)
                 continue;
@@ -36,9 +36,9 @@ final class ConvoyRelationships {
             Province destination = Province.canonical(move.target());
             List<UnitId> fleets = new ArrayList<>();
 
-            for (TacticalContext.KnownOrder candidate : context.orders().values()) {
+            for (Order candidate : context.orders().values()) {
 
-                Order convoy = candidate.order();
+                Order convoy = candidate;
 
                 if (convoy.orderType() == OrderType.CONVOY
                         && convoy.unitType() == UnitType.FLEET

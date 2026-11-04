@@ -39,9 +39,9 @@ public final class SupportToHoldDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order support = evidence.order();
+            Order support = evidence;
 
             if (support.orderType() != OrderType.SUPPORT
                     || support.auxiliaryTarget() != null)
@@ -57,7 +57,7 @@ public final class SupportToHoldDetective extends Detective {
             if (supportedUnit.equals(support.unit()))
                 continue;
 
-            Optional<TacticalContext.KnownOrder> recipientEvidence =
+            Optional<Order> recipientEvidence =
                     context.orderOf(supportedUnit);
 
             Set<UnitId> missingOrders;
@@ -68,7 +68,7 @@ public final class SupportToHoldDetective extends Detective {
 
             } else {
 
-                Order supportedOrder = recipientEvidence.get().order();
+                Order supportedOrder = recipientEvidence.get();
 
                 boolean nonMoving = switch (supportedOrder.orderType()) {
                     case HOLD, SUPPORT, CONVOY -> true;

@@ -428,8 +428,8 @@ public final class TacticArchitectureSelfCheck {
 
         return context(
                 Map.of(par, Province.Par, mar, Province.Mar),
-                Map.of(mar, known(Order.supportMove(
-                        mar, Province.Par, Province.Bur))));
+                Map.of(mar, Order.supportMove(
+                        mar, Province.Par, Province.Bur)));
 
     }
 
@@ -441,15 +441,15 @@ public final class TacticArchitectureSelfCheck {
         return context(
                 Map.of(par, Province.Par, mar, Province.Mar),
                 Map.of(
-                        par, known(Order.move(par, Province.Bur)),
-                        mar, known(Order.supportMove(
-                                mar, Province.Par, Province.Bur))));
+                        par, Order.move(par, Province.Bur),
+                        mar, Order.supportMove(
+                                mar, Province.Par, Province.Bur)));
 
     }
 
     private static TacticalContext context(
             Map<UnitId, Province> locations,
-            Map<UnitId, TacticalContext.KnownOrder> orders
+            Map<UnitId, Order> orders
     ) {
 
         return new TacticalContext(
@@ -458,11 +458,6 @@ public final class TacticArchitectureSelfCheck {
                 new BoardState(locations, Map.of()),
                 orders);
 
-    }
-
-    private static TacticalContext.KnownOrder known(Order order) {
-        return new TacticalContext.KnownOrder(
-                order, TacticalContext.Provenance.SUBMITTED);
     }
 
     private static UnitId unit(

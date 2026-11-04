@@ -139,8 +139,8 @@ public final class InvestigationReportSelfCheck {
                 "report-self-check-v1",
                 MOMENT,
                 board,
-                Map.of(mar, known(Order.supportMove(
-                        mar, Province.Par, Province.Bur))));
+                Map.of(mar, Order.supportMove(
+                        mar, Province.Par, Province.Bur)));
 
         InvestigationReport report =
                 new DetectiveAgency(List.of(new SupportToMoveDetective()))
@@ -182,20 +182,20 @@ public final class InvestigationReportSelfCheck {
                         mar, Province.Mar),
                 Map.of());
 
-        Map<UnitId, TacticalContext.KnownOrder> orders =
+        Map<UnitId, Order> orders =
                 new LinkedHashMap<>();
 
-        orders.put(par, known(Order.move(par, Province.Bur)));
-        orders.put(mun, known(Order.move(mun, Province.Bur)));
+        orders.put(par, Order.move(par, Province.Bur));
+        orders.put(mun, Order.move(mun, Province.Bur));
 
-        orders.put(gas, known(Order.supportMove(
-                gas, Province.Par, Province.Bur)));
+        orders.put(gas, Order.supportMove(
+                gas, Province.Par, Province.Bur));
 
-        orders.put(ruh, known(Order.supportMove(
-                ruh, Province.Mun, Province.Bur)));
+        orders.put(ruh, Order.supportMove(
+                ruh, Province.Mun, Province.Bur));
 
         // This third incoming move has no support.
-        orders.put(mar, known(Order.move(mar, Province.Bur)));
+        orders.put(mar, Order.move(mar, Province.Bur));
 
         TacticalContext context = new TacticalContext(
                 "report-self-check-v1", MOMENT, board, orders);
@@ -272,7 +272,7 @@ public final class InvestigationReportSelfCheck {
                 "Filtering must not rewrite original coverage");
 
         // Removing one support leaves only one qualifying incoming attack.
-        Map<UnitId, TacticalContext.KnownOrder> reduced =
+        Map<UnitId, Order> reduced =
                 new LinkedHashMap<>(orders);
 
         reduced.remove(ruh);
@@ -384,9 +384,9 @@ public final class InvestigationReportSelfCheck {
                 MOMENT,
                 board,
                 Map.of(
-                        par, known(Order.move(par, Province.Bur)),
-                        mar, known(Order.supportMove(
-                                mar, Province.Par, Province.Bur))));
+                        par, Order.move(par, Province.Bur),
+                        mar, Order.supportMove(
+                                mar, Province.Par, Province.Bur)));
 
     }
 
@@ -396,11 +396,6 @@ public final class InvestigationReportSelfCheck {
             Province origin
     ) {
         return new UnitId(nation, type, origin);
-    }
-
-    private static TacticalContext.KnownOrder known(Order order) {
-        return new TacticalContext.KnownOrder(
-                order, TacticalContext.Provenance.SUBMITTED);
     }
 
     private static InvestigationReport report(

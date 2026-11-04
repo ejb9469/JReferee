@@ -39,9 +39,9 @@ public final class AttackOnSupporterDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE)
                 continue;
@@ -53,11 +53,11 @@ public final class AttackOnSupporterDetective extends Detective {
 
             UnitId supporter = target.get();
 
-            TacticalContext.KnownOrder targetEvidence =
+            Order targetEvidence =
                     context.orders().get(supporter);
 
             if (targetEvidence == null
-                    || targetEvidence.order().orderType() != OrderType.SUPPORT)
+                    || targetEvidence.orderType() != OrderType.SUPPORT)
                 continue;
 
             findings.add(new TacticMatch(

@@ -40,9 +40,9 @@ public final class HeadToHeadDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order first = evidence.order();
+            Order first = evidence;
 
             if (first.orderType() != OrderType.MOVE)
                 continue;
@@ -60,13 +60,13 @@ public final class HeadToHeadDetective extends Detective {
             if (other.equals(first.unit()))
                 continue;
 
-            TacticalContext.KnownOrder otherEvidence =
+            Order otherEvidence =
                     context.orders().get(other);
 
             if (otherEvidence == null)
                 continue;
 
-            Order second = otherEvidence.order();
+            Order second = otherEvidence;
 
             if (second.orderType() != OrderType.MOVE
                     || Province.canonical(second.target()) != origin)

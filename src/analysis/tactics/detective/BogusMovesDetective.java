@@ -52,9 +52,9 @@ public final class BogusMovesDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order order = evidence.order();
+            Order order = evidence;
 
             if (!isBogus(context, order))
                 continue;

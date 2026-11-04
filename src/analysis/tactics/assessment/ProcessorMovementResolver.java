@@ -148,7 +148,7 @@ public final class ProcessorMovementResolver
 
             locations.put(unit, context.board().locationOf(unit));
 
-            Order submitted = context.orders().get(unit).order();
+            Order submitted = context.orders().get(unit);
 
             instructions.add(new Order(
                     unit,

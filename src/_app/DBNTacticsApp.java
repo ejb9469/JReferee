@@ -271,16 +271,11 @@ public final class DBNTacticsApp extends AbstractDiploBNConsoleApp {
 
     private static TacticalContext contextOf(DiploBNPhase phase) {
 
-        Map<UnitId, TacticalContext.KnownOrder> known = new LinkedHashMap<>();
+        Map<UnitId, Order> known = new LinkedHashMap<>();
 
         for (Order order : phase.movementOrders()) {
 
-            TacticalContext.KnownOrder evidence =
-                    new TacticalContext.KnownOrder(
-                            order,
-                            TacticalContext.Provenance.SUBMITTED);
-
-            if (known.putIfAbsent(order.unit(), evidence) != null)
+            if (known.putIfAbsent(order.unit(), order) != null)
                 throw new IllegalArgumentException(
                         "Multiple source orders for "
                                 + OrderForm.unitText(
@@ -414,14 +409,14 @@ public final class DBNTacticsApp extends AbstractDiploBNConsoleApp {
         for (TacticMatch.Participant participant : match.participants()) {
 
             UnitId unit = participant.unit();
-            TacticalContext.KnownOrder evidence = context.orders().get(unit);
+            Order evidence = context.orders().get(unit);
 
             String description = evidence == null
                     ? unitText(context, unit) + " | ORDER UNKNOWN"
                     : OrderForm.format(
-                    evidence.order(),
+                    evidence,
                     context.board().locationOf(unit))
-                    + " | " + evidence.provenance();
+                    + " | " + context.provenanceOf(unit).orElseThrow();
 
             output.printf(
                     "    %-16s %s%n",

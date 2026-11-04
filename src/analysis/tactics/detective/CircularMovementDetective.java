@@ -43,9 +43,9 @@ public final class CircularMovementDetective extends Detective {
 
         Map<UnitId, UnitId> next = new LinkedHashMap<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE)
                 continue;

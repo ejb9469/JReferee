@@ -2,6 +2,7 @@ package ui;
 
 import analysis.tactics.*;
 import contracts.OrderForm;
+import phase.Order;
 import phase.UnitId;
 
 import static io.json.JsonEscaper.appendString;
@@ -120,7 +121,7 @@ final class TacticalJson {
             TacticalContext context
     ) {
 
-        TacticalContext.KnownOrder evidence = context.orders().get(unit);
+        Order order = context.orders().get(unit);
 
         out.append('{');
         field(out, "role", role);
@@ -132,14 +133,16 @@ final class TacticalJson {
         field(out, "unit", unitText(context, unit));
         out.append(',');
         field(out, "order",
-                evidence == null
+                order == null
                         ? null
                         : OrderForm.format(
-                        evidence.order(),
+                        order,
                         context.board().locationOf(unit)));
         out.append(',');
         field(out, "provenance",
-                evidence == null ? null : evidence.provenance().name());
+                context.provenanceOf(unit)
+                        .map(Enum::name)
+                        .orElse(null));
         out.append('}');
 
     }

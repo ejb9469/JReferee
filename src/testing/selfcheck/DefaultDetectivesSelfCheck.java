@@ -101,9 +101,9 @@ public final class DefaultDetectivesSelfCheck {
         TacticalContext known = new TacticalContext(
                 "default-self-check", moment, board,
                 Map.of(
-                        mover, evidence(Order.move(mover, Province.Bur)),
-                        supporter, evidence(Order.supportMove(
-                                supporter, Province.Par, Province.Bur))));
+                        mover, Order.move(mover, Province.Bur),
+                        supporter, Order.supportMove(
+                                supporter, Province.Par, Province.Bur)));
 
         verifyCoverage(agency.investigateReport(unknown), true);
         verifyCoverage(agency.investigateReport(known), false);
@@ -230,11 +230,6 @@ public final class DefaultDetectivesSelfCheck {
 
 
     // Helpers \\
-
-    private static TacticalContext.KnownOrder evidence(Order order) {
-        return new TacticalContext.KnownOrder(
-                order, TacticalContext.Provenance.SUBMITTED);
-    }
 
     private static void require(boolean condition, String message) {
 

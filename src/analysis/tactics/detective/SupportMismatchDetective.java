@@ -56,9 +56,9 @@ public final class SupportMismatchDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order support = evidence.order();
+            Order support = evidence;
 
             if (support.orderType() != OrderType.SUPPORT)
                 continue;
@@ -85,13 +85,13 @@ public final class SupportMismatchDetective extends Detective {
 
             }
 
-            Optional<TacticalContext.KnownOrder> recipientEvidence =
+            Optional<Order> recipientEvidence =
                     context.orderOf(recipient);
 
             if (recipientEvidence.isEmpty())
                 continue;
 
-            if (compatible(support, recipientEvidence.get().order()))
+            if (compatible(support, recipientEvidence.get()))
                 continue;
 
             findings.add(finding(context, support, referenced));

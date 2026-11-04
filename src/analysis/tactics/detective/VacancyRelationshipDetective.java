@@ -31,9 +31,9 @@ abstract class VacancyRelationshipDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order incoming = evidence.order();
+            Order incoming = evidence;
 
             if (incoming.orderType() != OrderType.MOVE)
                 continue;
@@ -44,14 +44,14 @@ abstract class VacancyRelationshipDetective extends Detective {
                 continue;
 
             UnitId departing = resident.get();
-            TacticalContext.KnownOrder known = context.orders().get(departing);
+            Order known = context.orders().get(departing);
 
-            if (known == null || known.order().orderType() != OrderType.MOVE)
+            if (known == null || known.orderType() != OrderType.MOVE)
                 continue;
 
             Province location = Province.canonical(context.board().locationOf(departing));
 
-            if (Province.canonical(known.order().target()) == location)
+            if (Province.canonical(known.target()) == location)
                 continue;
 
             findings.add(new TacticMatch(kind(), version(), context, location,

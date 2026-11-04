@@ -62,9 +62,9 @@ public final class BeleagueredGarrisonDetective extends Detective {
         Map<Province, List<SupportedAttack>> incoming =
                 new EnumMap<>(Province.class);
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE)
                 continue;
@@ -169,9 +169,9 @@ public final class BeleagueredGarrisonDetective extends Detective {
 
         List<UnitId> supporters = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order support = evidence.order();
+            Order support = evidence;
 
             if (support.orderType() != OrderType.SUPPORT
                     || support.auxiliaryTarget() == null)

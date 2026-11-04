@@ -32,9 +32,9 @@ final class CandidateConvoyGraph {
 
         Map<Province, UnitId> fleets = new EnumMap<>(Province.class);
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order convoy = evidence.order();
+            Order convoy = evidence;
 
             if (convoy.orderType() != OrderType.CONVOY
                     || convoy.unitType() != UnitType.FLEET)

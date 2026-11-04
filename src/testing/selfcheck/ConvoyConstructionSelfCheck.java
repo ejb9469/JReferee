@@ -305,9 +305,9 @@ public final class ConvoyConstructionSelfCheck {
                 TacticKind.SUPPORTED_CONVOY_LANDING, List.of(landing(Province.Bul, army, support, fleet))));
         expectSingle(new IncompleteConvoyChainDetective(), coast, List.of());
         require(coast.board().locationOf(fleet) == Province.BLA, "Actual fleet location changed");
-        require(coast.orderOf(army).orElseThrow().order().target() == Province.BulSC,
+        require(coast.orderOf(army).orElseThrow().target() == Province.BulSC,
                 "Exact army destination coast lost");
-        require(coast.orderOf(fleet).orElseThrow().order().auxiliaryTarget() == Province.BulEC,
+        require(coast.orderOf(fleet).orElseThrow().auxiliaryTarget() == Province.BulEC,
                 "Exact convoy destination coast lost");
 
         TacticalContext originCoast = context(locations(army, Province.SpaSC, fleet, Province.MAO),
@@ -317,7 +317,7 @@ public final class ConvoyConstructionSelfCheck {
                 TacticKind.CONVOYED_MOVE, List.of(move(Province.Por, army, fleet)),
                 TacticKind.ADJACENT_PROVINCE_CONVOY, List.of(move(Province.Por, army, fleet))));
         require(originCoast.board().locationOf(army) == Province.SpaSC, "Exact board coast lost");
-        require(originCoast.orderOf(fleet).orElseThrow().order().target() == Province.SpaNC,
+        require(originCoast.orderOf(fleet).orElseThrow().target() == Province.SpaNC,
                 "Exact convoy source coast lost");
         expect(context(locations(army, Province.SpaSC, fleet, Province.MAO),
                 Order.move(army, Province.Por),
@@ -562,11 +562,11 @@ public final class ConvoyConstructionSelfCheck {
                 expectUnsupported(() -> match.units(TacticMatch.Role.CONVOYING_UNIT).clear());
             }
         }
-        List<Map.Entry<UnitId, TacticalContext.KnownOrder>> reversed =
+        List<Map.Entry<UnitId, Order>> reversed =
                 new ArrayList<>(context.orders().entrySet());
         Collections.reverse(reversed);
-        Map<UnitId, TacticalContext.KnownOrder> orders = new LinkedHashMap<>();
-        for (Map.Entry<UnitId, TacticalContext.KnownOrder> entry : reversed)
+        Map<UnitId, Order> orders = new LinkedHashMap<>();
+        for (Map.Entry<UnitId, Order> entry : reversed)
             orders.put(entry.getKey(), entry.getValue());
         TacticalContext reordered = new TacticalContext(
                 context.rulesetId(), MOMENT, context.board(), orders);
@@ -645,10 +645,9 @@ public final class ConvoyConstructionSelfCheck {
             Order... supplied
     ) {
 
-        Map<UnitId, TacticalContext.KnownOrder> orders = new LinkedHashMap<>();
+        Map<UnitId, Order> orders = new LinkedHashMap<>();
         for (Order order : supplied)
-            orders.put(order.unit(), new TacticalContext.KnownOrder(
-                    order, TacticalContext.Provenance.SUBMITTED));
+            orders.put(order.unit(), order);
         return new TacticalContext("convoy-selfcheck-v1", MOMENT,
                 new BoardState(locations, Map.of()), orders);
 
