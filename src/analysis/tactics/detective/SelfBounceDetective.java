@@ -42,9 +42,9 @@ public final class SelfBounceDetective extends Detective {
 
         Map<Competition, List<UnitId>> competitions = new LinkedHashMap<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE)
                 continue;

@@ -57,9 +57,9 @@ public final class UnmatchedConvoyDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order convoy = evidence.order();
+            Order convoy = evidence;
 
             if (convoy.orderType() != OrderType.CONVOY)
                 continue;
@@ -84,7 +84,7 @@ public final class UnmatchedConvoyDetective extends Detective {
 
                 if (recipient.unitType() == UnitType.ARMY) {
 
-                    Optional<TacticalContext.KnownOrder> recipientEvidence =
+                    Optional<Order> recipientEvidence =
                             context.orderOf(recipient);
 
                     if (recipientEvidence.isEmpty()) {
@@ -94,7 +94,7 @@ public final class UnmatchedConvoyDetective extends Detective {
 
                     } else {
 
-                        Order armyOrder = recipientEvidence.get().order();
+                        Order armyOrder = recipientEvidence.get();
 
                         if (matches(convoy, armyOrder))
                             continue;

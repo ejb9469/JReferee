@@ -680,22 +680,25 @@ public final class StructuralSupportMovementSelfCheck {
                 .map(unit -> Order.move(unit, Province.Gas)).toArray(Order[]::new));
 
         require(normal.board().locationOf(f.units[2]) == Province.SpaSC
-                        && normal.orders().get(f.units[0]).order().target() == Province.SpaNC
-                        && normal.orders().get(f.units[1]).order().auxiliaryTarget() == Province.SpaSC,
+                        && normal.orders().get(f.units[0]).target() == Province.SpaNC
+                        && normal.orders().get(f.units[1]).auxiliaryTarget() == Province.SpaSC,
                 "Canonical matching altered exact submitted coasts");
 
         MutableSubmission submitted = new MutableSubmission(f.units[0], Province.SpaNC);
         Order[] mutableOrders = orders.clone();
         mutableOrders[0] = submitted;
         Map<UnitId, Province> locations = new LinkedHashMap<>(f.board.locations());
-        Map<UnitId, TacticalContext.KnownOrder> known = new LinkedHashMap<>();
+        Map<UnitId, Order> known = new LinkedHashMap<>();
+        Map<UnitId, TacticalContext.Provenance> provenance =
+                new LinkedHashMap<>();
 
-        for (Order order : mutableOrders)
-            known.put(order.unit(), new TacticalContext.KnownOrder(
-                    order, TacticalContext.Provenance.PLANNED));
+        for (Order order : mutableOrders) {
+            known.put(order.unit(), order);
+            provenance.put(order.unit(), TacticalContext.Provenance.PLANNED);
+        }
 
         TacticalContext snapshot = new TacticalContext("structural-self-check", MOMENT,
-                new BoardState(locations, Map.of()), known);
+                new BoardState(locations, Map.of()), known, provenance);
         submitted.destination = Province.Bel;
         locations.clear();
         known.clear();
@@ -789,15 +792,14 @@ public final class StructuralSupportMovementSelfCheck {
 
     private static TacticalContext context(Fixture f, Order[] orders, boolean reverse) {
 
-        Map<UnitId, TacticalContext.KnownOrder> known = new LinkedHashMap<>();
+        Map<UnitId, Order> known = new LinkedHashMap<>();
         Map<UnitId, Province> locations = new LinkedHashMap<>();
 
         for (int offset = 0; offset < orders.length; offset++) {
             int i = reverse ? orders.length - 1 - offset : offset;
             locations.put(f.units[i], f.locations[i]);
             if (orders[i] != null)
-                known.put(f.units[i], new TacticalContext.KnownOrder(
-                        orders[i], TacticalContext.Provenance.SUBMITTED));
+                known.put(f.units[i], orders[i]);
         }
 
         return new TacticalContext("structural-self-check", MOMENT,

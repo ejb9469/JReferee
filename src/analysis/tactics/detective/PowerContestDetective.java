@@ -37,8 +37,8 @@ abstract class PowerContestDetective extends Detective {
 
         Map<Province, List<UnitId>> groups = new EnumMap<>(Province.class);
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
-            Order move = evidence.order();
+        for (Order evidence : context.orders().values()) {
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE)
                 continue;

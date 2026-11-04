@@ -43,7 +43,7 @@ public final class MultinationalSupportedAttackDetective extends Detective {
 
             UnitId mover = entry.getKey();
             Province destination = Province.canonical(
-                    context.orders().get(mover).order().target());
+                    context.orders().get(mover).target());
 
             if (destination == Province.canonical(context.board().locationOf(mover)))
                 continue;

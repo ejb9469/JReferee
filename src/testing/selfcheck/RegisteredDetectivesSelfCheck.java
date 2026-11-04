@@ -53,7 +53,7 @@ public final class RegisteredDetectivesSelfCheck {
 
     private static void verify(Detective detective, TacticalContext context, Set<Expected> expected) {
         cases.merge(detective.kind().name(), 1, Integer::sum);
-        Map<UnitId, TacticalContext.KnownOrder> before = new LinkedHashMap<>(context.orders());
+        Map<UnitId, Order> before = new LinkedHashMap<>(context.orders());
         Map<UnitId, Province> locations = new LinkedHashMap<>(context.board().locations());
         List<TacticMatch> findings = detective.investigate(context);
         Set<Expected> actual = new HashSet<>();
@@ -93,11 +93,10 @@ public final class RegisteredDetectivesSelfCheck {
     }
 
     private static TacticalContext context(BoardState board, Order... orders) {
-        Map<UnitId, TacticalContext.KnownOrder> evidence = new LinkedHashMap<>();
+        Map<UnitId, Order> evidence = new LinkedHashMap<>();
         for (int index = orders.length - 1; index >= 0; index--)
             if (orders[index] != null)
-                evidence.put(orders[index].unit(), new TacticalContext.KnownOrder(
-                        orders[index], TacticalContext.Provenance.SUBMITTED));
+                evidence.put(orders[index].unit(), orders[index]);
         return new TacticalContext("bounded-reference-v1", MOMENT, board, evidence);
     }
 
@@ -106,8 +105,7 @@ public final class RegisteredDetectivesSelfCheck {
     }
 
     private static Order order(TacticalContext context, UnitId unit) {
-        var evidence = context.orders().get(unit);
-        return evidence == null ? null : evidence.order();
+        return context.orders().get(unit);
     }
 
     private static Order convoy(UnitId issuer, Province origin, Province destination) {
@@ -501,7 +499,7 @@ public final class RegisteredDetectivesSelfCheck {
                 Set.of(expected(Province.MAO, Set.of(), TacticMatch.Role.ISSUER, a,
                         TacticMatch.Role.ISSUER, b, TacticMatch.Role.ISSUER, c,
                         TacticMatch.Role.ISSUER, feeder)));
-        require(cycle.orders().get(c).order().target() == Province.SpaSC
+        require(cycle.orders().get(c).target() == Province.SpaSC
                         && cycle.board().locationOf(a) == Province.SpaNC, "Canonicalization changed exact coasts");
         verify(new HeadToHeadDetective(), context(board, Order.move(a, Province.Por),
                 Order.move(b, Province.SpaSC)), Set.of(expected(Province.Por, Set.of(),

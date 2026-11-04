@@ -41,9 +41,9 @@ public final class SupportToMoveDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order support = evidence.order();
+            Order support = evidence;
 
             if (support.orderType() != OrderType.SUPPORT
                     || support.auxiliaryTarget() == null)
@@ -63,7 +63,7 @@ public final class SupportToMoveDetective extends Detective {
             Province destination = Province.canonical(
                     support.auxiliaryTarget());
 
-            Optional<TacticalContext.KnownOrder> recipientEvidence =
+            Optional<Order> recipientEvidence =
                     context.orderOf(supportedUnit);
 
             Set<UnitId> missingOrders;
@@ -75,7 +75,7 @@ public final class SupportToMoveDetective extends Detective {
 
             } else {
 
-                Order supportedOrder = recipientEvidence.get().order();
+                Order supportedOrder = recipientEvidence.get();
 
                 if (supportedOrder.orderType() != OrderType.MOVE)
                     continue;

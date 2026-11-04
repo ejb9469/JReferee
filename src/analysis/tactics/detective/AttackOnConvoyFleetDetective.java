@@ -40,9 +40,9 @@ public final class AttackOnConvoyFleetDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE)
                 continue;
@@ -57,11 +57,11 @@ public final class AttackOnConvoyFleetDetective extends Detective {
             if (fleet.unitType() != UnitType.FLEET)
                 continue;
 
-            TacticalContext.KnownOrder targetEvidence =
+            Order targetEvidence =
                     context.orders().get(fleet);
 
             if (targetEvidence == null
-                    || targetEvidence.order().orderType() != OrderType.CONVOY)
+                    || targetEvidence.orderType() != OrderType.CONVOY)
                 continue;
 
             findings.add(new TacticMatch(

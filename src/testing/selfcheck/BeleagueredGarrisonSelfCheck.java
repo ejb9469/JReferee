@@ -392,13 +392,12 @@ public final class BeleagueredGarrisonSelfCheck {
             Order... orders
     ) {
 
-        Map<UnitId, TacticalContext.KnownOrder> known = new LinkedHashMap<>();
+        Map<UnitId, Order> known = new LinkedHashMap<>();
 
         for (Order order : orders) {
 
-            TacticalContext.KnownOrder evidence =
-                    new TacticalContext.KnownOrder(
-                            order, TacticalContext.Provenance.SUBMITTED);
+            Order evidence =
+                    order;
 
             if (known.putIfAbsent(order.unit(), evidence) != null)
                 throw new IllegalArgumentException("Duplicate fixture order");

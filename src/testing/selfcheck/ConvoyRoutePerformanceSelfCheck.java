@@ -208,18 +208,18 @@ public final class ConvoyRoutePerformanceSelfCheck {
     ) {
 
         Map<UnitId, Province> locations = new LinkedHashMap<>();
-        Map<UnitId, TacticalContext.KnownOrder> orders = new LinkedHashMap<>();
+        Map<UnitId, Order> orders = new LinkedHashMap<>();
         UnitId army = unit(UnitType.ARMY, origin);
 
         locations.put(army, origin);
-        orders.put(army, known(Order.move(army, destination)));
+        orders.put(army, Order.move(army, destination));
 
         for (Province sea : seas) {
 
             UnitId fleet = unit(UnitType.FLEET, sea);
 
             locations.put(fleet, sea);
-            orders.put(fleet, known(Order.convoy(fleet, origin, destination)));
+            orders.put(fleet, Order.convoy(fleet, origin, destination));
 
         }
 
@@ -266,12 +266,6 @@ public final class ConvoyRoutePerformanceSelfCheck {
         return new UnitId(UUID.nameUUIDFromBytes(
                 (type + ":" + origin).getBytes(StandardCharsets.UTF_8)),
                 Nation.ENGLAND, type, origin);
-
-    }
-
-    private static TacticalContext.KnownOrder known(Order order) {
-
-        return new TacticalContext.KnownOrder(order, TacticalContext.Provenance.SUBMITTED);
 
     }
 

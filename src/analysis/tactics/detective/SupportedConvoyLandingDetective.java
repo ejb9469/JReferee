@@ -45,9 +45,9 @@ public final class SupportedConvoyLandingDetective extends Detective {
 
         for (ConvoyRelationships.ArmyMove move : ConvoyRelationships.moves(context)) {
 
-            for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+            for (Order evidence : context.orders().values()) {
 
-                Order support = evidence.order();
+                Order support = evidence;
 
                 if (support.orderType() != OrderType.SUPPORT || support.auxiliaryTarget() == null
                         || support.unit().equals(move.army())

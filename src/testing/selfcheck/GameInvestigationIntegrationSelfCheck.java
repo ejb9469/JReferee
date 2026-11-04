@@ -72,10 +72,9 @@ public final class GameInvestigationIntegrationSelfCheck {
     }
 
     private static TacticalContext context(DiploBNPhase phase) {
-        Map<UnitId, TacticalContext.KnownOrder> evidence = new LinkedHashMap<>();
+        Map<UnitId, Order> evidence = new LinkedHashMap<>();
         for (Order order : phase.movementOrders())
-            evidence.put(order.unit(), new TacticalContext.KnownOrder(
-                    order, TacticalContext.Provenance.SUBMITTED));
+            evidence.put(order.unit(), order);
         return new TacticalContext("diplobn-standard-browser-structural-v1",
                 new GameMoment(phase.sourcePhase() / 10, phase.gamePhase()), phase.board(), evidence);
     }

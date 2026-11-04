@@ -626,15 +626,13 @@ public final class DetectiveAgencySelfCheck {
             Order... submissions
     ) {
 
-        Map<UnitId, TacticalContext.KnownOrder> orders =
+        Map<UnitId, Order> orders =
                 new LinkedHashMap<>();
 
         for (Order order : submissions) {
 
-            TacticalContext.KnownOrder known =
-                    new TacticalContext.KnownOrder(
-                            order,
-                            TacticalContext.Provenance.SUBMITTED);
+            Order known =
+                    order;
 
             if (orders.putIfAbsent(order.unit(), known) != null)
                 throw new IllegalArgumentException(

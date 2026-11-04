@@ -95,9 +95,9 @@ public final class ForeignCooperationDetective extends Detective {
             List<TacticMatch> findings
     ) {
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order convoy = evidence.order();
+            Order convoy = evidence;
 
             if (convoy.orderType() != OrderType.CONVOY
                     || convoy.unitType() != UnitType.FLEET)
@@ -131,7 +131,7 @@ public final class ForeignCooperationDetective extends Detective {
                     || !destination.hasCoast())
                 continue;
 
-            TacticalContext.KnownOrder armyEvidence =
+            Order armyEvidence =
                     context.orders().get(army);
 
             Set<UnitId> missing = Set.of();
@@ -142,7 +142,7 @@ public final class ForeignCooperationDetective extends Detective {
 
             } else {
 
-                Order move = armyEvidence.order();
+                Order move = armyEvidence;
 
                 if (move.orderType() != OrderType.MOVE
                         || Province.canonical(move.target()) != destination)
@@ -176,9 +176,9 @@ public final class ForeignCooperationDetective extends Detective {
             List<TacticMatch> findings
     ) {
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE)
                 continue;
@@ -191,13 +191,13 @@ public final class ForeignCooperationDetective extends Detective {
 
             UnitId resident = occupant.get();
 
-            TacticalContext.KnownOrder residentEvidence =
+            Order residentEvidence =
                     context.orders().get(resident);
 
             if (residentEvidence == null)
                 continue;
 
-            Order departure = residentEvidence.order();
+            Order departure = residentEvidence;
 
             if (departure.orderType() != OrderType.MOVE)
                 continue;

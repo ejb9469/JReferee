@@ -39,9 +39,9 @@ public final class FriendlyOccupantCollisionDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE)
                 continue;
@@ -57,13 +57,13 @@ public final class FriendlyOccupantCollisionDetective extends Detective {
                     || resident.owner() != move.owner())
                 continue;
 
-            TacticalContext.KnownOrder residentEvidence =
+            Order residentEvidence =
                     context.orders().get(resident);
 
             if (residentEvidence == null)
                 continue;
 
-            boolean stationary = switch (residentEvidence.order().orderType()) {
+            boolean stationary = switch (residentEvidence.orderType()) {
                 case HOLD, SUPPORT, CONVOY -> true;
                 default -> false;
             };

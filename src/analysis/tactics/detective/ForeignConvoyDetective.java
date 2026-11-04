@@ -43,9 +43,9 @@ public final class ForeignConvoyDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order convoy = evidence.order();
+            Order convoy = evidence;
 
             if (convoy.orderType() != OrderType.CONVOY || convoy.unitType() != UnitType.FLEET)
                 continue;

@@ -59,9 +59,9 @@ public final class IncompleteConvoyChainDetective extends Detective {
 
         List<TacticMatch> findings = new ArrayList<>();
 
-        for (TacticalContext.KnownOrder evidence : context.orders().values()) {
+        for (Order evidence : context.orders().values()) {
 
-            Order move = evidence.order();
+            Order move = evidence;
 
             if (move.orderType() != OrderType.MOVE
                     || move.unitType() != UnitType.ARMY)

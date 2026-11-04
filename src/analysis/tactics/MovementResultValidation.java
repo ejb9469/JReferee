@@ -2,6 +2,7 @@ package analysis.tactics;
 
 import domain.OrderType;
 import domain.Province;
+import phase.Order;
 import phase.UnitId;
 import phase.movement.MovementResult;
 
@@ -78,27 +79,27 @@ public final class MovementResultValidation {
 
         for (UnitId unit : initial.keySet()) {
 
-            TacticalContext.KnownOrder known = context.orders().get(unit);
+            Order known = context.orders().get(unit);
             MovementResult.Outcome outcome = result.outcomes().get(unit);
 
             require(outcome != null, "Missing outcome");
             require(unit.equals(outcome.unit()), "Outcome issuer differs");
             require(
-                    known.order().equals(outcome.submittedOrder()),
+                    known.equals(outcome.submittedOrder()),
                     "Resolution changes a scenario instruction");
 
             boolean confirmedDefault =
                     policy == SubmissionPolicy.ALLOW_CONFIRMED_DEFAULTS
-                            && known.provenance()
+                            && context.provenance().get(unit)
                             == TacticalContext.Provenance.DEFAULTED
-                            && known.order().orderType() == OrderType.HOLD;
+                            && known.orderType() == OrderType.HOLD;
 
             require(
                     outcome.submitted() || confirmedDefault,
                     "Resolution unexpectedly defaulted an instruction");
 
             if (outcome.successfulMove())
-                successfulMoves.put(unit, known.order().target());
+                successfulMoves.put(unit, known.target());
 
             MovementResult.Dislodgement dislodgement =
                     result.dislodgementOf(unit);
@@ -147,7 +148,7 @@ public final class MovementResultValidation {
             } else {
 
                 Province expected = outcome.successfulMove()
-                        ? known.order().target()
+                        ? known.target()
                         : initial.get(unit);
 
                 Province actual = result.finalLocations().get(unit);

@@ -133,7 +133,7 @@ public final class SupportAssessmentSelfCheck {
                 TacticalAssessment.Claim.SUPPORTED_MOVE_SUCCEEDED,
                 TacticalAssessment.Truth.TRUE);
 
-        Map<UnitId, TacticalContext.KnownOrder> original =
+        Map<UnitId, Order> original =
                 new LinkedHashMap<>(context.orders());
 
         MovementResult first = resolver.resolve(scenario);
@@ -473,16 +473,14 @@ public final class SupportAssessmentSelfCheck {
             Order... instructions
     ) {
 
-        Map<UnitId, TacticalContext.KnownOrder> evidence =
+        Map<UnitId, Order> evidence =
                 new LinkedHashMap<>();
 
         for (Order instruction : instructions) {
 
-            TacticalContext.KnownOrder prior = evidence.put(
+            Order prior = evidence.put(
                     instruction.unit(),
-                    new TacticalContext.KnownOrder(
-                            instruction,
-                            TacticalContext.Provenance.SUBMITTED));
+                    instruction);
 
             if (prior != null)
                 throw new IllegalArgumentException(

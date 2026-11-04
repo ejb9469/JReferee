@@ -3,6 +3,7 @@ package analysis.tactics.detective;
 import analysis.tactics.*;
 import domain.OrderType;
 import domain.Province;
+import phase.Order;
 import phase.UnitId;
 
 import java.util.*;
@@ -44,17 +45,17 @@ public final class AttackFromSupportedDestinationDetective extends Detective {
 
             UnitId incoming = entry.getKey();
             Province destination = Province.canonical(
-                    context.orders().get(incoming).order().target());
+                    context.orders().get(incoming).target());
             Optional<UnitId> resident = context.unitAt(destination);
 
             if (resident.isEmpty() || resident.get().equals(incoming))
                 continue;
 
             UnitId outgoing = resident.get();
-            TacticalContext.KnownOrder departure = context.orders().get(outgoing);
+            Order departure = context.orders().get(outgoing);
 
-            if (departure == null || departure.order().orderType() != OrderType.MOVE
-                    || Province.canonical(departure.order().target()) == destination)
+            if (departure == null || departure.orderType() != OrderType.MOVE
+                    || Province.canonical(departure.target()) == destination)
                 continue;
 
             List<TacticMatch.Participant> participants = new ArrayList<>();

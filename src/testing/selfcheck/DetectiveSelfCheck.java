@@ -242,22 +242,25 @@ public final class DetectiveSelfCheck {
         require(!incomplete.completePattern(),
                 "Unknown must not become an implicit HOLD");
 
-        Map<UnitId, TacticalContext.KnownOrder> defaulted =
+        Map<UnitId, Order> defaulted =
+                new LinkedHashMap<>();
+        Map<UnitId, TacticalContext.Provenance> provenance =
                 new LinkedHashMap<>();
 
-        defaulted.put(par, new TacticalContext.KnownOrder(
-                Order.hold(par),
-                TacticalContext.Provenance.DEFAULTED));
+        defaulted.put(par, Order.hold(par));
+        provenance.put(par, TacticalContext.Provenance.DEFAULTED);
 
-        defaulted.put(bur, submitted(support));
+        defaulted.put(bur, support);
+        provenance.put(bur, TacticalContext.Provenance.SUBMITTED);
 
         TacticalContext confirmedOmission =
-                new TacticalContext(RULESET, MOMENT, board, defaulted);
+                new TacticalContext(
+                        RULESET, MOMENT, board, defaulted, provenance);
 
         require(only(detective, confirmedOmission).completePattern(),
                 "A confirmed defaulted HOLD must complete the relationship");
 
-        require(confirmedOmission.orderOf(par).orElseThrow().provenance()
+        require(confirmedOmission.provenanceOf(par).orElseThrow()
                         == TacticalContext.Provenance.DEFAULTED,
                 "Defaulted provenance must be retained");
 
@@ -409,9 +412,9 @@ public final class DetectiveSelfCheck {
                         .equals(List.of(gas, wes)),
                 "Canonical support matching must retain both supporters");
 
-        require(competition.orderOf(por).orElseThrow().order().target()
+        require(competition.orderOf(por).orElseThrow().target()
                         == Province.SpaNC
-                        && competition.orderOf(mao).orElseThrow().order().target()
+                        && competition.orderOf(mao).orElseThrow().target()
                         == Province.SpaSC,
                 "Canonical grouping must not rewrite exact move destinations");
 
@@ -424,7 +427,7 @@ public final class DetectiveSelfCheck {
                         == Province.Spa,
                 "Structural support reference matching uses canonical territory");
 
-        require(supportMove.orderOf(gas).orElseThrow().order().auxiliaryTarget()
+        require(supportMove.orderOf(gas).orElseThrow().auxiliaryTarget()
                         == Province.SpaNC,
                 "Exact support coast must remain available for adjudication");
 
@@ -577,7 +580,7 @@ public final class DetectiveSelfCheck {
             Collections.shuffle(issuers, random);
 
             Map<UnitId, Province> locations = new LinkedHashMap<>();
-            Map<UnitId, TacticalContext.KnownOrder> orders =
+            Map<UnitId, Order> orders =
                     new LinkedHashMap<>();
 
             for (UnitId unit : units)
@@ -678,49 +681,73 @@ public final class DetectiveSelfCheck {
                         RULESET,
                         MOMENT,
                         board,
-                        Map.of(par, submitted(Order.hold(mar)))),
+                        Map.of(par, Order.hold(mar))),
                 "Order key differs from issuer");
 
         rejects(IllegalArgumentException.class,
-                () -> submitted(new Order(
-                        par, OrderType.MOVE, null, null)),
+                () -> new TacticalContext(
+                        RULESET,
+                        MOMENT,
+                        board,
+                        Map.of(par, new Order(
+                                par, OrderType.MOVE, null, null))),
                 "MOVE without destination");
 
         rejects(IllegalArgumentException.class,
-                () -> submitted(new Order(
-                        par, OrderType.HOLD, Province.Bur, null)),
+                () -> new TacticalContext(
+                        RULESET,
+                        MOMENT,
+                        board,
+                        Map.of(par, new Order(
+                                par, OrderType.HOLD, Province.Bur, null))),
                 "HOLD with destination");
 
         rejects(IllegalArgumentException.class,
-                () -> submitted(new Order(
-                        par, OrderType.SUPPORT, null, null)),
+                () -> new TacticalContext(
+                        RULESET,
+                        MOMENT,
+                        board,
+                        Map.of(par, new Order(
+                                par, OrderType.SUPPORT, null, null))),
                 "SUPPORT without recipient");
 
         rejects(IllegalArgumentException.class,
-                () -> submitted(new Order(
-                        par, OrderType.CONVOY, Province.Mar, null)),
+                () -> new TacticalContext(
+                        RULESET,
+                        MOMENT,
+                        board,
+                        Map.of(par, new Order(
+                                par, OrderType.CONVOY, Province.Mar, null))),
                 "CONVOY without destination");
 
         rejects(IllegalArgumentException.class,
-                () -> new TacticalContext.KnownOrder(
-                        Order.move(par, Province.Bur),
-                        TacticalContext.Provenance.DEFAULTED),
+                () -> new TacticalContext(
+                        RULESET,
+                        MOMENT,
+                        board,
+                        Map.of(par, Order.move(par, Province.Bur)),
+                        Map.of(
+                                par,
+                                TacticalContext.Provenance.DEFAULTED)),
                 "Defaulted non-HOLD");
 
         for (TacticalContext.Provenance provenance :
                 TacticalContext.Provenance.values()) {
 
-            Map<UnitId, TacticalContext.KnownOrder> orders =
+            Map<UnitId, Order> orders =
+                    new LinkedHashMap<>();
+            Map<UnitId, TacticalContext.Provenance> orderProvenance =
                     new LinkedHashMap<>();
 
-            orders.put(par, new TacticalContext.KnownOrder(
-                    Order.hold(par), provenance));
+            orders.put(par, Order.hold(par));
+            orderProvenance.put(par, provenance);
 
-            orders.put(mar, submitted(
-                    Order.supportHold(mar, Province.Par)));
+            orders.put(mar, Order.supportHold(mar, Province.Par));
+            orderProvenance.put(mar, TacticalContext.Provenance.SUBMITTED);
 
             TacticalContext context =
-                    new TacticalContext(RULESET, MOMENT, board, orders);
+                    new TacticalContext(
+                            RULESET, MOMENT, board, orders, orderProvenance);
 
             require(only(new SupportToHoldDetective(), context)
                             .completePattern(),
@@ -744,19 +771,13 @@ public final class DetectiveSelfCheck {
 
         BoardState board = new BoardState(locations, Map.of());
 
-        Map<UnitId, TacticalContext.KnownOrder> orders =
+        Map<UnitId, Order> orders =
                 new LinkedHashMap<>();
 
         Order originalSupport =
                 Order.supportMove(mar, Province.Par, Province.Bur);
 
-        TacticalContext.KnownOrder evidence = submitted(originalSupport);
-
-        require(evidence.order() != originalSupport
-                        && evidence.order().equals(originalSupport),
-                "KnownOrder must snapshot the order values");
-
-        orders.put(mar, evidence);
+        orders.put(mar, originalSupport);
 
         TacticalContext context =
                 new TacticalContext(RULESET, MOMENT, board, orders);
@@ -767,6 +788,12 @@ public final class DetectiveSelfCheck {
         require(context.board().locations().size() == 2
                         && context.orders().size() == 1,
                 "Source collection mutation must not change the context");
+        require(context.orders().get(mar) != originalSupport
+                        && context.orders().get(mar).equals(originalSupport),
+                "TacticalContext must snapshot order values");
+        require(context.provenanceOf(mar).orElseThrow()
+                        == TacticalContext.Provenance.SUBMITTED,
+                "Four-argument contexts must mark orders as submitted");
 
         List<TacticMatch> findings =
                 investigate(new SupportToMoveDetective(), context);
@@ -837,7 +864,7 @@ public final class DetectiveSelfCheck {
             TacticalContext context
     ) {
 
-        Map<UnitId, TacticalContext.KnownOrder> before =
+        Map<UnitId, Order> before =
                 new LinkedHashMap<>(context.orders());
 
         List<TacticMatch> findings = detective.investigate(context);
@@ -967,23 +994,26 @@ public final class DetectiveSelfCheck {
 
         }
 
-        Map<UnitId, TacticalContext.KnownOrder> orders =
+        Map<UnitId, Order> orders = new LinkedHashMap<>();
+        Map<UnitId, TacticalContext.Provenance> provenance =
                 new LinkedHashMap<>();
 
-        for (Map.Entry<UnitId, TacticalContext.KnownOrder> entry
+        for (Map.Entry<UnitId, Order> entry
                 : original.orders().entrySet()) {
 
             UnitId replacement = replacements.get(entry.getKey());
-            TacticalContext.KnownOrder evidence = entry.getValue();
-            Order order = evidence.order();
+            Order order = entry.getValue();
 
-            orders.put(replacement, new TacticalContext.KnownOrder(
+            orders.put(
+                    replacement,
                     new Order(
                             replacement,
                             order.orderType(),
                             order.target(),
-                            order.auxiliaryTarget()),
-                    evidence.provenance()));
+                            order.auxiliaryTarget()));
+            provenance.put(
+                    replacement,
+                    original.provenance().get(entry.getKey()));
 
         }
 
@@ -991,7 +1021,8 @@ public final class DetectiveSelfCheck {
                 original.rulesetId(),
                 original.moment(),
                 new BoardState(locations, original.board().owners()),
-                orders);
+                orders,
+                provenance);
 
     }
 
@@ -1050,24 +1081,17 @@ public final class DetectiveSelfCheck {
             Order... submissions
     ) {
 
-        Map<UnitId, TacticalContext.KnownOrder> orders =
+        Map<UnitId, Order> orders =
                 new LinkedHashMap<>();
 
         for (Order order : submissions)
-            if (orders.putIfAbsent(order.unit(), submitted(order)) != null)
+            if (orders.putIfAbsent(order.unit(), order) != null)
                 throw new IllegalArgumentException(
                         "Duplicate fixture submission: " + order.unit());
 
         return new TacticalContext(RULESET, MOMENT, board, orders);
 
     }
-
-    private static TacticalContext.KnownOrder submitted(Order order) {
-        return new TacticalContext.KnownOrder(
-                order,
-                TacticalContext.Provenance.SUBMITTED);
-    }
-
 
     // Check helpers \\
 

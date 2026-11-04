@@ -38,7 +38,7 @@ public final class SupportingASupporterDetective extends Detective {
 
         for (TacticMatch edge : StructuralSupportPatterns.complete(context, false))
             if (context.orders().get(StructuralSupportPatterns.recipient(edge))
-                    .order().orderType() == OrderType.SUPPORT)
+                    .orderType() == OrderType.SUPPORT)
                 findings.add(new TacticMatch(kind(), version(), context,
                         edge.focus(), edge.participants(), Set.of()));
 

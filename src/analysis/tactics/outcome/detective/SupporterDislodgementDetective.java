@@ -54,7 +54,7 @@ public final class SupporterDislodgementDetective extends OutcomeDetective {
             UnitId supporter = dislodgement.unit();
 
             if (context.scenario().context().orders()
-                    .get(supporter).order().orderType() != OrderType.SUPPORT)
+                    .get(supporter).orderType() != OrderType.SUPPORT)
                 continue;
 
             findings.add(new OutcomeFinding(

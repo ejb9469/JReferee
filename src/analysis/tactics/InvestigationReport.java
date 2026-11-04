@@ -266,12 +266,12 @@ public record InvestigationReport(
             if (sameTerritory(context.board().locationOf(unit), territory))
                 return true;
 
-            TacticalContext.KnownOrder evidence = context.orders().get(unit);
+            Order evidence = context.orders().get(unit);
 
             if (evidence == null)
                 continue;
 
-            Order order = evidence.order();
+            Order order = evidence;
 
             if (sameTerritory(order.target(), territory)
                     || sameTerritory(order.auxiliaryTarget(), territory))

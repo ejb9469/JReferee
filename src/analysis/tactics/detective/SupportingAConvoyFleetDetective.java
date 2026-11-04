@@ -42,7 +42,7 @@ public final class SupportingAConvoyFleetDetective extends Detective {
             UnitId recipient = StructuralSupportPatterns.recipient(edge);
 
             if (recipient.unitType() == UnitType.FLEET
-                    && context.orders().get(recipient).order().orderType() == OrderType.CONVOY)
+                    && context.orders().get(recipient).orderType() == OrderType.CONVOY)
                 findings.add(new TacticMatch(kind(), version(), context,
                         edge.focus(), edge.participants(), Set.of()));
 
