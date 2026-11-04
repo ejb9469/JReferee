@@ -1,6 +1,5 @@
 package game;
 
-import java.util.Objects;
 
 public sealed interface GameState
         permits GameState_Movement,

@@ -24,6 +24,11 @@ public record Moment(int year, GamePhase gamePhase, Instant instant)
         return gameMoment().equals(other.gameMoment());
     }
 
+    /**
+     * Orders game moments 1st by year,
+     * then by standard Diplomacy phase order,
+     * then by timestamp.
+     */
     @Override
     public int compareTo(@NotNull Moment other) {
 

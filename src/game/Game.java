@@ -48,6 +48,7 @@ public class Game
     private final Processor<AdjustmentInput, AdjustmentResult>
             adjustmentProcessor;
 
+    @Deprecated  // Press will (probably) be handled elsewhere, for now --> deprecated [ @ 11-04-26 ]
     private final PressLedger pressLedger;
 
     private final List<Processor<? extends PhaseInput, ? extends PhaseResult>>
