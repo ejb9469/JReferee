@@ -1,6 +1,7 @@
 package contracts;
 
 import domain.*;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -11,7 +12,9 @@ import java.util.Set;
 import java.util.function.Function;
 
 /**
- * Utility class -- highly-genericized common operations for `OrderForm`s shared by adjudication & other code (like the `game` package).
+ * Utility class -- highly-genericized common operations for `OrderForm`s shared by adjudication & other code (like the `game` package).<br><br>
+ *
+ * See also: `adjudication.util.Orders` and `adjudication.util.Convoys` - from where most of this logic originated
  */
 public abstract class OrderForms {
 
@@ -59,11 +62,13 @@ public abstract class OrderForms {
      * order. A null collection produces an empty list.
      */
     public static <T extends OrderForm> List<T> pruneForOrderType(
-            OrderType orderType,
-            Collection<? extends T> orderForms
+            @Nullable   OrderType orderType,  // may be null in the case of `phase.UnitId`
+                        Collection<? extends T> orderForms
     ) {
 
-        Objects.requireNonNull(orderType, "orderType");
+        // we cannot omit null order types b/c `pruneForOrderType(null,mixed) may occur, ...
+            // ... in the case of `phase.UnitId` (impl. `OrderForm`) - where a null order type refers to a unit without an order
+        //Objects.requireNonNull(orderType, "orderType");
 
         List<T> result = new ArrayList<>();
         if (orderForms == null)
