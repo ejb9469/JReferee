@@ -3,15 +3,30 @@ package testing;
 import adjudication.util.Convoys;
 import adjudication.util.Orders;
 import agents.generation.ActionCandidate;
+import agents.generation.LegalOrderCatalog;
+import agents.generation.LegalOrderGenerator;
 import contracts.OrderForm;
 import contracts.OrderForms;
 import domain.Nation;
 import domain.OrderType;
 import domain.Province;
 import domain.UnitType;
+import game.BoardState;
+import game.GameMoment;
+import game.GamePhase;
+import game.GameState_Movement;
+import phase.MovementInput;
 import phase.Order;
+import phase.RetreatInput;
 import phase.UnitId;
+import phase.adjustments.BuildOrder;
+import phase.adjustments.DisbandOrder;
+import phase.adjustments.WaiveOrder;
+import phase.movement.MovementProcessor;
+import phase.movement.MovementResult;
 import phase.retreats.RetreatOrder;
+import phase.retreats.RetreatProcessor;
+import phase.retreats.RetreatResult;
 
 import java.util.*;
 
@@ -31,6 +46,9 @@ public final class OrderFormsTestCase implements TestCase {
         checkOrdersAdapters(checks);
         checkConvoyHelpers(checks);
         checkPhaseOrderLocations(checks);
+        checkCandidateIsolation(checks);
+        checkSupportResolution(checks);
+        checkRetreatResolution(checks);
 
         evaluation = checks.build();
 
@@ -243,11 +261,22 @@ public final class OrderFormsTestCase implements TestCase {
                         new RetreatOrder(fleet, Province.SpaSC),
                         Province.LYO));
 
-        checks.expect("Fleet retreat requires sea adjacency",
+        checks.expect("Fleet retreat rejects the unreachable Spain coast",
                 false,
                 OrderForms.isValidRetreatOrder(
                         new RetreatOrder(fleet, Province.SpaNC),
-                        Province.NTH));
+                        Province.LYO));
+
+        for (Province origin : Province.values()) {
+            if (!OrderForms.isValidUnitLocation(UnitType.FLEET, origin))
+                continue;
+            for (Province destination : Province.values())
+                checks.expect("Fleet move and retreat geometry: "
+                                + origin + " - " + destination,
+                        OrderForms.isPotentialMove(UnitType.FLEET, origin, destination),
+                        OrderForms.isValidRetreatOrder(
+                                new RetreatOrder(fleet, destination), origin));
+        }
     }
 
     private static void checkSupportValidity(TestEvaluation.Builder checks) {
@@ -262,11 +291,17 @@ public final class OrderFormsTestCase implements TestCase {
                         Order.supportMove(army, Province.Lon, Province.NTH),
                         Province.Par));
 
-        checks.expect("Army cannot support a move to a split coast",
-                false,
+        checks.expect("Army can support a Fleet move to a split coast",
+                true,
                 OrderForms.isValidMovementOrder(
-                        Order.supportMove(army, Province.Mar, Province.SpaNC),
+                        Order.supportMove(army, Province.MAO, Province.SpaNC),
                         Province.Gas));
+
+        checks.expect("Army can support a Fleet holding on the other coast",
+                true,
+                OrderForms.isValidMovementOrder(
+                        Order.supportHold(army, Province.StpNC),
+                        Province.Fin));
 
         checks.expect("Fleet can support a coastal move across a sea area",
                 true,
@@ -293,7 +328,6 @@ public final class OrderFormsTestCase implements TestCase {
         UnitId fleet = new UnitId(
                 UUID.randomUUID(), Nation.FRANCE, UnitType.FLEET, Province.Smy);
         Order phaseMove = Order.move(fleet, Province.SpaSC);
-
         adjudication.Order validWorkOrder = new adjudication.Order(
                 phaseMove, Province.LYO);
         adjudication.Order invalidWorkOrder = new adjudication.Order(
@@ -444,6 +478,109 @@ public final class OrderFormsTestCase implements TestCase {
                         currentLocations.get(army),
                         route,
                         Order::origin));
+    }
+
+    private static void checkCandidateIsolation(TestEvaluation.Builder checks) {
+        UnitId unit = new UnitId(
+                UUID.randomUUID(), Nation.FRANCE, UnitType.ARMY, Province.Par);
+        Order hold = Order.hold(unit);
+        List<OrderForm> source = new ArrayList<>(List.of(hold));
+        ActionCandidate candidate = new ActionCandidate(
+                Nation.FRANCE, source, -0.5, ActionCandidate.Source.HEURISTIC);
+        Set<ActionCandidate> candidates = new HashSet<>(Set.of(candidate));
+        source.clear();
+        checks.expect("Candidate remains stable after source list changes",
+                true, candidates.contains(candidate));
+        checks.expect("Candidate retains immutable submitted orders",
+                List.of(hold), candidate.orders());
+
+        List<OrderForm> rejected = List.of(
+                new adjudication.Order(hold, Province.Par),
+                new Order(unit, OrderType.HOLD, null, null) { },
+                unit);
+        for (OrderForm order : rejected) {
+            boolean rejectedOrder = false;
+            try {
+                new ActionCandidate(Nation.FRANCE, List.of(order),
+                        -0.5, ActionCandidate.Source.HEURISTIC);
+            } catch (IllegalArgumentException expected) {
+                rejectedOrder = true;
+            }
+            checks.expect("Candidate rejects " + order.getClass().getName(),
+                    true, rejectedOrder);
+        }
+
+        List<OrderForm> accepted = List.of(
+                hold,
+                new RetreatOrder(unit, Province.Bur),
+                new BuildOrder(Nation.FRANCE, UnitType.FLEET, Province.Bre),
+                new DisbandOrder(Nation.FRANCE, unit),
+                new WaiveOrder(Nation.FRANCE));
+        for (OrderForm order : accepted) {
+            ActionCandidate singleOrder = new ActionCandidate(
+                    Nation.FRANCE, List.of(order), -0.5,
+                    ActionCandidate.Source.HEURISTIC);
+            checks.expect("Candidate accepts " + order.getClass().getSimpleName(),
+                    List.of(order), singleOrder.orders());
+        }
+    }
+
+    private static void checkSupportResolution(TestEvaluation.Builder checks) {
+        UnitId army = new UnitId(
+                UUID.randomUUID(), Nation.FRANCE, UnitType.ARMY, Province.Gas);
+        UnitId fleet = new UnitId(
+                UUID.randomUUID(), Nation.FRANCE, UnitType.FLEET, Province.MAO);
+        UnitId defender = new UnitId(
+                UUID.randomUUID(), Nation.ENGLAND, UnitType.FLEET, Province.SpaNC);
+        Map<UnitId, Province> locations = Map.of(
+                army, Province.Gas, fleet, Province.MAO, defender, Province.SpaNC);
+        Order support = Order.supportMove(army, Province.MAO, Province.SpaNC);
+        LegalOrderCatalog catalog = new LegalOrderGenerator().generate(
+                new GameState_Movement(
+                        new GameMoment(1901, GamePhase.SPRING_MOVEMENT),
+                        new BoardState(locations, Map.of())),
+                Nation.FRANCE);
+        checks.expect("Catalog includes Army support for a split-coast Fleet move",
+                true, catalog.contains(support));
+        checks.expect("Catalog includes Army hold support for a split-coast Fleet",
+                true, catalog.contains(Order.supportHold(army, Province.SpaNC)));
+        checks.expect("Orders adapter accepts Army support to a split coast",
+                true, Orders.orderIsValid(new adjudication.Order(support, Province.Gas)));
+
+        MovementResult result = new MovementProcessor().process(new MovementInput(
+                locations, List.of(support, Order.move(fleet, Province.SpaNC),
+                Order.hold(defender))));
+        checks.expect("Supported Fleet arrives at Spain's north coast",
+                Province.SpaNC, result.finalLocations().get(fleet));
+        checks.expect("Army support dislodges the defending Fleet",
+                true, result.dislodgements().containsKey(defender));
+    }
+
+    private static void checkRetreatResolution(TestEvaluation.Builder checks) {
+        UnitId fleet = new UnitId(
+                UUID.randomUUID(), Nation.FRANCE, UnitType.FLEET, Province.LYO);
+        UnitId attacker = new UnitId(
+                UUID.randomUUID(), Nation.ITALY, UnitType.FLEET, Province.WES);
+        UnitId supporter = new UnitId(
+                UUID.randomUUID(), Nation.ITALY, UnitType.FLEET, Province.TYS);
+        MovementResult movement = new MovementProcessor().process(new MovementInput(
+                Map.of(fleet, Province.LYO, attacker, Province.WES,
+                        supporter, Province.TYS),
+                List.of(Order.hold(fleet), Order.move(attacker, Province.LYO),
+                        Order.supportMove(supporter, Province.WES, Province.LYO))));
+        checks.expect("Retreat fixture dislodges the Fleet",
+                true, movement.dislodgements().containsKey(fleet));
+        RetreatResult wrongCoast = new RetreatProcessor().process(new RetreatInput(
+                movement, List.of(new RetreatOrder(fleet, Province.SpaNC))));
+        checks.expect("Retreat processor rejects an unreachable coast",
+                RetreatResult.Outcome.Status.DESTROYED_ILLEGAL_DESTINATION,
+                wrongCoast.outcomeOf(fleet).status());
+        checks.expect("Invalid retreat does not place a Fleet on the board",
+                null, wrongCoast.locationOf(fleet));
+        RetreatResult reachableCoast = new RetreatProcessor().process(new RetreatInput(
+                movement, List.of(new RetreatOrder(fleet, Province.SpaSC))));
+        checks.expect("Retreat processor still accepts the reachable coast",
+                Province.SpaSC, reachableCoast.locationOf(fleet));
     }
 
     private static adjudication.Order convoy(Province sea) {

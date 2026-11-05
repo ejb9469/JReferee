@@ -16,6 +16,7 @@ import java.util.*;
  *
  * @author Evan B
  */
+@SuppressWarnings("deprecation")  // uses deprecated util function stubs (`adjudication.util`)
 public class Judge implements Adjudicator, ParadoxTransparent {
 
 
@@ -918,11 +919,8 @@ public class Judge implements Adjudicator, ParadoxTransparent {
         if (!Orders.orderIsValid(moveOrder))
             return false;
 
-        if (moveOrder.unitType == UnitType.ARMY) {
-
-            if (moveOrder.pos0.isAdjacentTo(moveOrder.pos1))
-                return true;
-
+        if (moveOrder.unitType == UnitType.ARMY
+                && !moveOrder.pos0.isAdjacentTo(moveOrder.pos1)) {
             return convoyPathSuccessful(
                     moveOrder,
                     optimistic,
@@ -931,13 +929,6 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             );
 
         }
-
-        if (!moveOrder.pos0.isAdjacentTo(moveOrder.pos1))
-            return false;
-
-        if (moveOrder.pos0.geography == Geography.COASTAL
-                && moveOrder.pos1.geography == Geography.COASTAL)
-            return Province.adjacentBySea(moveOrder.pos0, moveOrder.pos1);
 
         return true;
 

@@ -2,6 +2,7 @@ package phase.movement;
 
 import adjudication.Judge;
 import adjudication.ParadoxCycle;
+import contracts.OrderForms;
 import domain.OrderType;
 import domain.Province;
 import phase.Order;
@@ -216,50 +217,18 @@ public final class MovementResult implements PhaseResult {
             Collection<adjudication.Order> adjudicatedOrders
     ) {
 
-        List<adjudication.Order> matchingConvoys = new ArrayList<>();
+        List<adjudication.Order> successfulConvoys = new ArrayList<>();
 
         for (adjudication.Order order : adjudicatedOrders)
             if (order.orderType == OrderType.CONVOY
-                    && order.verdict
-                    && order.pos1 == move.pos0
-                    && order.pos2 == move.pos1)
-                matchingConvoys.add(order);
+                    && order.verdict)
+                successfulConvoys.add(order);
 
-        if (matchingConvoys.isEmpty())
-            return false;
-
-        Set<adjudication.Order> reachableConvoys =
-                Collections.newSetFromMap(new IdentityHashMap<>());
-
-        Deque<adjudication.Order> frontier = new ArrayDeque<>();
-
-        for (adjudication.Order convoy : matchingConvoys) {
-            if (convoy.pos0.isAdjacentTo(move.pos0)) {
-                reachableConvoys.add(convoy);
-                frontier.addLast(convoy);
-            }
-        }
-
-        while (!frontier.isEmpty()) {
-
-            adjudication.Order convoy = frontier.removeFirst();
-
-            if (convoy.pos0.isAdjacentTo(move.pos1))
-                return true;
-
-            for (adjudication.Order next : matchingConvoys) {
-
-                if (reachableConvoys.contains(next) || !convoy.pos0.isAdjacentTo(next.pos0))
-                    continue;
-
-                reachableConvoys.add(next);
-                frontier.addLast(next);
-
-            }
-
-        }
-
-        return false;
+        return !OrderForms.drawConvoyPath(
+                move,
+                move.pos0,
+                successfulConvoys,
+                adjudication.Order::origin).isEmpty();
 
     }
 

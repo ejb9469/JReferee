@@ -176,10 +176,11 @@ public abstract class OrderForms {
                 || destination == null)
             return false;
 
-        if (supporterType == UnitType.ARMY)
-            return isLandProvince(destination)
-                    && destination.coastType != CoastType.SPLIT
-                    && supportingLocation.isAdjacentToIgnoreSplitCoast(destination);
+        if (supporterType == UnitType.ARMY) {
+            Province territory = Province.canonical(destination);
+            return isValidUnitLocation(UnitType.ARMY, territory)
+                    && supportingLocation.isAdjacentTo(territory);
+        }
 
         boolean fleetCanSupportTo = destination.geography == Geography.WATER
                 || destination.geography == Geography.COASTAL
@@ -266,9 +267,10 @@ public abstract class OrderForms {
             case ARMY -> isValidUnitLocation(UnitType.ARMY, destination)
                     && currentLocation.isAdjacentTo(destination);
 
-            case FLEET -> isValidUnitLocation(UnitType.FLEET, destination)
-                    && Province.adjacentBySea(currentLocation, destination);
+            case FLEET -> isPotentialMove(
+                    UnitType.FLEET, currentLocation, destination);
         };
+
     }
 
     private static boolean isLandProvince(Province province) {
