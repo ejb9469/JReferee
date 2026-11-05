@@ -1,8 +1,7 @@
 package phase.retreats;
 
-import domain.Geography;
+import contracts.OrderForms;
 import domain.Province;
-import domain.UnitType;
 import phase.Processor;
 import phase.RetreatInput;
 import phase.UnitId;
@@ -24,8 +23,7 @@ import static phase.BoardRules.isOccupied;
 public final class RetreatProcessor
         implements Processor<RetreatInput, RetreatResult> {
 
-    public RetreatProcessor() {
-    }
+    public RetreatProcessor() {     }
 
     @Override
     public RetreatResult process(RetreatInput input) {
@@ -77,9 +75,9 @@ public final class RetreatProcessor
             Province displacedFrom = dislodgement.displacedFrom();
             Province destination = order.destination();
 
-            boolean legal = !Province.equalsIgnoreCoast(
-                    displacedFrom,
-                    destination);
+            boolean legal = OrderForms.isValidRetreatOrder(
+                    order,
+                    displacedFrom);
 
             /*
              * A dislodged unit may not retreat to the attacker's origin unless
@@ -97,20 +95,6 @@ public final class RetreatProcessor
 
             if (legal && movementResult.wasStandoff(destination))
                 legal = false;
-
-            if (legal && unit.unitType() == UnitType.ARMY)
-                if (destination.geography == Geography.WATER
-                        || destination.coastType
-                        == domain.CoastType.SPLIT
-                        || !displacedFrom.isAdjacentTo(destination))
-                    legal = false;
-
-            if (legal && unit.unitType() == UnitType.FLEET)
-                if (destination.geography == Geography.INLAND
-                        || !Province.adjacentBySea(
-                        displacedFrom,
-                        destination))
-                    legal = false;
 
             if (!legal) {
                 outcomes.put(
@@ -153,7 +137,7 @@ public final class RetreatProcessor
                 continue;
             }
 
-            UnitId unit = retreatingUnits.get(0);
+            UnitId unit = retreatingUnits.getFirst();
             Province destination = legalOrders.get(unit).destination();
 
             finalLocations.put(unit, destination);

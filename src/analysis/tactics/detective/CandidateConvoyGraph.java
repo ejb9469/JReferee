@@ -1,6 +1,7 @@
 package analysis.tactics.detective;
 
 import analysis.tactics.TacticalContext;
+import contracts.OrderForms;
 import domain.Geography;
 import domain.OrderType;
 import domain.Province;
@@ -61,9 +62,7 @@ final class CandidateConvoyGraph {
     // Endpoint geography \\
 
     static boolean validEndpoints(Province origin, Province destination) {
-
-        return origin != destination && origin.hasCoast() && destination.hasCoast();
-
+        return OrderForms.isPotentialConvoyMove(origin, destination);
     }
 
 

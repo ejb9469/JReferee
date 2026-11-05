@@ -63,7 +63,7 @@ public abstract class OrderForms {
      */
     public static <T extends OrderForm> List<T> pruneForOrderType(
             @Nullable   OrderType orderType,  // may be null in the case of `phase.UnitId`
-            Collection<? extends T> orderForms
+                        Collection<? extends T> orderForms
     ) {
 
         // we cannot omit null order types b/c `pruneForOrderType(null,mixed) may occur, ...
@@ -108,6 +108,89 @@ public abstract class OrderForms {
     }
 
     /**
+     * Checks whether a unit can occupy {@code location}.
+     */
+    public static boolean isValidUnitLocation(
+            UnitType unitType,
+            Province location
+    ) {
+        if (unitType == null || location == null)
+            return false;
+
+        return switch (unitType) {
+            case ARMY -> isLandProvince(location)
+                    && location.coastType != CoastType.SPLIT;
+            case FLEET -> location.geography == Geography.WATER
+                    || location.geography == Geography.COASTAL;
+        };
+    }
+
+    /**
+     * Checks whether the unit may move directly or by a possible convoy.
+     * Convoy availability is not checked.
+     */
+    public static boolean isPotentialMove(
+            UnitType unitType,
+            Province origin,
+            Province destination
+    ) {
+        if (!isValidUnitLocation(unitType, origin)
+                || !isValidUnitLocation(unitType, destination)
+                || Province.equalsIgnoreCoast(origin, destination))
+            return false;
+
+        if (unitType == UnitType.ARMY)
+            return origin.isAdjacentTo(destination)
+                    || isPotentialConvoyMove(origin, destination);
+
+        return origin.isAdjacentTo(destination)
+                && (origin.geography != Geography.COASTAL
+                || destination.geography != Geography.COASTAL
+                || Province.adjacentBySea(origin, destination));
+    }
+
+    /**
+     * Checks whether two Army locations can be endpoints of a convoy.
+     */
+    public static boolean isPotentialConvoyMove(
+            Province origin,
+            Province destination
+    ) {
+        return isValidUnitLocation(UnitType.ARMY, origin)
+                && isValidUnitLocation(UnitType.ARMY, destination)
+                && origin.hasCoast()
+                && destination.hasCoast()
+                && !Province.equalsIgnoreCoast(origin, destination);
+    }
+
+    /**
+     * Checks whether a unit at {@code supportingLocation} can support into
+     * {@code destination}.
+     */
+    public static boolean canSupportTo(
+            UnitType supporterType,
+            Province supportingLocation,
+            Province destination
+    ) {
+        if (!isValidUnitLocation(supporterType, supportingLocation)
+                || destination == null)
+            return false;
+
+        if (supporterType == UnitType.ARMY)
+            return isLandProvince(destination)
+                    && destination.coastType != CoastType.SPLIT
+                    && supportingLocation.isAdjacentToIgnoreSplitCoast(destination);
+
+        boolean fleetCanSupportTo = destination.geography == Geography.WATER
+                || destination.geography == Geography.COASTAL
+                || destination.hasCoast();
+
+        return fleetCanSupportTo
+                && supportingLocation.isAdjacentToIgnoreSplitCoast(destination)
+                && Province.adjacentBySea(supportingLocation, destination);
+    }
+
+    /**
      * Checks the structural and geometric rules for a movement-phase order.
      * Convoy availability and support matching depend on other orders and are
      * not checked here.
@@ -119,7 +202,8 @@ public abstract class OrderForms {
         if (order == null
                 || currentLocation == null
                 || order.unitType() == null
-                || order.orderType() == null)
+                || order.orderType() == null
+                || !isValidUnitLocation(order.unitType(), currentLocation))
             return false;
 
         Province target = order.target();
@@ -128,61 +212,30 @@ public abstract class OrderForms {
         return switch (order.orderType()) {
             case HOLD -> target == null && auxiliaryTarget == null;
 
-            case MOVE -> {
-                if (target == null
-                        || auxiliaryTarget != null
-                        || Province.equalsIgnoreCoast(currentLocation, target))
-                    yield false;
-
-                if (order.unitType() == UnitType.ARMY) {
-                    if (!isLandProvince(currentLocation)
-                            || currentLocation.coastType == CoastType.SPLIT)
-                        yield false;
-
-                    yield isLandProvince(target)
-                            && target.coastType != CoastType.SPLIT
-                            && (currentLocation.isAdjacentTo(target)
-                            || (currentLocation.hasCoast()
-                            && target.hasCoast()));
-                }
-
-                yield target.geography != Geography.INLAND
-                        && currentLocation.isAdjacentTo(target);
-            }
+            case MOVE -> target != null
+                    && auxiliaryTarget == null
+                    && isPotentialMove(
+                    order.unitType(),
+                    currentLocation,
+                    target);
 
             case SUPPORT -> {
-                if (target == null)
+                if (target == null
+                        || Province.equalsIgnoreCoast(target, auxiliaryTarget))
                     yield false;
 
                 Province supportedDestination = auxiliaryTarget == null
                         ? target : auxiliaryTarget;
 
-                if (order.unitType() == UnitType.ARMY
-                        && (supportedDestination.geography == Geography.WATER
-                        || supportedDestination.coastType == CoastType.SPLIT))
-                    yield false;
-
-                if (order.unitType() == UnitType.FLEET
-                        && supportedDestination.geography == Geography.INLAND
-                        && !supportedDestination.hasCoast())
-                    yield false;
-
-                if (Province.equalsIgnoreCoast(target, auxiliaryTarget))
-                    yield false;
-
-                yield currentLocation.isAdjacentToIgnoreSplitCoast(
-                        supportedDestination)
-                        && (order.unitType() != UnitType.FLEET
-                        || Province.adjacentBySea(
+                yield canSupportTo(
+                        order.unitType(),
                         currentLocation,
-                        supportedDestination));
+                        supportedDestination);
             }
 
             case CONVOY -> order.unitType() == UnitType.FLEET
                     && currentLocation.geography == Geography.WATER
-                    && target != null
-                    && auxiliaryTarget != null
-                    && !Province.equalsIgnoreCoast(target, auxiliaryTarget);
+                    && isPotentialConvoyMove(target, auxiliaryTarget);
 
             default -> false;
         };
@@ -200,6 +253,7 @@ public abstract class OrderForms {
         if (order == null
                 || currentLocation == null
                 || order.unitType() == null
+                || !isValidUnitLocation(order.unitType(), currentLocation)
                 || order.orderType() != OrderType.RETREAT
                 || order.target() == null
                 || order.auxiliaryTarget() != null
@@ -209,16 +263,10 @@ public abstract class OrderForms {
         Province destination = order.target();
 
         return switch (order.unitType()) {
-            case ARMY -> isLandProvince(currentLocation)
-                    && currentLocation.coastType != CoastType.SPLIT
-                    && isLandProvince(destination)
-                    && destination.coastType != CoastType.SPLIT
+            case ARMY -> isValidUnitLocation(UnitType.ARMY, destination)
                     && currentLocation.isAdjacentTo(destination);
 
-            case FLEET -> (currentLocation.geography == Geography.WATER
-                    || currentLocation.geography == Geography.COASTAL)
-                    && (destination.geography == Geography.WATER
-                    || destination.geography == Geography.COASTAL)
+            case FLEET -> isValidUnitLocation(UnitType.FLEET, destination)
                     && Province.adjacentBySea(currentLocation, destination);
         };
     }

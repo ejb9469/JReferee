@@ -1,6 +1,6 @@
 package agents.generation;
 
-import domain.CoastType;
+import contracts.OrderForms;
 import domain.Geography;
 import domain.Nation;
 import domain.Province;
@@ -58,7 +58,10 @@ public final class LegalOrderGenerator {
         orders.add(Order.hold(issuer));
 
         for (Province destination : Province.values())
-            if (isPotentialMove(issuer.unitType(), currentLocation, destination))
+            if (OrderForms.isPotentialMove(
+                    issuer.unitType(),
+                    currentLocation,
+                    destination))
                 orders.add(Order.move(issuer, destination));
 
         addSupportOrders(orders, issuer, currentLocation, locations);
@@ -83,20 +86,20 @@ public final class LegalOrderGenerator {
             if (issuer.equals(supportedUnit))
                 continue;
 
-            if (canSupportTo(
+            if (OrderForms.canSupportTo(
                     issuer.unitType(),
                     supportingLocation,
                     supportedLocation))
                 orders.add(Order.supportHold(issuer, supportedLocation));
 
             for (Province destination : Province.values()) {
-                if (!isPotentialMove(
+                if (!OrderForms.isPotentialMove(
                         supportedUnit.unitType(),
                         supportedLocation,
                         destination))
                     continue;
 
-                if (canSupportTo(
+                if (OrderForms.canSupportTo(
                         issuer.unitType(),
                         supportingLocation,
                         destination))
@@ -121,7 +124,9 @@ public final class LegalOrderGenerator {
                 continue;
 
             for (Province destination : Province.values())
-                if (isPotentialConvoyMove(armyLocation, destination))
+                if (OrderForms.isPotentialConvoyMove(
+                        armyLocation,
+                        destination))
                     orders.add(Order.convoy(
                             convoyingFleet,
                             armyLocation,
@@ -129,74 +134,8 @@ public final class LegalOrderGenerator {
         }
     }
 
-    private static boolean isPotentialMove(
-            UnitType unitType,
-            Province origin,
-            Province destination
-    ) {
-        if (Province.equalsIgnoreCoast(origin, destination))
-            return false;
-
-        if (unitType == UnitType.ARMY) {
-            if (!isLandProvince(destination)
-                    || destination.coastType == CoastType.SPLIT)
-                return false;
-
-            return origin.isAdjacentTo(destination)
-                    || (origin.hasCoast() && destination.hasCoast());
-        }
-
-        if (destination.geography != Geography.WATER
-                && destination.geography != Geography.COASTAL)
-            return false;
-
-        return origin.isAdjacentTo(destination);
-    }
-
-    private static boolean canSupportTo(
-            UnitType supporterType,
-            Province supportingLocation,
-            Province destination
-    ) {
-        if (supporterType == UnitType.ARMY)
-            return isLandProvince(destination)
-                    && destination.coastType != CoastType.SPLIT
-                    && supportingLocation.isAdjacentToIgnoreSplitCoast(destination);
-
-        if (destination.geography != Geography.WATER
-                && destination.geography != Geography.COASTAL
-                && !destination.hasCoast())
-            return false;
-
-        return supportingLocation.isAdjacentToIgnoreSplitCoast(destination)
-                && Province.adjacentBySea(supportingLocation, destination);
-    }
-
-    private static boolean isPotentialConvoyMove(
-            Province origin,
-            Province destination) {
-        return isLandProvince(destination)
-                && destination.coastType != CoastType.SPLIT
-                && origin.hasCoast()
-                && destination.hasCoast()
-                && !Province.equalsIgnoreCoast(origin, destination);
-    }
-
-    private static boolean isLandProvince(Province province) {
-        return province.geography == Geography.INLAND
-                || province.geography == Geography.COASTAL;
-    }
-
     private static void requireValidLocation(UnitId unit, Province location) {
-        boolean valid =
-                switch (unit.unitType()) {
-                    case ARMY -> isLandProvince(location)
-                            && location.coastType != CoastType.SPLIT;
-                    case FLEET -> location.geography == Geography.WATER
-                            || location.geography == Geography.COASTAL;
-                };
-
-        if (!valid)
+        if (!OrderForms.isValidUnitLocation(unit.unitType(), location))
             throw new IllegalArgumentException(
                     "Unit is in a location that does not match its type: "
                             + unit + " at " + location);

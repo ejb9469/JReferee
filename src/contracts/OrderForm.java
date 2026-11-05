@@ -79,7 +79,8 @@ public interface OrderForm {
                     ? " PIFF" : " R " + provinceText(order.target()));
             case BUILD -> unit + " BUILD";
             case DESTROY -> unit + " DESTROY";
-            case WAIVE -> throw new IllegalStateException("WAIVE was not handled");
+            case WAIVE -> throw new IllegalStateException("WAIVE was not handled");  // should never be reached,
+                                                                                        // just need this line for the switch statement
         };
 
     }

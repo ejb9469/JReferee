@@ -1,5 +1,6 @@
 package agents.generation;
 
+import contracts.OrderForms;
 import domain.Nation;
 import domain.OrderType;
 import game.BoardState;
@@ -91,7 +92,7 @@ public final class LegalOrderCatalog {
     }
 
     private Map<UnitId, List<Order>> copyAndValidate(
-                        Map<UnitId, List<Order>> suppliedOptions) {
+            Map<UnitId, List<Order>> suppliedOptions) {
 
         Objects.requireNonNull(suppliedOptions, "optionsByUnit");
 
@@ -126,7 +127,11 @@ public final class LegalOrderCatalog {
                     throw new IllegalArgumentException(
                             "Catalog order is owned by another power: " + order);
 
-                requireMovementOrderShape(order);
+                if (!OrderForms.isValidMovementOrder(
+                        order,
+                        board.locationOf(unit)))
+                    throw new IllegalArgumentException(
+                            "Invalid movement order in catalog: " + order);
 
                 if (!seen.add(order))
                     throw new IllegalArgumentException(
@@ -159,35 +164,6 @@ public final class LegalOrderCatalog {
                     "Catalog units do not match the units owned by " + power);
 
         return Collections.unmodifiableMap(copied);
-
-    }
-
-    private static void requireMovementOrderShape(Order order) {
-
-        switch (order.orderType()) {
-            case HOLD -> {
-                if (order.target() != null || order.auxiliaryTarget() != null)
-                    throw new IllegalArgumentException(
-                            "Hold order has targets: " + order);
-            }
-            case MOVE -> {
-                if (order.target() == null || order.auxiliaryTarget() != null)
-                    throw new IllegalArgumentException(
-                            "Malformed move order: " + order);
-            }
-            case SUPPORT -> {
-                if (order.target() == null)
-                    throw new IllegalArgumentException(
-                            "Malformed support order: " + order);
-            }
-            case CONVOY -> {
-                if (order.target() == null || order.auxiliaryTarget() == null)
-                    throw new IllegalArgumentException(
-                            "Malformed convoy order: " + order);
-            }
-            default -> throw new IllegalArgumentException(
-                    "Order is not valid in a movement catalog: " + order);
-        }
 
     }
 
