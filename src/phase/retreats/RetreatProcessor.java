@@ -70,33 +70,7 @@ public final class RetreatProcessor
             UnitId unit = entry.getKey();
             RetreatOrder order = entry.getValue();
 
-            MovementResult.Dislodgement dislodgement = dislodgements.get(unit);
-
-            Province displacedFrom = dislodgement.displacedFrom();
-            Province destination = order.destination();
-
-            boolean legal = OrderForms.isValidRetreatOrder(
-                    order,
-                    displacedFrom);
-
-            /*
-             * A dislodged unit may not retreat to the attacker's origin unless
-             * that successful dislodging attack arrived by convoy.
-             */
-            if (legal
-                    && !dislodgement.attackerArrivedByConvoy()
-                    && Province.equalsIgnoreCoast(
-                    destination,
-                    dislodgement.attackerOrigin()))
-                legal = false;
-
-            if (legal && isOccupied(destination, finalLocations))
-                legal = false;
-
-            if (legal && movementResult.wasStandoff(destination))
-                legal = false;
-
-            if (!legal) {
+            if (!isLegalRetreat(order, movementResult)) {
                 outcomes.put(
                         unit,
                         RetreatResult.Outcome.destroyed(
@@ -170,6 +144,27 @@ public final class RetreatProcessor
                 outcomes,
                 destroyedUnits);
 
+    }
+
+    /**
+     * Checks an individual retreat against the preceding movement result.
+     * Collisions between legal retreats are resolved separately.
+     */
+    public static boolean isLegalRetreat(RetreatOrder order, MovementResult movementResult) {
+        Objects.requireNonNull(order, "order");
+        Objects.requireNonNull(movementResult, "movementResult");
+        MovementResult.Dislodgement dislodgement =
+                movementResult.dislodgements().get(order.unit());
+
+        if (dislodgement == null
+                || !OrderForms.isValidRetreatOrder(order, dislodgement.displacedFrom()))
+            return false;
+
+        Province destination = order.destination();
+        return (dislodgement.attackerArrivedByConvoy()
+                || !Province.equalsIgnoreCoast(destination, dislodgement.attackerOrigin()))
+                && !isOccupied(destination, movementResult.finalLocations())
+                && !movementResult.wasStandoff(destination);
     }
 
 }

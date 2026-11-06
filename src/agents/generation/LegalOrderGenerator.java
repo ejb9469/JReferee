@@ -7,8 +7,11 @@ import domain.Province;
 import domain.UnitType;
 import game.GameState;
 import game.GameState_Movement;
+import game.GameState_Retreats;
 import phase.Order;
 import phase.UnitId;
+import phase.retreats.RetreatOrder;
+import phase.retreats.RetreatProcessor;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -17,10 +20,11 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Creates per-unit movement orders from a game state.
+ * Creates per-unit movement or retreat orders from a game state.
  *
- * <p>Coast-to-coast Army moves are included as convoy possibilities. The
- * completed candidate must contain orders that provide a usable convoy route.</p>
+ * <p>Coast-to-coast Army moves are included as convoy possibilities.
+ * Convoy availability depends on the combined orders of all nations and is
+ * not required for catalog membership.</p>
  */
 public final class LegalOrderGenerator {
 
@@ -28,9 +32,26 @@ public final class LegalOrderGenerator {
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(power, "power");
 
+        if (state instanceof GameState_Retreats retreats) {
+            Map<UnitId, List<RetreatOrder>> optionsByUnit = new LinkedHashMap<>();
+            for (UnitId unit : retreats.movementResult().dislodgements().keySet()) {
+                if (unit.owner() != power)
+                    continue;
+
+                List<RetreatOrder> orders = new ArrayList<>();
+                for (Province destination : Province.values()) {
+                    RetreatOrder order = new RetreatOrder(unit, destination);
+                    if (RetreatProcessor.isLegalRetreat(order, retreats.movementResult()))
+                        orders.add(order);
+                }
+                optionsByUnit.put(unit, orders);
+            }
+            return new LegalOrderCatalog(state, power, optionsByUnit);
+        }
+
         if (!(state instanceof GameState_Movement movementState))
             throw new IllegalArgumentException(
-                    "Movement-order generation requires a movement state");
+                    "Order generation currently supports movement and retreats");
 
         Map<UnitId, Province> locations = movementState.board().locations();
         for (Map.Entry<UnitId, Province> entry : locations.entrySet())

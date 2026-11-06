@@ -1,170 +1,165 @@
 package agents.generation;
 
+import contracts.OrderForm;
 import contracts.OrderForms;
 import domain.Nation;
-import domain.OrderType;
-import game.BoardState;
+import domain.Province;
 import game.GameMoment;
 import game.GameState;
 import game.GameState_Movement;
+import game.GameState_Retreats;
+import org.jetbrains.annotations.Nullable;
 import phase.Order;
 import phase.UnitId;
+import phase.retreats.RetreatOrder;
+import phase.retreats.RetreatProcessor;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 /**
- * Immutable movement-order options for every unit owned by one power.
+ * Immutable per-unit order options for one nation in movement or retreats.
  *
- * <p>Each list contains orders for one issuing unit. Relationships between
- * orders are checked when a complete candidate is built.</p>
+ * <p>Retreat units are the nation's dislodged units. Their lists contain legal
+ * retreat orders; omission is an additional choice which destroys the unit.
+ * An empty retreat list therefore permits only omission.</p>
  */
 public final class LegalOrderCatalog {
 
-    private final GameMoment moment;
+    private final GameState state;
     private final Nation power;
-    private final BoardState board;
-    private final Map<UnitId, List<Order>> optionsByUnit;
+    private final Map<UnitId, Province> unitLocations;
+    private final Map<UnitId, List<OrderForm>> optionsByUnit;
 
     LegalOrderCatalog(
-            GameState_Movement state,
+            GameState state,
             Nation power,
-            Map<UnitId, List<Order>> optionsByUnit
+            Map<UnitId, ? extends List<? extends OrderForm>> optionsByUnit
     ) {
-        Objects.requireNonNull(state, "state");
+        this.state = Objects.requireNonNull(state, "state");
         this.power = Objects.requireNonNull(power, "power");
-        this.moment = state.moment();
-        this.board = state.board();
+
+        Map<UnitId, Province> locations = new LinkedHashMap<>();
+        if (state instanceof GameState_Movement movement) {
+            movement.board().locations().forEach((unit, location) -> {
+                if (unit.owner() == power)
+                    locations.put(unit, location);
+            });
+        } else if (state instanceof GameState_Retreats retreats) {
+            retreats.movementResult().dislodgements().forEach((unit, dislodgement) -> {
+                if (unit.owner() == power)
+                    locations.put(unit, dislodgement.displacedFrom());
+            });
+        } else {
+            throw new IllegalArgumentException(
+                    "Order catalogs currently support movement and retreats");
+        }
+
+        this.unitLocations = Collections.unmodifiableMap(locations);
         this.optionsByUnit = copyAndValidate(optionsByUnit);
     }
 
     public GameMoment moment() {
-        return moment;
+        return state.moment();
     }
 
     public Nation power() {
         return power;
     }
 
-    public Map<UnitId, List<Order>> optionsByUnit() {
+    public Map<UnitId, Province> unitLocations() {
+        return unitLocations;
+    }
+
+    public Map<UnitId, List<OrderForm>> optionsByUnit() {
         return optionsByUnit;
     }
 
-    /**
-     * Returns the available orders for {@code unit}, or an empty list if it is
-     * not in this catalog.
-     */
-    public List<Order> optionsFor(UnitId unit) {
+    public List<OrderForm> optionsFor(UnitId unit) {
         Objects.requireNonNull(unit, "unit");
         return optionsByUnit.getOrDefault(unit, List.of());
     }
 
-    public boolean contains(Order order) {
+    public boolean allowsOmission() {
+        return state instanceof GameState_Retreats;
+    }
+
+    public boolean contains(OrderForm order) {
         Objects.requireNonNull(order, "order");
-        return optionsFor(order.unit()).contains(order);
+        UnitId unit = unitOf(order);
+        return unit != null && optionsFor(unit).contains(order);
     }
 
     /**
-     * Checks that this catalog was generated for the supplied movement state
-     * and power.
+     * Retreat catalogs are tied to their source MovementResult. A matching
+     * moment and board alone cannot establish equal retreat restrictions.
      */
     public void requireMatches(GameState state, Nation power) {
-
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(power, "power");
 
-        if (!(state instanceof GameState_Movement movementState))
-            throw new IllegalArgumentException(
-                    "A movement-order catalog requires a movement state");
-
-        if (this.power != power
-                || !moment.equals(movementState.moment())
-                || !board.equals(movementState.board()))
+        if (this.power != power || !this.state.equals(state))
             throw new IllegalArgumentException(
                     "The order catalog does not match the supplied state and power");
-
     }
 
-    private Map<UnitId, List<Order>> copyAndValidate(
-            Map<UnitId, List<Order>> suppliedOptions) {
+    boolean acceptsPhase(OrderForm order) {
+        if (allowsOmission())
+            return order instanceof RetreatOrder;
 
+        if (order.getClass() != Order.class)
+            return false;
+
+        return switch (order.orderType()) {
+            case HOLD, MOVE, SUPPORT, CONVOY -> true;
+            default -> false;
+        };
+    }
+
+    static @Nullable UnitId unitOf(OrderForm order) {
+        if (order instanceof Order movement)
+            return movement.unit();
+        if (order instanceof RetreatOrder retreat)
+            return retreat.unit();
+        return null;
+    }
+
+    private Map<UnitId, List<OrderForm>> copyAndValidate(
+            Map<UnitId, ? extends List<? extends OrderForm>> suppliedOptions
+    ) {
         Objects.requireNonNull(suppliedOptions, "optionsByUnit");
+        if (!suppliedOptions.keySet().equals(unitLocations.keySet()))
+            throw new IllegalArgumentException(
+                    "Catalog units do not match the units eligible to act for " + power);
 
-        Map<UnitId, List<Order>> copied = new LinkedHashMap<>();
+        Map<UnitId, List<OrderForm>> copied = new LinkedHashMap<>();
+        for (UnitId unit : unitLocations.keySet()) {
+            List<OrderForm> orders = OrderForms.shallowCopy(
+                    Objects.requireNonNull(suppliedOptions.get(unit), "orders for " + unit));
+            Set<OrderForm> seen = new HashSet<>();
 
-        for (Map.Entry<UnitId, List<Order>> entry : suppliedOptions.entrySet()) {
-            UnitId unit = Objects.requireNonNull(entry.getKey(), "catalog unit");
-            List<Order> suppliedOrders = Objects.requireNonNull(
-                    entry.getValue(),
-                    "orders for " + unit);
-
-            if (!board.locations().containsKey(unit))
-                throw new IllegalArgumentException(
-                        "Catalog unit is absent from the board: " + unit);
-
-            if (unit.owner() != power)
-                throw new IllegalArgumentException(
-                        "Catalog contains a unit owned by another power: " + unit);
-
-            List<Order> orders = new ArrayList<>(suppliedOrders.size());
-            Set<Order> seen = new LinkedHashSet<>();
-            boolean hasHold = false;
-
-            for (Order order : suppliedOrders) {
-                Objects.requireNonNull(order, "catalog order");
-
-                if (!unit.equals(order.unit()))
+            for (OrderForm order : orders) {
+                if (!acceptsPhase(order) || !unit.equals(unitOf(order)))
                     throw new IllegalArgumentException(
-                            "Order issuer does not match its catalog unit: " + order);
+                            "Order phase or issuer does not match its catalog entry: " + order);
 
-                if (order.owner() != power)
-                    throw new IllegalArgumentException(
-                            "Catalog order is owned by another power: " + order);
-
-                if (!OrderForms.isValidMovementOrder(
-                        order,
-                        board.locationOf(unit)))
-                    throw new IllegalArgumentException(
-                            "Invalid movement order in catalog: " + order);
-
+                boolean legal = state instanceof GameState_Retreats retreats
+                        && order instanceof RetreatOrder retreat
+                        ? RetreatProcessor.isLegalRetreat(
+                        retreat, retreats.movementResult())
+                        : OrderForms.isValidMovementOrder(order, unitLocations.get(unit));
+                if (!legal)
+                    throw new IllegalArgumentException("Invalid order in catalog: " + order);
                 if (!seen.add(order))
-                    throw new IllegalArgumentException(
-                            "Duplicate order in catalog: " + order);
-
-                if (order.orderType() == OrderType.HOLD) {
-                    if (!order.equals(Order.hold(unit)))
-                        throw new IllegalArgumentException(
-                                "Hold order has unexpected targets: " + order);
-                    hasHold = true;
-                }
-
-                orders.add(order);
+                    throw new IllegalArgumentException("Duplicate order in catalog: " + order);
             }
 
-            if (!hasHold)
-                throw new IllegalArgumentException(
-                        "Catalog has no hold order for " + unit);
+            if (!allowsOmission() && !orders.contains(Order.hold(unit)))
+                throw new IllegalArgumentException("Catalog has no hold order for " + unit);
 
             copied.put(unit, List.copyOf(orders));
         }
 
-        Set<UnitId> expectedUnits = new LinkedHashSet<>();
-        for (UnitId unit : board.locations().keySet())
-            if (unit.owner() == power)
-                expectedUnits.add(unit);
-
-        if (!copied.keySet().equals(expectedUnits))
-            throw new IllegalArgumentException(
-                    "Catalog units do not match the units owned by " + power);
-
         return Collections.unmodifiableMap(copied);
-
     }
 
 }

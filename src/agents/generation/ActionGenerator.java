@@ -7,9 +7,14 @@ import java.util.List;
  */
 public interface ActionGenerator {
 
+    // Usage:
+    //  LegalOrderCatalog catalog = new LegalOrderGenerator().generate(state, power);
+    //  List<ActionCandidate> candidates = new UniformActionGenerator().generate(new ActionGenerationRequest(state, power, limit, seed), catalog);
+
     /**
-     * Generates candidates for the request using a catalog for the same state
-     * and nation.<br><br>
+     * Generates an immutable list of at most candidateLimit distinct actions
+     * using a catalog for the same state and nation. Implementations may return
+     * fewer candidates when the action space or sampling budget is exhausted.<br><br>
      *
      * <b>Implementations should call
      * {@link LegalOrderCatalog#requireMatches(game.GameState, domain.Nation)}
