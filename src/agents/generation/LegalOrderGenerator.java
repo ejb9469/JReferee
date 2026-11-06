@@ -6,10 +6,13 @@ import domain.Nation;
 import domain.Province;
 import domain.UnitType;
 import game.GameState;
+import game.GameState_Adjustments;
 import game.GameState_Movement;
 import game.GameState_Retreats;
 import phase.Order;
+import phase.AdjustmentInput;
 import phase.UnitId;
+import phase.adjustments.*;
 import phase.retreats.RetreatOrder;
 import phase.retreats.RetreatProcessor;
 
@@ -20,7 +23,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Creates per-unit movement or retreat orders from a game state.
+ * Creates movement, retreat, or adjustment order options from a game state.
  *
  * <p>Coast-to-coast Army moves are included as convoy possibilities.
  * Convoy availability depends on the combined orders of all nations and is
@@ -31,6 +34,27 @@ public final class LegalOrderGenerator {
     public LegalOrderCatalog generate(GameState state, Nation power) {
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(power, "power");
+
+        if (state instanceof GameState_Adjustments adjustments) {
+            AdjustmentInput input = new AdjustmentInput(
+                    adjustments.fallRetreatResult(), adjustments.board().owners(), List.of());
+            Balance balance = new BalanceCalculator().calculate(input).get(power);
+            Map<UnitId, List<DisbandOrder>> disbands = new LinkedHashMap<>();
+            List<BuildOrder> builds = new ArrayList<>();
+            if (balance.requiredDisbands() > 0)
+                for (UnitId unit : adjustments.board().locations().keySet())
+                    if (unit.owner() == power)
+                        disbands.put(unit, List.of(new DisbandOrder(power, unit)));
+            if (balance.availableBuilds() > 0)
+                for (Province location : Province.values())
+                    for (UnitType type : UnitType.values()) {
+                        BuildOrder build = new BuildOrder(power, type, location);
+                        if (AdjustmentProcessor.validateBuildSite(
+                                input, build, adjustments.board().locations()) == null)
+                            builds.add(build);
+                    }
+            return new LegalOrderCatalog(state, power, disbands, builds);
+        }
 
         if (state instanceof GameState_Retreats retreats) {
             Map<UnitId, List<RetreatOrder>> optionsByUnit = new LinkedHashMap<>();
@@ -51,7 +75,7 @@ public final class LegalOrderGenerator {
 
         if (!(state instanceof GameState_Movement movementState))
             throw new IllegalArgumentException(
-                    "Order generation currently supports movement and retreats");
+                    "Unsupported game state: " + state.getClass().getName());
 
         Map<UnitId, Province> locations = movementState.board().locations();
         for (Map.Entry<UnitId, Province> entry : locations.entrySet())

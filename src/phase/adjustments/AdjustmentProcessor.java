@@ -11,6 +11,8 @@ import phase.UnitId;
 
 import java.util.*;
 
+import org.jetbrains.annotations.Nullable;
+
 import static phase.BoardRules.isOccupied;
 
 
@@ -116,9 +118,16 @@ public final class AdjustmentProcessor
 
     }
 
-    private AdjustmentResult.Outcome.Status validateBuildSite(
+    /**
+     * Returns a build-site rejection reason, or null for a legal site and unit
+     * type. Build capacity is checked separately.
+     */
+    public static @Nullable AdjustmentResult.Outcome.Status validateBuildSite(
             AdjustmentInput input, BuildOrder order, Map<UnitId, Province> finalLocations) {
 
+        Objects.requireNonNull(input, "input");
+        Objects.requireNonNull(order, "order");
+        Objects.requireNonNull(finalLocations, "finalLocations");
         Province location = order.location();
         Province territory = Province.canonical(location);
 

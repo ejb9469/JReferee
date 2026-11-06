@@ -6,37 +6,59 @@ import domain.Nation;
 import domain.Province;
 import game.GameMoment;
 import game.GameState;
+import game.GameState_Adjustments;
 import game.GameState_Movement;
 import game.GameState_Retreats;
-import org.jetbrains.annotations.Nullable;
 import phase.Order;
+import phase.AdjustmentInput;
 import phase.UnitId;
+import phase.adjustments.*;
 import phase.retreats.RetreatOrder;
 import phase.retreats.RetreatProcessor;
 
 import java.util.*;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
- * Immutable per-unit order options for one nation in movement or retreats.
+ * Immutable order options for one nation in the current phase.
  *
  * <p>Retreat units are the nation's dislodged units. Their lists contain legal
  * retreat orders; omission is an additional choice which destroys the unit.
  * An empty retreat list therefore permits only omission.</p>
+ *
+ * <p>In adjustments, per-unit options describe disbands. Builds are listed
+ * separately because they create new units. The balance supplies the quotas.</p>
  */
 public final class LegalOrderCatalog {
 
-    private final GameState state;
-    private final Nation power;
-    private final Map<UnitId, Province> unitLocations;
-    private final Map<UnitId, List<OrderForm>> optionsByUnit;
+    private final           GameState state;
+    private final           Nation power;
+    private final           Map<UnitId, Province> unitLocations;
+    private final           Map<UnitId, List<OrderForm>> optionsByUnit;
+    private final           List<BuildOrder> buildOptions;
+    private final @Nullable Balance adjustmentBalance;
 
     LegalOrderCatalog(
             GameState state,
             Nation power,
             Map<UnitId, ? extends List<? extends OrderForm>> optionsByUnit
     ) {
+        this(state, power, optionsByUnit, List.of());
+    }
+
+    LegalOrderCatalog(
+            GameState state,
+            Nation power,
+            Map<UnitId, ? extends List<? extends OrderForm>> optionsByUnit,
+            List<BuildOrder> buildOptions
+    ) {
         this.state = Objects.requireNonNull(state, "state");
         this.power = Objects.requireNonNull(power, "power");
+        this.adjustmentBalance = state instanceof GameState_Adjustments adjustments
+                ? new BalanceCalculator().calculate(new AdjustmentInput(
+                adjustments.fallRetreatResult(), adjustments.board().owners(), List.of())).get(power)
+                : null;
 
         Map<UnitId, Province> locations = new LinkedHashMap<>();
         if (state instanceof GameState_Movement movement) {
@@ -49,13 +71,20 @@ public final class LegalOrderCatalog {
                 if (unit.owner() == power)
                     locations.put(unit, dislodgement.displacedFrom());
             });
+        } else if (state instanceof GameState_Adjustments adjustments) {
+            if (adjustmentBalance().requiredDisbands() > 0)
+                adjustments.board().locations().forEach((unit, location) -> {
+                    if (unit.owner() == power)
+                        locations.put(unit, location);
+                });
         } else {
             throw new IllegalArgumentException(
-                    "Order catalogs currently support movement and retreats");
+                    "Unsupported game state: " + state.getClass().getName());
         }
 
         this.unitLocations = Collections.unmodifiableMap(locations);
         this.optionsByUnit = copyAndValidate(optionsByUnit);
+        this.buildOptions = copyBuildOptions(buildOptions);
     }
 
     public GameMoment moment() {
@@ -79,12 +108,31 @@ public final class LegalOrderCatalog {
         return optionsByUnit.getOrDefault(unit, List.of());
     }
 
+    /**
+     * Whether per-unit entries may be left unused. Winter actions must still
+     * satisfy the required disband count.
+     */
     public boolean allowsOmission() {
-        return state instanceof GameState_Retreats;
+        return !(state instanceof GameState_Movement);
+    }
+
+    public List<BuildOrder> buildOptions() {
+        return buildOptions;
+    }
+
+    public Balance adjustmentBalance() {
+        if (adjustmentBalance == null)
+            throw new IllegalStateException("This catalog is not for adjustments");
+        return adjustmentBalance;
     }
 
     public boolean contains(OrderForm order) {
         Objects.requireNonNull(order, "order");
+        if (order instanceof BuildOrder build)
+            return buildOptions.contains(build);
+        if (order instanceof WaiveOrder waive)
+            return adjustmentBalance != null && adjustmentBalance.availableBuilds() > 0
+                    && waive.owner() == power;
         UnitId unit = unitOf(order);
         return unit != null && optionsFor(unit).contains(order);
     }
@@ -103,7 +151,9 @@ public final class LegalOrderCatalog {
     }
 
     boolean acceptsPhase(OrderForm order) {
-        if (allowsOmission())
+        if (state instanceof GameState_Adjustments)
+            return order instanceof AdjustmentOrder;
+        if (state instanceof GameState_Retreats)
             return order instanceof RetreatOrder;
 
         if (order.getClass() != Order.class)
@@ -120,6 +170,8 @@ public final class LegalOrderCatalog {
             return movement.unit();
         if (order instanceof RetreatOrder retreat)
             return retreat.unit();
+        if (order instanceof DisbandOrder disband)
+            return disband.unit();
         return null;
     }
 
@@ -142,7 +194,9 @@ public final class LegalOrderCatalog {
                     throw new IllegalArgumentException(
                             "Order phase or issuer does not match its catalog entry: " + order);
 
-                boolean legal = state instanceof GameState_Retreats retreats
+                boolean legal = order instanceof DisbandOrder
+                        ? adjustmentBalance().requiredDisbands() > 0
+                        : state instanceof GameState_Retreats retreats
                         && order instanceof RetreatOrder retreat
                         ? RetreatProcessor.isLegalRetreat(
                         retreat, retreats.movementResult())
@@ -155,11 +209,35 @@ public final class LegalOrderCatalog {
 
             if (!allowsOmission() && !orders.contains(Order.hold(unit)))
                 throw new IllegalArgumentException("Catalog has no hold order for " + unit);
+            if (state instanceof GameState_Adjustments
+                    && !orders.contains(new DisbandOrder(power, unit)))
+                throw new IllegalArgumentException("Catalog has no disband order for " + unit);
 
             copied.put(unit, List.copyOf(orders));
         }
 
         return Collections.unmodifiableMap(copied);
+    }
+
+    private List<BuildOrder> copyBuildOptions(List<BuildOrder> supplied) {
+        List<BuildOrder> builds = List.copyOf(Objects.requireNonNull(supplied, "buildOptions"));
+        if (builds.isEmpty())
+            return builds;
+        if (!(state instanceof GameState_Adjustments adjustments)
+                || adjustmentBalance().availableBuilds() == 0)
+            throw new IllegalArgumentException("Build options require available winter builds");
+
+        AdjustmentInput input = new AdjustmentInput(
+                adjustments.fallRetreatResult(), adjustments.board().owners(), List.of());
+        Set<BuildOrder> seen = new HashSet<>();
+        for (BuildOrder build : builds) {
+            if (build.owner() != power || AdjustmentProcessor.validateBuildSite(
+                    input, build, adjustments.board().locations()) != null)
+                throw new IllegalArgumentException("Invalid build option: " + build);
+            if (!seen.add(build))
+                throw new IllegalArgumentException("Duplicate build option: " + build);
+        }
+        return builds;
     }
 
 }

@@ -1,24 +1,33 @@
 package agents.generation;
 
 import contracts.OrderForm;
+import domain.Nation;
+import domain.Province;
+import game.GameState_Adjustments;
 import phase.Order;
 import phase.UnitId;
+import phase.adjustments.*;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
- * Generates movement or retreat candidates using an independent-uniform policy.
+ * Generates candidates using a uniform baseline policy.
  *
  * <p>The first action is all-hold in movement, or all-omitted in retreats.
  * Omission destroys a dislodged unit. Further actions are sampled without keeping
  * duplicates. Each candidate's logPrior is its probability under the full
- * catalog product, expressed as a natural logarithm.</p>
+ * phase policy, expressed as a natural logarithm. Movement and retreat
+ * choices are independent and uniform per unit.</p>
  *
  * <p>Units are ordered by current province; options by type and targets.
  * Equivalent states and the same seed therefore produce the same candidates
@@ -27,6 +36,11 @@ import java.util.Set;
  * <p>The target count is the smaller of candidateLimit and the action-space
  * size. At most 32 samples per target candidate are drawn. The returned list
  * may be shorter if duplicates exhaust that budget.</p>
+ *
+ * <p>Winter builds are uniform over legal build combinations, with unused
+ * builds represented by omission. Disbands are uniform over subsets of the
+ * required size. The first winter action is no builds, or the first required
+ * units in province order.</p>
  */
 public final class UniformActionGenerator implements ActionGenerator {
 
@@ -47,6 +61,11 @@ public final class UniformActionGenerator implements ActionGenerator {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(catalog, "catalog");
         catalog.requireMatches(request.state(), request.power());
+
+        if (request.state() instanceof GameState_Adjustments)
+            return catalog.adjustmentBalance().requiredDisbands() > 0
+                    ? generateDisbands(request, catalog)
+                    : generateBuilds(request, catalog);
 
         List<UnitId> units = new ArrayList<>(catalog.optionsByUnit().keySet());
         units.sort(Comparator.comparing(catalog.unitLocations()::get));
@@ -98,6 +117,97 @@ public final class UniformActionGenerator implements ActionGenerator {
         }
 
         return List.copyOf(candidates);
+    }
+
+    private static List<ActionCandidate> generateBuilds(
+            ActionGenerationRequest request, LegalOrderCatalog catalog
+    ) {
+        Map<Province, List<BuildOrder>> bySite = new TreeMap<>();
+        for (BuildOrder build : catalog.buildOptions())
+            bySite.computeIfAbsent(Province.canonical(build.location()),
+                    ignored -> new ArrayList<>()).add(build);
+        for (List<BuildOrder> options : bySite.values())
+            options.sort(Comparator.comparing(BuildOrder::unitType).thenComparing(BuildOrder::location));
+
+        // The standard board has at most four home centers per nation.
+        List<List<OrderForm>> actions = new ArrayList<>();
+        collectBuildActions(new ArrayList<>(bySite.values()), 0,
+                catalog.adjustmentBalance().availableBuilds(), new ArrayList<>(), actions);
+        double logPrior = 0.0 - StrictMath.log(actions.size());
+        List<ActionCandidate> candidates = new ArrayList<>();
+        candidates.add(checkedCandidate(request, catalog, actions.removeFirst(),
+                logPrior, ActionCandidate.Source.HEURISTIC));
+        Collections.shuffle(actions, new Random(request.seed()));
+        for (List<OrderForm> action : actions) {
+            if (candidates.size() == request.candidateLimit())
+                break;
+            candidates.add(checkedCandidate(request, catalog, action,
+                    logPrior, ActionCandidate.Source.POLICY_SAMPLE));
+        }
+        return List.copyOf(candidates);
+    }
+
+    private static void collectBuildActions(
+            List<List<BuildOrder>> sites, int index, int remaining,
+            List<OrderForm> current, List<List<OrderForm>> actions
+    ) {
+        if (index == sites.size() || remaining == 0) {
+            actions.add(List.copyOf(current));
+            return;
+        }
+        collectBuildActions(sites, index + 1, remaining, current, actions);
+        for (BuildOrder build : sites.get(index)) {
+            current.add(build);
+            collectBuildActions(sites, index + 1, remaining - 1, current, actions);
+            current.removeLast();
+        }
+    }
+
+    private static List<ActionCandidate> generateDisbands(
+            ActionGenerationRequest request, LegalOrderCatalog catalog
+    ) {
+        List<UnitId> units = new ArrayList<>(catalog.unitLocations().keySet());
+        Comparator<UnitId> byLocation = Comparator.comparing(catalog.unitLocations()::get);
+        units.sort(byLocation);
+        int required = catalog.adjustmentBalance().requiredDisbands();
+        BigInteger combinations = numberOfSubsets(units.size(), required);
+        int target = combinations.min(BigInteger.valueOf(request.candidateLimit())).intValueExact();
+        double logPrior = 0.0 - StrictMath.log(combinations.doubleValue());
+        List<OrderForm> first = disbandOrders(units.subList(0, required), request.power());
+        List<ActionCandidate> candidates = new ArrayList<>();
+        candidates.add(checkedCandidate(request, catalog, first, logPrior, ActionCandidate.Source.HEURISTIC));
+        Set<List<OrderForm>> seen = new HashSet<>();
+        seen.add(first);
+        Random random = new Random(request.seed());
+
+        for (long sample = 0;
+             sample < (long) SAMPLES_PER_CANDIDATE * target && candidates.size() < target;
+             sample++) {
+            List<UnitId> shuffled = new ArrayList<>(units);
+            Collections.shuffle(shuffled, random);
+            List<UnitId> selected = new ArrayList<>(shuffled.subList(0, required));
+            selected.sort(byLocation);
+            List<OrderForm> action = disbandOrders(selected, request.power());
+            if (seen.add(action))
+                candidates.add(checkedCandidate(request, catalog, action,
+                        logPrior, ActionCandidate.Source.POLICY_SAMPLE));
+        }
+        return List.copyOf(candidates);
+    }
+
+    private static List<OrderForm> disbandOrders(List<UnitId> units, Nation power) {
+        List<OrderForm> orders = new ArrayList<>();
+        for (UnitId unit : units)
+            orders.add(new DisbandOrder(power, unit));
+        return List.copyOf(orders);
+    }
+
+    private static BigInteger numberOfSubsets(int size, int count) {
+        BigInteger result = BigInteger.ONE;
+        for (int index = 1; index <= Math.min(count, size - count); index++)
+            result = result.multiply(BigInteger.valueOf(size - index + 1))
+                    .divide(BigInteger.valueOf(index));
+        return result;
     }
 
     private static ActionCandidate checkedCandidate(

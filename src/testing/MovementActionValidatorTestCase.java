@@ -150,7 +150,8 @@ public final class MovementActionValidatorTestCase implements TestCase {
         for (OrderForm order : otherPhases)
             checks.expect("Wrong submitted representation: " + order.getClass().getSimpleName(),
                     List.of(error(WRONG_ORDER_PHASE,
-                                    order instanceof RetreatOrder retreat ? retreat.unit() : null, 0),
+                                    order instanceof RetreatOrder retreat ? retreat.unit()
+                                            : order instanceof DisbandOrder disband ? disband.unit() : null, 0),
                             error(MISSING_ORDER, army, -1)),
                     validator.validate(state, candidate(order)));
         for (OrderType type : List.of(
@@ -185,15 +186,14 @@ public final class MovementActionValidatorTestCase implements TestCase {
                 new RetreatInput(movement, List.of()));
         GameState_Adjustments adjustments = new GameState_Adjustments(
                 new GameMoment(1901, GamePhase.WINTER_ADJUSTMENT),
-                new BoardState(retreatResult.finalLocations(), Map.of()), retreatResult);
-        expectThrows(checks, "Movement validator rejects adjustment state",
-                IllegalArgumentException.class,
-                () -> validator.validate(adjustments, candidate()));
+                new BoardState(retreatResult.finalLocations(), Map.of()), retreatResult);        checks.expect("Shared validator accepts balanced winter omissions",
+                List.of(), validator.validate(adjustments, candidate()));
         checks.expect("Removed unit cannot receive a later movement order",
                 List.of(error(UNKNOWN_UNIT, army, 0)),
                 validator.validate(state(retreatResult.finalLocations()),
                         candidate(Order.hold(army))));
     }
+
     private static void checkCatalogMatching(TestEvaluation.Builder checks) {
         UnitId army = unit(Nation.FRANCE, UnitType.ARMY, Province.Par);
         UnitId foreign = unit(Nation.ENGLAND, UnitType.FLEET, Province.Lon);
