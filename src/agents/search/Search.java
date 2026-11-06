@@ -2,7 +2,6 @@ package agents.search;
 
 import agents.evaluation.Evaluator;
 import agents.generation.*;
-import agents.simulation.Simulator;
 import domain.Nation;
 import game.Game;
 import game.GameState;
@@ -63,10 +62,21 @@ public class Search {
      * @return  immutable candidates, mean payoffs, and selection probabilities
      */
     public SearchResult search(Game game, Nation power) {
+        return search(game, power, JointActionEvaluator.uncached(game, evaluator));
+    }
+
+    /**
+     * Uses a caller-supplied fixed-root evaluator, with caching if enabled.
+     * It must belong to this game and evaluator instance.
+     */
+    public SearchResult search(Game game, Nation power, JointActionEvaluator trials) {
+        Objects.requireNonNull(trials, "trials").requireContext(game, evaluator);
         GameState root = SearchSupport.root(game, power);
         Random random = new Random(seed);
-        Map<Nation, List<ActionCandidate>> pools =
-                SearchSupport.generatePools(root, generator, candidateLimit, random);
+        Map<Nation, List<ActionCandidate>> pools;
+        try (var generation = trials.measure("candidate generation")) {
+            pools = SearchSupport.generatePools(root, generator, candidateLimit, random);
+        }
         Map<Nation, ActionDistribution> opponents = new EnumMap<>(Nation.class);
         for (Nation nation : pools.keySet())
             if (nation != power)
@@ -80,7 +90,6 @@ public class Search {
             samples.add(Map.copyOf(joint));
         }
 
-        Simulator simulator = new Simulator();
         List<ActionCandidate> candidates = pools.get(power);
         List<Double> means = new ArrayList<>(candidates.size());
         for (ActionCandidate candidate : candidates) {
@@ -89,8 +98,7 @@ public class Search {
                 Map<Nation, ActionCandidate> joint = new EnumMap<>(Nation.class);
                 joint.putAll(opponentsJoint);
                 joint.put(power, candidate);
-                GameState successor = simulator.peek(game, joint);
-                mean += SearchSupport.values(evaluator, successor).get(power) / opponentSamples;
+                mean += trials.evaluate(joint).get(power) / opponentSamples;
                 if (!Double.isFinite(mean))
                     throw new IllegalStateException("Non-finite search mean for " + power);
             }

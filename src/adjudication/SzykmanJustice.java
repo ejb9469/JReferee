@@ -106,6 +106,7 @@ public class SzykmanJustice extends Justice {
         if (!conflictingConvoys.isEmpty()) {
 
             ordinaryResolutionProbeInvocations.incrementAndGet();
+            this.juryProbes++;
 
             OrdinaryResolution ordinaryResolution =
                     new Jury(submittedOrders).inquire();
@@ -241,6 +242,7 @@ public class SzykmanJustice extends Justice {
         }
 
         Judge judge = new Judge(transformedOrders);
+        this.fallbackCalls++;
         judge.judge();
 
         return new LinkedHashSet<>(

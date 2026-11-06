@@ -3,6 +3,7 @@ package phase.movement;
 import adjudication.Judge;
 import adjudication.Justice;
 import adjudication.SzykmanJustice;
+import adjudication.util.OrderComparator;
 import contracts.OrderForm;
 import domain.OrderType;
 import domain.Province;
@@ -10,6 +11,7 @@ import phase.MovementInput;
 import phase.Order;
 import phase.Processor;
 import phase.UnitId;
+import performance.PerformanceStats;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -19,15 +21,33 @@ import java.util.Map;
 import java.util.Objects;
 
 
+/**
+ * Normalizes movement submissions and converts adjudicator output for Game.
+ * The default retains SzykmanJustice. JUDGE is an explicit single-run option
+ * and can disagree with the reference policy in ambiguous positions.
+ */
 public final class MovementProcessor
         implements Processor<MovementInput, MovementResult> {
+
+    private static final PerformanceStats.Scope UNTIMED = () -> { };
 
     private final Policy policy;
     private final int trialCount;
     private final long shuffleSeed;
+    private final Diagnostics diagnostics;
 
 
     public MovementProcessor(Policy policy, int trialCount, long shuffleSeed) {
+        this(policy, trialCount, shuffleSeed, null);
+    }
+
+    /**
+     * Supplies an adjudicator and optional caller-owned diagnostics.
+     * JUDGE uses canonical order and ignores trialCount and shuffleSeed.
+     * A non-null collector may be shared by sequential root and rollout games.
+     */
+    public MovementProcessor(Policy policy, int trialCount, long shuffleSeed,
+                             Diagnostics diagnostics) {
 
         this.policy = Objects.requireNonNull(policy, "policy");
 
@@ -36,6 +56,7 @@ public final class MovementProcessor
 
         this.trialCount = trialCount;
         this.shuffleSeed = shuffleSeed;
+        this.diagnostics = diagnostics;
 
     }
 
@@ -50,23 +71,31 @@ public final class MovementProcessor
     @Override
     public MovementResult process(MovementInput input) {
 
-        Objects.requireNonNull(input, "input");
+        Judge producer = null;
+        boolean completed = false;
+        try (var timing = diagnostics == null ? UNTIMED : diagnostics.timings.measure("movement")) {
+            Objects.requireNonNull(input, "input");
 
-        Map<UnitId, Province> startingLocations = input.startingLocations();
-        List<NormalizedOrder> normalizedOrders =
-                normalize(startingLocations, input.submittedOrders());
+            Map<UnitId, Province> startingLocations = input.startingLocations();
+            List<NormalizedOrder> normalizedOrders =
+                    normalize(startingLocations, input.submittedOrders());
 
-        List<adjudication.Order> workOrders = new ArrayList<>(normalizedOrders.size());
+            List<adjudication.Order> workOrders = new ArrayList<>(normalizedOrders.size());
 
-        for (NormalizedOrder normalized : normalizedOrders) {
-            Province currentLocation = startingLocations.get(normalized.unit());
-            workOrders.add(new adjudication.Order(normalized, currentLocation));
+            for (NormalizedOrder normalized : normalizedOrders) {
+                Province currentLocation = startingLocations.get(normalized.unit());
+                workOrders.add(new adjudication.Order(normalized, currentLocation));
+            }
+
+            producer = createJudge(workOrders);
+            producer.judge();
+            MovementResult result = MovementResult.from(startingLocations, normalizedOrders, producer);
+            completed = true;
+            return result;
+        } finally {
+            if (diagnostics != null)
+                diagnostics.record(producer, completed);
         }
-
-        Judge producer = createJudge(workOrders);
-        producer.judge();
-
-        return MovementResult.from(startingLocations, normalizedOrders, producer);
 
     }
 
@@ -115,6 +144,11 @@ public final class MovementProcessor
 
     private Judge createJudge(Collection<adjudication.Order> workOrders) {
         return switch (policy) {
+            case JUDGE -> {
+                List<adjudication.Order> ordered = new ArrayList<>(workOrders);
+                ordered.sort(new OrderComparator());
+                yield new Judge(ordered);
+            }
             case JUSTICE -> new Justice(workOrders, trialCount, shuffleSeed);
             case SZYKMAN_JUSTICE -> new SzykmanJustice(workOrders, trialCount, shuffleSeed);
         };
@@ -136,7 +170,53 @@ public final class MovementProcessor
 
     public enum Policy {
         JUSTICE,
-        SZYKMAN_JUSTICE
+        SZYKMAN_JUSTICE,
+        JUDGE
     }
+
+    /**
+     * Single-threaded movement counters, independent of Game's rollback.
+     * Calls count attempts.
+     * Internal Judge passes are included in elapsed time,
+     *      but only top-level adjudicator invocations receive separate counters.
+     */
+    public static final class Diagnostics {
+        private final PerformanceStats timings;
+        private long movements;
+        private long failures;
+        private long plainCalls;
+        private long baselineCalls;
+        private long shuffledTrials;
+        private long juryProbes;
+        private long fallbackCalls;
+
+        public Diagnostics(PerformanceStats timings) {
+            this.timings = Objects.requireNonNull(timings, "timings");
+        }
+
+        private void record(Judge judge, boolean completed) {
+            movements++;
+            if (!completed)
+                failures++;
+            if (judge instanceof Justice justice) {
+                Justice.Workload work = justice.workload();
+                baselineCalls += work.baselineCalls();
+                shuffledTrials += work.shuffledTrials();
+                juryProbes += work.juryProbes();
+                fallbackCalls += work.fallbackCalls();
+            } else if (judge != null) {
+                plainCalls++;
+            }
+        }
+
+        public Counts snapshot() {
+            return new Counts(movements, failures, plainCalls, baselineCalls,
+                    shuffledTrials, juryProbes, fallbackCalls);
+        }
+    }
+
+    public record Counts(long movements, long failures, long plainCalls,
+                         long baselineCalls, long shuffledTrials,
+                         long juryProbes, long fallbackCalls) { }
 
 }

@@ -2,7 +2,6 @@ package agents.search;
 
 import agents.evaluation.Evaluator;
 import agents.generation.*;
-import agents.simulation.Simulator;
 import domain.Nation;
 import game.Game;
 import game.GameState;
@@ -151,8 +150,9 @@ public class DiLPiKLSearch {
      * Extra trajectories inside an evaluator do not change the result's
      * `samplesPerCandidate`, which equals `iterations`.</p>
      *
-     * <p>For pool sizes K_i, each iteration resolves 1 + sum_i(K_i - 1) joint
+     * <p>For pool sizes K_i, each iteration evaluates 1 + sum_i(K_i - 1) joint
      * actions. The sampled joint result is reused for its selected candidates.
+     * An explicitly shared deterministic cache may reuse further results.
      * Any continuation work performed by the evaluator adds to this cost.</p>
      *
      * <p>The supplied game must be isolated and have no saved checkpoint.
@@ -168,13 +168,24 @@ public class DiLPiKLSearch {
      *         evaluator payoffs are incomplete or non-finite, or simulation fails
      */
     public SearchResult search(Game game, Nation power) {
+        return search(game, power, JointActionEvaluator.uncached(game, evaluator));
+    }
+
+    /**
+     * Shares fixed-root evaluation and optional caching with other searches.
+     * The supplied helper must be bound to this game and evaluator instance.
+     */
+    public SearchResult search(Game game, Nation power, JointActionEvaluator trials) {
+        Objects.requireNonNull(trials, "trials").requireContext(game, evaluator);
         GameState root = SearchSupport.root(game, power);
         Random random = new Random(seed);
 
         // Candidate generation finishes before any trial advances the root.
-        Map<Nation, List<ActionCandidate>> pools =
-                SearchSupport.generatePools(root, generator, candidateLimit, random);
-        return solve(game, SearchSupport.pools(root, pools), random).results().get(power);
+        Map<Nation, List<ActionCandidate>> pools;
+        try (var generation = trials.measure("candidate generation")) {
+            pools = SearchSupport.generatePools(root, generator, candidateLimit, random);
+        }
+        return solve(SearchSupport.pools(root, pools), random, trials).results().get(power);
     }
 
     /**
@@ -189,13 +200,31 @@ public class DiLPiKLSearch {
      * produce identical samples even when supplied the same pools.</p>
      */
     public JointSearchResult solve(Game game, Map<Nation, List<ActionCandidate>> pools) {
-        return solve(game, SearchSupport.pools(SearchSupport.root(game), pools), new Random(seed));
+        return solve(game, pools, JointActionEvaluator.uncached(game, evaluator));
+    }
+
+    /**
+     * Solves explicit pools using an existing fixed-root evaluation helper.
+     * Cache use does not change the sampling sequence or Q update.
+     */
+    public JointSearchResult solve(Game game, Map<Nation, List<ActionCandidate>> pools,
+                                   JointActionEvaluator trials) {
+        Objects.requireNonNull(trials, "trials").requireContext(game, evaluator);
+        return solve(SearchSupport.pools(SearchSupport.root(game), pools), new Random(seed), trials);
     }
 
     /**
      * Shared iteration loop. Existing search calls retain their random stream.
      */
-    private JointSearchResult solve(Game game, Map<Nation, List<ActionCandidate>> pools, Random random) {
+    private JointSearchResult solve(Map<Nation, List<ActionCandidate>> pools, Random random,
+                                    JointActionEvaluator trials) {
+        try (var solving = trials.measure("fixed-pool solve")) {
+            return iterate(pools, random, trials);
+        }
+    }
+
+    private JointSearchResult iterate(Map<Nation, List<ActionCandidate>> pools, Random random,
+                                      JointActionEvaluator trials) {
         Map<Nation, double[]> means = new EnumMap<>(Nation.class);
         for (Nation nation : pools.keySet()) {
             List<ActionCandidate> candidates = pools.get(nation);
@@ -208,7 +237,6 @@ public class DiLPiKLSearch {
             means.put(nation, new double[candidates.size()]);
         }
 
-        Simulator simulator = new Simulator();
         for (int iteration = 0; iteration < iterations; iteration++) {
 
             // Freeze all sampled actions before updating any nation's values.
@@ -221,7 +249,7 @@ public class DiLPiKLSearch {
             }
 
             // One joint trial supplies the played-action payoff for every nation.
-            Map<Nation, Double> observed = SearchSupport.values(evaluator, simulator.peek(game, played));
+            Map<Nation, Double> observed = trials.evaluate(played);
             for (Nation nation : pools.keySet()) {
                 List<ActionCandidate> candidates = pools.get(nation);
 
@@ -239,7 +267,7 @@ public class DiLPiKLSearch {
                         deviation.put(nation, candidate);
 
                         // Opponent orders stay fixed; a stochastic evaluator may add fresh noise.
-                        payoff = SearchSupport.values(evaluator, simulator.peek(game, deviation)).get(nation);
+                        payoff = trials.evaluate(deviation).get(nation);
                     }
 
                     // Equal-weight mean of raw payoffs across the sampled opponent history.
@@ -278,6 +306,25 @@ public class DiLPiKLSearch {
     }
 
     // Policy calculation \\
+
+    /**
+     * Forms the same regularized policy from caller-supplied finite values.
+     * Useful for comparing historical-Q policies with fresh final-profile values.
+     * Candidate order and fixed anchor priors are retained.
+     */
+    public static ActionDistribution policy(
+            List<ActionCandidate> candidates, List<Double> values, double lambda) {
+        candidates = List.copyOf(candidates);
+        values = List.copyOf(values);
+        LambdaDistribution.requirePositive(lambda);
+        if (candidates.isEmpty() || candidates.size() != values.size())
+            throw new IllegalArgumentException("Candidates and values must have equal, nonzero sizes");
+        if (values.stream().anyMatch(value -> !Double.isFinite(value)))
+            throw new IllegalArgumentException("Policy values must be finite");
+        if (candidates.stream().noneMatch(candidate -> Double.isFinite(candidate.logPrior())))
+            throw new IllegalArgumentException("Policy requires positive prior support");
+        return policy(candidates, values.stream().mapToDouble(Double::doubleValue).toArray(), lambda);
+    }
 
     /**
      * Forms the anchor-weighted softmax for one nation's current payoff means.

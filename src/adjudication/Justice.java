@@ -8,7 +8,7 @@ import adjudication.util.Orders;
 import java.util.*;
 
 /**
- * `Justice` is a subclass of `Judge` which resolves both simple & complex
+ * `Justice` is a subclass of `Judge` which resolves both simple and complex
  * Paradoxes.<br><br>
  *
  * It does so by generating a large number of permutations, and running
@@ -52,6 +52,11 @@ public class Justice extends Judge {
      * Value: complete candidate information for that outcome.
      */
     protected final Map<String, CandidateResolution> candidateResolutions;
+
+    private long baselineCalls;
+    private long shuffledTrials;
+    protected long juryProbes;
+    protected long fallbackCalls;
 
 
     // Constructors \\
@@ -107,27 +112,22 @@ public class Justice extends Judge {
     public void judge() {
 
         this.aggregateParadoxCycles.clear();
+        this.baselineCalls = 0;
+        this.shuffledTrials = 0;
+        this.juryProbes = 0;
+        this.fallbackCalls = 0;
 
         List<Order> submittedOrders = Orders.deepCopy(this.orders);
 
         List<List<Order>> components =
                 Dependencies.partition(submittedOrders);
 
-        /*
-         * Preserve the established `Justice` behavior for a position
-         * whose dependency graph is connected.
-         */
-        if (components.size() <= 1) {
-            this.judgeAmbiguousComponent(submittedOrders);
-            this.refreshParadoxCycles();
-            return;
-        }
-
         this.candidateResolutions.clear();
 
         Map<String, CandidateResolution> allCandidates = new TreeMap<>();
         List<Order> finalOrders = new ArrayList<>();
 
+        // A connected position uses the same baseline gate as every other component.
         int componentNumber = 0;
         for (List<Order> component : components) {
 
@@ -141,6 +141,7 @@ public class Justice extends Judge {
             Judge baselineJudge = new Judge(
                     Orders.deepCopy(component));
 
+            this.baselineCalls++;
             baselineJudge.judge();
 
             this.recordParadoxCycles(
@@ -210,6 +211,7 @@ public class Justice extends Judge {
             List<Order> trialInputOrder = Orders.deepCopy(ordersClone);
 
             this.orders = ordersClone;
+            this.shuffledTrials++;
             super.judge();
 
             Set<Order> outcome = new LinkedHashSet<>(
@@ -465,6 +467,7 @@ public class Justice extends Judge {
                         for (Order order : this.orders)
                             order.wipeMetaInf();
 
+                        this.fallbackCalls++;
                         super.judge();
 
                         mostResolvedPerm = new LinkedHashSet<>(
@@ -516,10 +519,24 @@ public class Justice extends Judge {
     // Public diagnostics \\
 
     /**
+     * Work attempted during the most recent judge() call.
+     *
+     * <p>Counts top-level baseline, shuffled, Jury, and fallback invocations.
+     * Judge's internal passes and recursive component calls are not counted
+     * separately. Counts reset before each adjudication and include failures.</p>
+     */
+    public record Workload(long baselineCalls, long shuffledTrials,
+                           long juryProbes, long fallbackCalls) { }
+
+    public Workload workload() {
+        return new Workload(baselineCalls, shuffledTrials, juryProbes, fallbackCalls);
+    }
+
+    /**
      * Returns deep copies of every distinct raw Judge candidate discovered
      * before Justice meta-resolution selects a final result.<br><br>
      *
-     * For a multi-component position, candidates describe only dependency components
+     * Candidates describe only dependency components
      * that required shuffled `Justice` trials.
      * Components resolved by 1 baseline `Judge` pass do *not* produce `CandidateResolution` entries.
      */
