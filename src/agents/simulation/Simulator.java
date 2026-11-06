@@ -15,11 +15,12 @@ import phase.retreats.RetreatOrder;
 import java.util.*;
 
 /**
- * Provides a "peek" at the result of a joint action.
+ * Resolves joint actions, with an optional "peek" that restores the game.
  *
  * <p>Each peek temporarily advances a supplied game, captures the resulting
  * position, and restores the game. Every living nation supplies one candidate,
- * including an empty action where appropriate. Eliminated nations may be
+ * including an empty action where appropriate. resolve() keeps the advance
+ * and leaves checkpoint ownership to its caller. Eliminated nations may be
  * omitted or supply empty candidates. Candidate priors and sources do not
  * affect resolution.</p>
  *
@@ -59,18 +60,49 @@ public class Simulator {
 
         if (game.getSnapshot() != null)
             throw new IllegalStateException("Simulation requires a game without a saved checkpoint");
-        GameState state = game.snapshot();
+        validate(game.snapshot(), submitted);
+
+        game.takeSnapshot();
+        try {
+            return resolveValidated(game, submitted);
+        } finally {
+            game.restoreFromSnapshot();
+        }
+
+    }
+
+    /**
+     * Resolves one phase and keeps the resulting position.
+     *
+     * <p>Validation finishes before any orders are applied. No checkpoint is
+     * taken or restored; an existing checkpoint remains available to the caller.
+     * A rollout can resolve several phases under one checkpoint and restore
+     * the whole trajectory in finally.</p>
+     *
+     * <p>A processor failure may leave a partially advanced game. The caller
+     * owns recovery. Use peek() for a single self-restoring trial.</p>
+     *
+     * @param   game isolated simulation game
+     * @param   actions one candidate for every living nation
+     * @return  the resulting immutable position
+     * @throws  NullPointerException if an argument, map key, or candidate is null
+     * @throws  IllegalArgumentException if a joint action is incomplete or invalid
+     */
+    public GameState resolve(Game game, Map<Nation, ActionCandidate> actions) {
+        Objects.requireNonNull(game, "game");
+        Map<Nation, ActionCandidate> submitted = Map.copyOf(Objects.requireNonNull(actions, "actions"));
+        validate(game.snapshot(), submitted);
+        return resolveValidated(game, submitted);
+    }
+
+    private static void validate(GameState state, Map<Nation, ActionCandidate> submitted) {
         Set<Nation> missing = EnumSet.noneOf(Nation.class);
         missing.addAll(state.aliveNations());
         missing.removeAll(submitted.keySet());
-        if (!missing.isEmpty())  // all alive nations must have candidates
+        if (!missing.isEmpty())
             throw new IllegalArgumentException("Missing candidates for living nations: " + missing);
 
-        ActionValidator         validator = new CatalogActionValidator();
-        List<Order>             movementOrders = new ArrayList<>();
-        List<RetreatOrder>      retreatOrders = new ArrayList<>();
-        List<AdjustmentOrder>   adjustmentOrders = new ArrayList<>();
-
+        ActionValidator validator = new CatalogActionValidator();
         for (Nation nation : Nation.values()) {
             ActionCandidate candidate = submitted.get(nation);
             if (candidate == null)
@@ -81,7 +113,18 @@ public class Simulator {
             List<ActionValidationError> errors = validator.validate(state, candidate);
             if (!errors.isEmpty())
                 throw new IllegalArgumentException("Invalid action for " + nation + ": " + errors);
+        }
+    }
 
+    private static GameState resolveValidated(Game game, Map<Nation, ActionCandidate> submitted) {
+        List<Order>             movementOrders = new ArrayList<>();
+        List<RetreatOrder>      retreatOrders = new ArrayList<>();
+        List<AdjustmentOrder>   adjustmentOrders = new ArrayList<>();
+
+        for (Nation nation : Nation.values()) {
+            ActionCandidate candidate = submitted.get(nation);
+            if (candidate == null)
+                continue;
             for (OrderForm order : candidate.orders()) {
                 switch (order) {
                     case Order              movement    -> movementOrders.add(movement);
@@ -92,17 +135,12 @@ public class Simulator {
             }
         }
 
-        game.takeSnapshot();
-        try {
-            switch (state.moment().gamePhase()) {
-                case SPRING_MOVEMENT, FALL_MOVEMENT -> game.resolveMovement(movementOrders);
-                case SPRING_RETREAT, FALL_RETREAT   -> game.resolveRetreats(retreatOrders);
-                case WINTER_ADJUSTMENT              -> game.resolveAdjustments(adjustmentOrders);
-            }
-            return game.snapshot();
-        } finally {
-            game.restoreFromSnapshot();
+        switch (game.phase()) {
+            case SPRING_MOVEMENT, FALL_MOVEMENT -> game.resolveMovement(movementOrders);
+            case SPRING_RETREAT, FALL_RETREAT   -> game.resolveRetreats(retreatOrders);
+            case WINTER_ADJUSTMENT              -> game.resolveAdjustments(adjustmentOrders);
         }
+        return game.snapshot();
 
     }
 

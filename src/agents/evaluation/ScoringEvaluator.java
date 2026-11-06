@@ -38,7 +38,7 @@ public final class ScoringEvaluator implements Evaluator {
     }
 
     public ScoringSystem scoringSystem() {
-        return scoringSystem;
+        return ( this.scoringSystem );  // safe because is an enum
     }
 
     /**
