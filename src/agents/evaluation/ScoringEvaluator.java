@@ -26,7 +26,7 @@ import org.jetbrains.annotations.NotNull;
  * Tape have variable total payouts, which a sum-to-one value head cannot
  * represent directly. C-Diplo's total also depends on unowned centers.</p>
  */
-public final class ScoringEvaluator implements Evaluator {
+public class ScoringEvaluator implements Evaluator {
 
     @NotNull
     private final ScoringSystem scoringSystem;

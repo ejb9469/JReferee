@@ -28,6 +28,8 @@ import java.util.*;
  * Use a separate simulation game; concurrent and nested peeks on the same
  * game are unsupported. Custom processor state and external game records
  * are outside Game's rollback.</p>
+ *
+ * @author Evan B.
  */
 public class Simulator {
 

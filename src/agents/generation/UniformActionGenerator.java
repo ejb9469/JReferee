@@ -52,11 +52,11 @@ import java.util.TreeMap;
  * required size. The first winter action is no builds, or the first required
  * units in province order.</p>
  */
-public final class UniformActionGenerator implements ActionGenerator {
+public class UniformActionGenerator implements ActionGenerator {
 
-    private static final int SAMPLES_PER_CANDIDATE = 32;
+    public static final int SAMPLES_PER_CANDIDATE = 32;
 
-    private static final Comparator<OrderForm> ORDER_COMPARATOR =
+    static final Comparator<OrderForm> ORDER_COMPARATOR =
             Comparator.comparing(OrderForm::orderType)
                     .thenComparing(OrderForm::target,
                             Comparator.nullsFirst(Comparator.naturalOrder()))
@@ -99,7 +99,7 @@ public final class UniformActionGenerator implements ActionGenerator {
         List<List<OrderForm>> optionsByUnit = new ArrayList<>();
         List<OrderForm> defaults = new ArrayList<>();
         int omissionChoices = catalog.allowsOmission() ? 1 : 0;
-        double logPrior = 0.0;
+        double logPrior = logPrior(catalog);
         int targetSize = 1;
 
         for (UnitId unit : units) {
@@ -109,8 +109,6 @@ public final class UniformActionGenerator implements ActionGenerator {
             if (!catalog.allowsOmission())
                 defaults.add(Order.hold(unit));
             int choiceCount = options.size() + omissionChoices;
-            logPrior -= StrictMath.log(choiceCount);
-
             targetSize = (int) Math.min(
                     request.candidateLimit(), (long) targetSize * choiceCount);
         }
@@ -128,7 +126,7 @@ public final class UniformActionGenerator implements ActionGenerator {
         for (long sample = 0;
              sample < sampleLimit && candidates.size() < targetSize;
              sample++) {
-            List<OrderForm> orders = new ArrayList<>(units.size());
+            List<OrderForm> orders = new ArrayList<>();
             for (List<OrderForm> options : optionsByUnit) {
                 int choice = random.nextInt(options.size() + omissionChoices);
                 if (choice < options.size())
@@ -145,7 +143,10 @@ public final class UniformActionGenerator implements ActionGenerator {
         return List.copyOf(candidates);
     }
 
-    private static LegalOrderCatalog withoutConvoys(
+    /**
+     * Shared movement restriction for the uniform and plausible generators.
+     */
+    static LegalOrderCatalog withoutConvoys(
             GameState_Movement state, LegalOrderCatalog catalog
     ) {
         Map<Province, UnitId> occupants = new LinkedHashMap<>();
@@ -171,6 +172,20 @@ public final class UniformActionGenerator implements ActionGenerator {
             options.put(entry.getKey(), retained);
         }
         return new LegalOrderCatalog(state, catalog.power(), options);
+    }
+
+    /**
+     * Full-action prior under independent, uniform per-unit choices.
+     * The supplied movement or retreat catalog already defines the policy.
+     */
+    static double logPrior(LegalOrderCatalog catalog) {
+        List<UnitId> units = new ArrayList<>(catalog.unitLocations().keySet());
+        units.sort(Comparator.comparing(catalog.unitLocations()::get));
+        double result = 0.0;
+        for (UnitId unit : units)
+            result -= StrictMath.log(catalog.optionsFor(unit).size()
+                    + (catalog.allowsOmission() ? 1 : 0));
+        return result;
     }
 
     private static List<ActionCandidate> generateBuilds(

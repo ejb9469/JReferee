@@ -5,7 +5,6 @@ import domain.Nation;
 import game.press.PressLedger;
 import game.press.PressMessage;
 import game.press.Pressable;
-import org.jetbrains.annotations.Nullable;
 import phase.Order;
 import phase.PhaseInput;
 import phase.PhaseResult;
@@ -28,6 +27,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 
+import org.jetbrains.annotations.Nullable;
+
 
 /**
  * Stateful Diplomacy game (phase-transition) representation & orchestrator.
@@ -36,9 +37,11 @@ import java.util.Objects;
  * `Processor`s remain responsible for their own adjudication rules.<br>
  * `Game` builds the correct input, invokes the appropriate processor, applies the result to
  * the persistent board, and advances to the next phase.</p>
+ *
+ * @author Evan B.
  */
 public class Game
-        implements Orchestrator, Pressable, Snapshot<GameState> {
+        implements Orchestrator, Snapshot<GameState>, Pressable {
 
 
     private final Processor<MovementInput, MovementResult>

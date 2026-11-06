@@ -30,7 +30,7 @@ import java.util.Objects;
  * should target that utility, with search regularization calibrated to its
  * scale.</p>
  */
-public final class SCEvaluator implements Evaluator {
+public class SCEvaluator implements Evaluator {
 
     /**
      * Counts the supplied state's center owners in nation order.

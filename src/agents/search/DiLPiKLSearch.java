@@ -43,8 +43,9 @@ import java.util.*;
  * Negative-infinity log priors keep zero policy mass, regardless of payoff.</p>
  *
  * <p>Pools and anchor priors remain fixed throughout a search. Missing actions
- * cannot be discovered by increasing the iteration count. No prior smoothing,
- * coordinated order construction, or response-driven pool expansion occurs here.
+ * cannot be discovered by increasing the iteration count. The generator supplies
+ * coordinated order sets; its construction scores do not enter the payoff update
+ * or the KL calculation. No prior smoothing or response-driven pool expansion occurs here.
  * A uniform anchor and short rollouts remain baselines for the paper's learned
  * policies and values. Convergence in seven-player Diplomacy is not guaranteed.</p>
  *
@@ -58,6 +59,8 @@ import java.util.*;
  * games and processors, with thread-safe collaborators. Custom processor state
  * and external records are outside Game's rollback. The caller decides whether
  * the game has ended before requesting a search.</p>
+ *
+ * @author Evan B.
  */
 public final class DiLPiKLSearch {
 
@@ -74,10 +77,17 @@ public final class DiLPiKLSearch {
     // Constructors \\
 
     /**
-     * Uses the default uniform generator for every living nation's root pool.
-     * Its movement candidates exclude convoys and convoy-dependent Army moves.
+     * Uses PlausibleActionGenerator for every living nation's root pool.
+     * Movement candidates coordinate friendly orders and exclude convoys.
+     * Retreats and adjustments retain the uniform baseline.
      *
-     * <p>A rollout evaluator configures its continuation generator separately.</p>
+     * <p>The generator caps movement pools at 256 candidates and may return
+     * fewer under its construction budget. A limit of 1 produces all-hold
+     * in movement. The anchor remains factorized and uniform.</p>
+     *
+     * <p>A rollout evaluator configures its continuation generator separately.
+     * Its convenience constructor also uses PlausibleActionGenerator.
+     * Use the explicit constructors to choose another generator for either stage.</p>
      *
      * @param evaluator successor evaluation, including any continuation search
      * @param candidateLimit maximum candidates per living nation; at least 1
@@ -90,7 +100,7 @@ public final class DiLPiKLSearch {
      */
     public DiLPiKLSearch(Evaluator evaluator, int candidateLimit, int iterations,
                          LambdaDistribution population, double agentLambda, long seed) {
-        this(evaluator, new UniformActionGenerator(), candidateLimit, iterations,
+        this(evaluator, new PlausibleActionGenerator(), candidateLimit, iterations,
                 population, agentLambda, seed);
     }
 

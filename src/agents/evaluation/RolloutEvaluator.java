@@ -20,9 +20,15 @@ import java.util.function.Function;
  *
  * <p>Actions are sampled independently for each nation from freshly generated
  * candidate pools, weighted by exp(logPrior). These are anchor probabilities
- * conditioned on the retained candidates. With UniformActionGenerator the
- * choice is uniform within each pool, which may cover little of the full action
- * space. Candidate priors are never modified.</p>
+ * conditioned on the retained candidates. The default PlausibleActionGenerator
+ * coordinates orders within each movement action, while keeping a uniform
+ * anchor. Selection is uniform within its returned pool. Construction scores
+ * affect which candidates are offered, but are not sampling weights.
+ * Candidate priors are never modified.</p>
+ *
+ * <p>Default movement proposals exclude convoys. Retreats and adjustments
+ * retain the uniform baseline. Each phase receives new candidate pools for
+ * its current board and living nations; root search pools are not reused.</p>
  *
  * <p>The leaf evaluator defines the payoff scale. Averaging preserves that
  * scale, including variable-total scoring systems. Random or weak continuation
@@ -35,7 +41,7 @@ import java.util.function.Function;
  * custom processor state is outside Game's rollback. Parallel evaluations
  * require thread-safe collaborators and independent games/processors.</p>
  */
-public final class RolloutEvaluator implements Evaluator {
+public class RolloutEvaluator implements Evaluator {
 
     private final Evaluator leafEvaluator;
     private final ActionGenerator generator;
@@ -45,10 +51,25 @@ public final class RolloutEvaluator implements Evaluator {
     private final long seed;
 
     /**
-     * Uses uniform candidate generation and Game.fromState's standard processors.
+     * Uses PlausibleActionGenerator and Game.fromState's standard processors.
+     *
+     * <p>Movement pools contain coordinated, convoy-free candidates. The
+     * generator caps them at 256 and may return fewer under its construction
+     * budget. A limit of 1 produces all-hold in movement.</p>
+     *
+     * <p>Root search chooses its generator separately. Supply the explicit
+     * constructors when either stage needs a different generation policy.
+     * Custom root processors also require a matching continuation game factory.</p>
+     *
+     * @param leafEvaluator finite year-end payoffs for every nation
+     * @param rolloutCount sampled continuations per evaluation; at least 1
+     * @param candidateLimit maximum candidates per living nation and phase; at least 1
+     * @param seed random seed restarted by each evaluation
+     * @throws NullPointerException if leafEvaluator is null
+     * @throws IllegalArgumentException if either limit is below 1
      */
     public RolloutEvaluator(Evaluator leafEvaluator, int rolloutCount, int candidateLimit, long seed) {
-        this(leafEvaluator, new UniformActionGenerator(), Game::fromState,
+        this(leafEvaluator, new PlausibleActionGenerator(), Game::fromState,
                 rolloutCount, candidateLimit, seed);
     }
 
