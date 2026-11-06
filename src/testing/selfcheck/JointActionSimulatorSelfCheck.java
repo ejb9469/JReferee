@@ -1,7 +1,7 @@
 package testing.selfcheck;
 
 import agents.generation.*;
-import agents.simulation.JointActionSimulator;
+import agents.simulation.Simulator;
 import contracts.OrderForm;
 import domain.Nation;
 import domain.Province;
@@ -22,8 +22,8 @@ import java.util.*;
  */
 public final class JointActionSimulatorSelfCheck {
 
-    private static final JointActionSimulator SIMULATOR =
-            new JointActionSimulator(MovementProcessor.Policy.SZYKMAN_JUSTICE, 4, 0L);
+    private static final Simulator SIMULATOR =
+            new Simulator(MovementProcessor.Policy.SZYKMAN_JUSTICE, 4, 0L);
 
     private static int checks;
 
@@ -102,7 +102,7 @@ public final class JointActionSimulatorSelfCheck {
         require(bounced.moment().gamePhase() == GamePhase.FALL_MOVEMENT,
                 "Movement without dislodgements must skip retreats");
         require(bounced.board().equals(board), "An unsupported attack must bounce");
-        requireSameRetreat(next, requireRetreats(new JointActionSimulator(
+        requireSameRetreat(next, requireRetreats(new Simulator(
                 MovementProcessor.Policy.JUSTICE, 1, 17L).advance(state, actions)));
 
         GameState fall = new GameState_Movement(new GameMoment(1907, GamePhase.FALL_MOVEMENT), board);
@@ -244,10 +244,10 @@ public final class JointActionSimulatorSelfCheck {
         Map<Nation, ActionCandidate> nullKey = new HashMap<>(actions);
         nullKey.put(null, action(Nation.FRANCE));
         expect(NullPointerException.class, () -> SIMULATOR.advance(state, nullKey));
-        expect(NullPointerException.class, () -> new JointActionSimulator(null, 4, 0L));
-        expect(IllegalArgumentException.class, () -> new JointActionSimulator(MovementProcessor.Policy.JUSTICE, 0, 0L));
+        expect(NullPointerException.class, () -> new Simulator(null, 4, 0L));
+        expect(IllegalArgumentException.class, () -> new Simulator(MovementProcessor.Policy.JUSTICE, 0, 0L));
 
-        GameState winter = new JointActionSimulator().advance(state, actions);
+        GameState winter = new Simulator().advance(state, actions);
         require(winter instanceof GameState_Adjustments, "Empty Fall movement must reach winter through Game");
         GameState spring = SIMULATOR.advance(winter, actions);
         require(spring.moment().equals(new GameMoment(1908, GamePhase.SPRING_MOVEMENT)),

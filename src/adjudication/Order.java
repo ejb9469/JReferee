@@ -15,7 +15,7 @@ import java.util.Objects;
  * Mutable adjudication work order, including resolution metadata.
  */
 public class Order
-        implements OrderForm, Snapshot, Comparable<Order> {
+        implements OrderForm, Snapshot<Order>, Comparable<Order> {
 
     // Core fields
     public Nation owner;

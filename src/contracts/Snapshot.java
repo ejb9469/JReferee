@@ -3,9 +3,9 @@ package contracts;
 /**
  * In-place rollback contract.
  */
-public interface Snapshot {
+public interface Snapshot<S> {
 
-    Snapshot        getSnapshot();
+    S               getSnapshot();
     void            takeSnapshot();
     void            restoreFromSnapshot();
 

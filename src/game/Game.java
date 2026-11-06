@@ -51,6 +51,7 @@ public class Game
     @Deprecated  // Press will (probably) be handled elsewhere, for now --> deprecated [ @ 11-04-26 ]
     private final PressLedger pressLedger;
 
+    @Deprecated  // this is unnecessary overhead [ @ 11-06-26 ]
     private final List<Processor<? extends PhaseInput, ? extends PhaseResult>>
             processorHistory = new ArrayList<>();
 
