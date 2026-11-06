@@ -34,7 +34,7 @@ public final class SCEvaluator implements Evaluator {
 
     /**
      * Counts the supplied state's center owners in nation order.
-     * A position returned by Simulator.peek() remains usable after rollback.
+     * A position returned by `Simulator.peek()` remains usable after rollback.
      */
     @Override
     public Map<Nation, Double> evaluate(GameState state) {
