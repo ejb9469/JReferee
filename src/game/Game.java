@@ -1,9 +1,11 @@
 package game;
 
+import contracts.Snapshot;
 import domain.Nation;
 import game.press.PressLedger;
 import game.press.PressMessage;
 import game.press.Pressable;
+import org.jetbrains.annotations.Nullable;
 import phase.Order;
 import phase.PhaseInput;
 import phase.PhaseResult;
@@ -36,7 +38,7 @@ import java.util.Objects;
  * the persistent board, and advances to the next phase.</p>
  */
 public class Game
-        implements Orchestrator, Pressable {
+        implements Orchestrator, Pressable, Snapshot<GameState> {
 
 
     private final Processor<MovementInput, MovementResult>
@@ -55,9 +57,14 @@ public class Game
     private final List<Processor<? extends PhaseInput, ? extends PhaseResult>>
             processorHistory = new ArrayList<>();
 
-    private BoardState board;
-    private int year;
-    private GamePhase phase;
+
+    private @Nullable   GameState savedState;
+    private             int savedProcessorCount;
+    private             int savedPressCount;
+
+    private             BoardState board;
+    private             int year;
+    private             GamePhase phase;
 
     /*
      * Stored only while a retreat phase is active. Retreat processing needs
@@ -178,12 +185,7 @@ public class Game
                 retreatProcessor,
                 adjustmentProcessor);
 
-        game.phase = state.moment().gamePhase();
-
-        if (state instanceof GameState_Retreats retreats)
-            game.pendingMovement = retreats.movementResult();
-        else if (state instanceof GameState_Adjustments adjustments)
-            game.latestFallRetreat = adjustments.fallRetreatResult();
+        game.applyState(state);
 
         return game;
 
@@ -203,8 +205,8 @@ public class Game
 
 
     /**
-     * Returns the immutable position required by {@link #fromState(GameState)}.
-     * Processor configuration, press, and processor history are excluded.
+     * Returns the current immutable position without changing the saved
+     * checkpoint. Processor configuration, press, and history are excluded.
      */
     public GameState snapshot() {
 
@@ -244,7 +246,60 @@ public class Game
 
     }
 
+    /**
+     * Returns the saved position, or null when no checkpoint is available.
+     */
+    @Override
+    public @Nullable GameState getSnapshot() {
+        return savedState;
+    }
 
+    /**
+     * Saves the current position and history lengths, replacing any previous
+     * checkpoint. Do not truncate a shared press ledger while it is saved.
+     */
+    @Override
+    public void takeSnapshot() {
+        GameState state = snapshot();
+        savedProcessorCount = processorHistory.size();
+        savedPressCount = pressLedger.size();
+        savedState = state;
+    }
+
+    /**
+     * Restores the saved position and discards later press and processor-history
+     * entries. The checkpoint is consumed; restoring without one throws
+     * IllegalStateException.
+     *
+     * <p>Processor configuration is retained. Mutable state inside custom
+     * processors and records held by an external GameRecordBuilder are not
+     * rewound. Use a separate game for speculative work on a recorded game.</p>
+     */
+    @Override
+    public void restoreFromSnapshot() {
+        GameState state = savedState;
+        if (state == null)
+            throw new IllegalStateException("No game snapshot has been taken");
+        if (processorHistory.size() < savedProcessorCount || pressLedger.size() < savedPressCount)
+            throw new IllegalStateException("History was shortened after the snapshot was taken");
+
+        pressLedger.truncate(savedPressCount);
+        processorHistory.subList(savedProcessorCount, processorHistory.size()).clear();
+        applyState(state);
+        savedState = null;
+        savedProcessorCount = 0;
+        savedPressCount = 0;
+    }
+
+    private void applyState(GameState state) {
+        board = state.board();
+        year = state.moment().year();
+        phase = state.moment().gamePhase();
+        pendingMovement = state instanceof GameState_Retreats retreats
+                ? retreats.movementResult() : null;
+        latestFallRetreat = state instanceof GameState_Adjustments adjustments
+                ? adjustments.fallRetreatResult() : null;
+    }
     /**
      * Records caller-created press in the current game year and phase.
      *
@@ -287,7 +342,11 @@ public class Game
 
     /**
      * Returns processors that have completed, non-errored phases, in chronological order.
+     *
+     * @deprecated Stores processor references only. Use
+     * {@link game.record.GameRecordBuilder} for orders, results, and board history.
      */
+    @Deprecated
     public List<Processor<
             ? extends PhaseInput,
             ? extends PhaseResult>> processorHistory()

@@ -12,7 +12,7 @@ import java.util.UUID;
 
 
 /**
- * Append-only authoritative press timeline for one game.
+ * Authoritative press timeline for one game.
  *
  * <p>This class records and queries press only. It does not generate IDs,
  * access a clock, send messages, retain recipient inboxes, or modify game
@@ -20,7 +20,8 @@ import java.util.UUID;
  *
  * <p>Message append order is authoritative. Do not sort messages by
  * {@code Moment.instant()}: imported records can contain equal or imperfect
- * timestamps, while append order always preserves the stored game timeline.</p>
+ * timestamps, while append order preserves the stored game timeline.
+ * Rollback may discard a suffix through {@link #truncate(int)}.</p>
  */
 @Deprecated
 public final class PressLedger {
@@ -95,6 +96,18 @@ public final class PressLedger {
 
     public int size() {
         return messages.size();
+    }
+
+    /**
+     * Keeps the first retainedCount messages, releasing discarded message IDs
+     * so they may be submitted again after rollback.
+     */
+    public void truncate(int retainedCount) {
+        if (retainedCount < 0 || retainedCount > messages.size())
+            throw new IllegalArgumentException("retainedCount must be between zero and the current size");
+
+        while (messages.size() > retainedCount)
+            messageIds.remove(messages.removeLast().id());
     }
 
 }

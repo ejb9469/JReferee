@@ -20,7 +20,7 @@ import phase.retreats.RetreatProcessor;
 import java.util.*;
 
 /**
- * Resolves one joint action in a separate game.
+ * Resolves one joint action in a separate game. Uses a mutable `Game` instance
  *
  * <p>Every nation supplies a candidate, including an empty action where
  * appropriate. All candidates are checked against the same starting state.
@@ -30,7 +30,7 @@ import java.util.*;
  * fresh processors. Movement inputs are ordered by current province name.
  * Winter builds retain the processor's randomly generated unit identities.</p>
  */
-public final class Simulator {
+public class Simulator {
 
     private final MovementProcessor.Policy policy;
     private final int trialCount;
