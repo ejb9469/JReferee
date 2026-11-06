@@ -37,7 +37,7 @@ public class Search {
     private final long seed;
 
     public Search(Evaluator evaluator, int candidateLimit, int opponentSamples, long seed) {
-        this(evaluator, new UniformActionGenerator(), candidateLimit, opponentSamples, seed);
+        this(evaluator, new PlausibleActionGenerator(), candidateLimit, opponentSamples, seed);
     }
 
     public Search(Evaluator evaluator, ActionGenerator generator,
