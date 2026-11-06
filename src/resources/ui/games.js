@@ -180,8 +180,50 @@ async function start() {
 
     });
 
-    await loadGames(0);
+    if (document.body?.dataset.source === "native")
+        await loadNativeReplay();
+    else
+        await loadGames(0);
 
+}
+
+async function loadNativeReplay() {
+    document.title = "JReferee Agent Replay";
+    $("#page-title").textContent = "JReferee Agent Replay";
+    $("#summary").textContent = "Loading local replay…";
+    $("#source-label").textContent = "Recorded phase";
+    $("#phase-help").textContent =
+        "Each phase shows its starting position and submitted orders. "
+        + "The next snapshot shows the resulting board. FINAL includes the completed Fall ownership update.";
+    $("#map-help").textContent =
+        "Supply centers use their recorded owner's color. Small dashed tokens mark units awaiting retreat.";
+    $("#orders-help").textContent =
+        "Orders actually submitted in this game. An omitted retreat destroys the dislodged unit.";
+    $("#annotations-title").textContent = "JReferee result annotations";
+    $("#annotations-help").textContent =
+        "Archived local adjudication outcomes. These are separate from search value estimates.";
+    try {
+        const result = await json("/replay.json");
+        if (result.source !== "NATIVE" || result.schemaVersion !== 1
+                || !Array.isArray(result.phases) || !result.colors
+                || !result.finalScores || !result.settings
+                || !["SOLO", "CUTOFF"].includes(result.endReason)
+                || result.phases.at(-1)?.status !== "FINAL"
+                || (result.endReason === "SOLO" && !result.colors[result.winner]))
+            throw new Error("Unsupported native replay format.");
+        displayGame(result);
+        $("#summary").textContent =
+            `${result.endReason === "SOLO" ? `Solo: ${result.winner}` : "Year-end cutoff (not an agreed draw)"}`
+            + ` · ${result.scoring} · ${result.phases.length - 1} resolved phases`;
+        $("#native-scores").hidden = false;
+        $("#native-settings").hidden = false;
+        $("#native-settings-text").textContent =
+            `Ruleset: ${result.rulesetId}\n`
+            + Object.entries(result.settings).map(([key, value]) => `${key}: ${value}`).join("\n");
+    } catch (error) {
+        resetGame();
+        $("#summary").textContent = "Unable to load local replay: " + error.message;
+    }
 }
 
 function captureMapPalette() {
@@ -377,43 +419,7 @@ async function selectGame(entry) {
         if (!Array.isArray(result.phases) || !result.colors)
             throw new Error("Invalid game response.");
 
-        game = result;
-
-        $("#game-title").textContent = game.title || `Game ${game.externalKey}`;
-        $("#game-details").textContent =
-            `${game.competition || "No competition"} · DBN ${game.externalKey}`;
-
-        $("#nation").replaceChildren(new Option("All countries", ""));
-
-        for (const nation of Object.keys(game.colors))
-            $("#nation").append(new Option(nation, nation));
-
-        $("#nation").disabled = false;
-
-        game.phases.forEach((phase, index) => {
-
-            $("#phase").append(new Option(
-                `${index + 1}. ${phase.board.year} `
-                    + `${phase.board.phase.replaceAll("_", " ")} `
-                    + `[${phase.status}]`,
-                String(index)));
-
-        });
-
-        $("#phase").disabled = game.phases.length === 0;
-        $("#game-status").textContent =
-            "Snapshot order is preserved exactly as stored in the source.";
-
-        if (game.phases.length > 0) {
-
-            showPhase(0);
-
-        } else {
-
-            $("#game-status").textContent = "This game contains no snapshots.";
-            DetectivePanel.reset("No snapshots to investigate.");
-
-        }
+        displayGame(result);
 
     } catch (error) {
 
@@ -426,6 +432,34 @@ async function selectGame(entry) {
 
     }
 
+}
+
+function displayGame(result) {
+    game = result;
+    $("#game-title").textContent = game.title || `Game ${game.externalKey}`;
+    $("#game-details").textContent = game.source === "NATIVE"
+        ? `${game.settings.agents || "Recorded agent game"} · ${game.scoring}`
+        : `${game.competition || "No competition"} · DBN ${game.externalKey}`;
+    $("#nation").replaceChildren(new Option("All countries", ""));
+    for (const nation of Object.keys(game.colors))
+        $("#nation").append(new Option(nation, nation));
+    $("#nation").disabled = false;
+    $("#phase").replaceChildren();
+    game.phases.forEach((phase, index) => {
+        $("#phase").append(new Option(
+            `${index + 1}. ${phase.board.year} ${phase.board.phase.replaceAll("_", " ")} [${phase.status}]`,
+            String(index)));
+    });
+    $("#phase").disabled = game.phases.length === 0;
+    $("#game-status").textContent = game.source === "NATIVE"
+        ? "Read-only native replay. Viewing a phase does not rerun search or adjudication."
+        : "Snapshot order is preserved exactly as stored in the source.";
+    if (game.phases.length > 0)
+        showPhase(0);
+    else {
+        $("#game-status").textContent = "This game contains no snapshots.";
+        DetectivePanel.reset("No snapshots to investigate.");
+    }
 }
 
 function markSelectedGame() {
@@ -511,7 +545,7 @@ function renderPhase() {
 
     $("#phase-details").textContent =
         `Snapshot ${phaseIndex + 1}/${game.phases.length} · `
-        + `source code ${phase.sourcePhase} · ${phase.status} · `
+        + (game.source === "NATIVE" ? `${phase.status} · ` : `source code ${phase.sourcePhase} · ${phase.status} · `)
         + `${phase.board.units.length} units · `
         + `${orders.length}/${phase.orders.length} displayed orders · `
         + `${retreatCount} displayed retreat(s)`;
@@ -530,8 +564,14 @@ function renderPhase() {
 
     const warnings = [];
 
-    renderUnits(phase.board.units, nation, phase.orders, warnings);
+    renderUnits([
+        ...phase.board.units,
+        ...(phase.dislodgedUnits || []).map(unit => ({ ...unit, dislodged: true }))
+    ], nation, phase.orders, warnings);
     renderOrders(orders, warnings);
+
+    if (game.source === "NATIVE")
+        renderNativeScores(phase);
 
     $("#map-warning").textContent = warnings.length
         ? "Some map elements could not be drawn: " + warnings.join("; ")
@@ -541,7 +581,8 @@ function renderPhase() {
         $("#orders"),
         orders,
         order => order.text,
-        "No parsed orders for this selection.");
+        game.source === "NATIVE" ? "No submitted orders for this selection."
+            : "No parsed orders for this selection.");
 
     fillList(
         $("#annotations"),
@@ -552,7 +593,8 @@ function renderPhase() {
             + (annotation.successful === null ? "UNKNOWN"
                 : annotation.successful ? "SUCCESS" : "FAILURE")
             + (annotation.reason ? ` — ${annotation.reason}` : ""),
-        "No source result annotations for this selection.");
+        game.source === "NATIVE" ? "No adjudication annotations for this selection."
+            : "No source result annotations for this selection.");
 
     for (const path of svgRoot.querySelectorAll(".province.selected"))
         path.classList.remove("selected");
@@ -564,6 +606,26 @@ function renderPhase() {
 
     DetectivePanel.show(phase.investigation, nation, inspectProvince);
 
+}
+
+function renderNativeScores(phase) {
+    const counts = Object.fromEntries(Object.keys(game.colors).map(nation => [nation, 0]));
+    for (const nation of Object.values(phase.board.supplyCenterOwners))
+        counts[nation]++;
+    $("#native-scores-body").replaceChildren();
+    for (const nation of Object.keys(game.colors)) {
+        const row = document.createElement("tr");
+        for (const value of [nation, counts[nation], game.finalScores[nation].toFixed(2)]) {
+            const cell = document.createElement("td");
+            cell.textContent = String(value);
+            row.append(cell);
+        }
+        $("#native-scores-body").append(row);
+    }
+    $("#native-phase-seeds").textContent = phase.agentSeeds
+        ? "Decision seeds for this phase:\n"
+            + Object.entries(phase.agentSeeds).map(([nation, seed]) => `${nation}: ${seed}`).join("\n")
+        : "Final snapshot: no orders submitted.";
 }
 
 function fillList(list, entries, text, emptyMessage) {
@@ -641,7 +703,7 @@ function paintNonCenterTerritories(phase) {
 
     const active = new Set();
 
-    for (const unit of board.units)
+    for (const unit of [...board.units, ...(phase.dislodgedUnits || [])])
         active.add(unit.nation);
 
     for (const owner of Object.values(board.supplyCenterOwners)) {
@@ -753,7 +815,11 @@ function unitTooltip(unit, orders) {
 
     if (matching.length === 0)
         return `${unit.nation} ${unit.type} ${unit.province}\n`
-            + "Order unknown / not supplied in this snapshot";
+            + (game?.source === "NATIVE"
+                ? (unit.dislodged ? "No retreat submitted; unit disbanded"
+                    : game.phases[phaseIndex].status === "FINAL"
+                        ? "Final position; no phase played" : "No order submitted in this phase")
+                : "Order unknown / not supplied in this snapshot");
 
     return matching.map(order => order.text).join("\n");
 
@@ -771,11 +837,12 @@ function renderUnits(units, selectedNation, orders, warnings) {
         try {
 
             const position = anchor(unit.province);
-            const tooltip = unitTooltip(unit, orders);
+            const tooltip = (unit.dislodged ? "Dislodged; awaiting retreat\n" : "") + unitTooltip(unit, orders);
+            const offset = unit.dislodged ? 1.5 : 0;
 
             const group = svgElement("g", {
-                class: "unit-token",
-                transform: `translate(${position.x} ${position.y})`,
+                class: unit.dislodged ? "unit-token dislodged" : "unit-token",
+                transform: `translate(${position.x + offset} ${position.y + offset})`,
                 opacity:
                     !selectedNation || unit.nation === selectedNation ? 1 : 0.25,
                 tabindex: 0,
@@ -787,10 +854,11 @@ function renderUnits(units, selectedNation, orders, warnings) {
             title.textContent = tooltip;
 
             const circle = svgElement("circle", {
-                r: 1.7,
+                r: unit.dislodged ? 1.2 : 1.7,
                 fill: game.colors[unit.nation],
                 stroke: "#ffffff",
-                "stroke-width": 0.35
+                "stroke-width": 0.35,
+                "stroke-dasharray": unit.dislodged ? "0.5 0.3" : "none"
             });
 
             const label = svgElement("text", {

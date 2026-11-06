@@ -81,3 +81,31 @@
         grid-template-columns: 1fr;
     }
 }
+body[data-source="native"] .opening-panel,
+body[data-source="native"] .toolbar .search,
+body[data-source="native"] #refresh,
+body[data-source="native"] .detectives-panel {
+    display: none;
+}
+
+body[data-source="native"] .browser-layout {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 100rem;
+    margin: auto;
+}
+
+#native-scores {
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+
+#native-scores td, #native-scores th {
+    padding: 0.3rem 1rem;
+    border: 1px solid #b4bfcd;
+    text-align: left;
+}
+
+#native-settings pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

@@ -20,7 +20,12 @@ class Element {
         this.listeners = {};
         this.attributes = {};
         this.dataset = {};
-        this.style = {};
+        this.style = {
+            getPropertyValue: name => this.style[name] || "",
+            getPropertyPriority: () => "",
+            setProperty: (name, value) => { this.style[name] = value; },
+            removeProperty: name => { delete this.style[name]; }
+        };
         this.value = "";
         this.text = "";
         this.disabled = false;
@@ -50,6 +55,27 @@ class Element {
         }
         if (this.tagName === "select" && this.children.length === children.length)
             this.value = this.children[0]?.value || "";
+    }
+
+    get parentNode() {
+        return this.parent;
+    }
+
+    insertBefore(child, reference) {
+        child.parent = this;
+        this.children.splice(this.children.indexOf(reference), 0, child);
+    }
+
+    getBBox() {
+        return { x: 0, y: 0, width: 10, height: 10 };
+    }
+
+    getScreenCTM() {
+        return { inverse() { return this; }, multiply() { return this; } };
+    }
+
+    createSVGPoint() {
+        return { x: 0, y: 0, matrixTransform() { return { x: this.x, y: this.y }; } };
     }
 
     replaceChildren(...children) {
@@ -99,6 +125,7 @@ function harness() {
     get("detectives-kinds").append(get("detectives-kind-options"),
         get("detectives-select-all"), get("detectives-clear-selection"));
     const document = new Element("document");
+    document.append(get("detectives-findings"));
     document.querySelector = selector => get(selector.slice(1));
     document.createElement = tag => new Element(tag);
     document.createElementNS = (_, tag) => new Element(tag);
@@ -388,7 +415,7 @@ test("finding details, missing orders, safe text, and latest map callback surviv
     h.completeness("incomplete");
     h.panel.show(r, "ENGLAND", focus => { inspected = focus; });
     const card = h.displayed()[0];
-    assert.match(card.textContent, /Missing prerequisites: GERMANY A Mun/);
+    assert.match(card.textContent, /Missing structural prerequisites: GERMANY A Mun/);
     assert.match(card.textContent, /<img src=x onerror=alert\(1\)>/);
     assert.equal(card.querySelectorAll("img").length, 0);
     card.querySelectorAll("button")[0].dispatch("click");
@@ -418,11 +445,15 @@ const storedGame = id => ({
     }))
 });
 
-async function browserHarness() {
+async function browserHarness(nativeReplay) {
     const h = harness();
+    if (nativeReplay) {
+        h.document.body = new Element("body");
+        h.document.body.dataset.source = "native";
+    }
     const map = new Element("svg");
     map.localName = "svg";
-    map.querySelector = () => new Element("path");
+    map.querySelector = selector => selector.endsWith(" circle") ? null : new Element("path");
     h.context.DOMParser = class {
         parseFromString() {
             return { documentElement: map, querySelector: () => null };
@@ -432,6 +463,10 @@ async function browserHarness() {
     h.context.fetch = (url, options) => {
         if (url === "/ui/maps/standard.svg")
             return Promise.resolve({ ok: true, text: async () => "<svg/>" });
+        if (url === "/replay.json" && nativeReplay) {
+            requests.push({ url });
+            return Promise.resolve(response(nativeReplay));
+        }
         if (url.startsWith("/api/games?") && requests.length === 0) {
             requests.push({ initial: true });
             return Promise.resolve(response(listing([])));
@@ -451,6 +486,95 @@ async function browserHarness() {
     };
     return h;
 }
+
+function nativeReplay() {
+    return {
+        source: "NATIVE", schemaVersion: 1, id: "local", title: "Local game",
+        rulesetId: "fixture", endReason: "CUTOFF", winner: null, scoring: "SUM_OF_SQUARES",
+        settings: { searchPower: "FRANCE", seed: "42" },
+        colors: { FRANCE: "#123456", GERMANY: "#654321" },
+        finalScores: { FRANCE: 100, GERMANY: 0 },
+        phases: [
+            {
+                status: "RESOLVED",
+                board: { year: 1901, phase: "FALL_RETREAT",
+                    units: [{ nation: "FRANCE", type: "ARMY", province: "Mun" }],
+                    supplyCenterOwners: { Mun: "GERMANY", Par: "FRANCE" } },
+                orders: [], annotations: [], investigation: null,
+                dislodgedUnits: [{ nation: "GERMANY", type: "ARMY", province: "Mun" }],
+                agentSeeds: { FRANCE: "9223372036854775807", GERMANY: "-9223372036854775808" }
+            },
+            {
+                status: "FINAL",
+                board: { year: 1901, phase: "WINTER_ADJUSTMENT",
+                    units: [{ nation: "FRANCE", type: "ARMY", province: "Mun" }],
+                    supplyCenterOwners: { Mun: "FRANCE", Par: "FRANCE" } },
+                orders: [], annotations: [], dislodgedUnits: [], investigation: null
+            }
+        ]
+    };
+}
+
+test("native replay loads without a catalog, preserves seeds, and navigates final ownership", async () => {
+    const h = await browserHarness(nativeReplay());
+    assert.deepEqual(h.requests.map(request => request.url), ["/replay.json"]);
+    assert.match(h.get("summary").textContent, /Year-end cutoff \(not an agreed draw\)/);
+    assert.doesNotMatch(h.get("game-details").textContent, /DBN/);
+    assert.equal(h.get("source-label").textContent, "Recorded phase");
+    assert.equal(h.get("native-scores").hidden, false);
+    assert.match(h.get("native-phase-seeds").textContent, /9223372036854775807/);
+    assert.equal(h.run("unitLayer.children.length"), 2);
+    assert.equal(h.run("unitLayer.children[1].attributes.class"), "unit-token dislodged");
+    assert.match(h.run("unitLayer.children[1].attributes['aria-label']"), /No retreat submitted/);
+    assert.equal(h.get("map-warning").textContent, "");
+    assert.match(h.get("native-scores-body").textContent, /FRANCE1100\.00GERMANY10\.00/);
+    h.get("phase-next").dispatch("click");
+    assert.equal(h.run("phaseIndex"), 1);
+    assert.match(h.get("phase-details").textContent, /FINAL/);
+    assert.equal(h.run("unitLayer.children.length"), 1);
+    assert.match(h.get("native-scores-body").textContent, /FRANCE2100\.00GERMANY00\.00/);
+    assert.equal(h.get("phase-next").disabled, true);
+    assert.match(h.get("native-phase-seeds").textContent, /Final snapshot/);
+    assert.match(h.get("annotations").textContent, /No adjudication annotations/);
+    h.get("phase-previous").dispatch("click");
+    assert.equal(h.run("unitLayer.children.length"), 2);
+    assert.match(h.get("native-scores-body").textContent, /FRANCE1100\.00GERMANY10\.00/);
+});
+
+test("native solo and corrupt replay messages are explicit", async () => {
+    const solo = await browserHarness({ ...nativeReplay(), endReason: "SOLO", winner: "FRANCE" });
+    assert.match(solo.get("summary").textContent, /Solo: FRANCE/);
+    const invalid = await browserHarness({ ...nativeReplay(), schemaVersion: 999 });
+    assert.match(invalid.get("summary").textContent, /Unable to load local replay: Unsupported/);
+    assert.equal(invalid.get("phase").disabled, true);
+});
+
+test("exported Java replay retains board continuity, native score scale, and all phase controls",
+    { skip: !process.env.AGENT_GAME_REPLAY }, async () => {
+        const replay = JSON.parse(readFileSync(process.env.AGENT_GAME_REPLAY, "utf8"));
+        assert.equal(replay.source, "NATIVE");
+        assert.equal(replay.schemaVersion, 1);
+        const final = replay.phases.at(-1);
+        assert.equal(final.status, "FINAL");
+        assert.equal(final.board.phase, "WINTER_ADJUSTMENT");
+        assert.equal(final.orders.length, 0);
+        for (let index = 0; index < replay.phases.length - 1; index++) {
+            const phase = replay.phases[index];
+            assert.deepEqual(phase.boardAfter, replay.phases[index + 1].board);
+            assert.ok(Object.values(phase.agentSeeds).every(seed => typeof seed === "string"));
+        }
+        const counts = Object.fromEntries(Object.keys(replay.colors).map(nation => [nation, 0]));
+        for (const nation of Object.values(final.board.supplyCenterOwners)) counts[nation]++;
+        const total = Object.values(counts).reduce((sum, count) => sum + count * count, 0);
+        for (const [nation, count] of Object.entries(counts))
+            assert.ok(Math.abs(replay.finalScores[nation] - 100 * count * count / total) < 1e-9);
+        const h = await browserHarness(replay);
+        for (let index = 0; index < replay.phases.length; index++) {
+            h.run(`showPhase(${index})`);
+            assert.equal(h.get("map-warning").textContent, "");
+            assert.equal(h.get("phase").value, String(index));
+        }
+    });
 
 test("latest game response wins even when an aborted older request resolves later", async () => {
     const h = await browserHarness();

@@ -71,6 +71,82 @@ The existence of a convoy operation is an implied result of the convoying fleet 
 
 ---
 
+## Local agent-game demo
+
+`_app.AgentGameApp` runs France with DiL-piKL against six uniform-candidate-pool
+agents, starting in Spring 1901 and stopping at Winter 1903 **before builds**.
+A standard 18-center solo ends play earlier. A year cutoff is recorded separately
+from a draw, and final Sum-of-Squares points are shown as a stop-now score.
+
+Run from the repository root using JDK 25 or newer. Set `ANNOTATIONS_JAR` to
+your existing JetBrains annotations jar (`26.0.2`, as configured in the project).
+This entry point needs neither JavaFX nor SQLite:
+
+```sh
+javac --release 25 -cp "$ANNOTATIONS_JAR" -sourcepath src -d out \
+  src/_app/AgentGameApp.java src/testing/selfcheck/AgentGameSelfCheck.java
+java -Djreferee.engineRevision="$(git rev-parse HEAD)" -cp out \
+  _app.AgentGameApp --output data/agent-demo --serve
+```
+
+Open the localhost URL printed after the game finishes. The server uses an
+available port by default; `--port 9855` selects a fixed port. Ctrl+C stops it.
+Omit `--serve` to export and exit, or reopen a saved replay without rerunning play:
+
+```sh
+java -cp out _app.AgentGameApp --replay data/agent-demo
+```
+
+The output directory must be new. It contains `replay.json`, `index.html`, and
+the required browser assets under `ui/`, so it remains viewable after the process
+exits. The server is read-only, binds to `127.0.0.1`, and serves only that folder.
+Open it through HTTP, not directly as a `file:` URL. Generated files under
+`data/` are ignored by Git.
+
+Use `--help` for options. Defaults are seed 42, four candidates per nation,
+16 search iterations, and two year-end rollouts using four candidates per nation.
+`--power`, `--last-year`, `--seed`, `--candidates`, `--iterations`, and `--rollouts`
+change these settings; `--assets` selects another browser-asset directory.
+The demo uses the positive-lambda, kappa-zero solver, population lambdas
+`{0.01, 0.1}` with equal weights, and agent lambda `0.01`, on normalized SoS rewards.
+Actual play, root search, and rollouts all use `SZYKMAN_JUSTICE`, four trials,
+seed 0, and the default retreat and adjustment processors.
+
+`agents.play.Agent` receives an immutable phase-start state, its nation, and a
+decision seed. `GameRunner` asks every living nation before resolving anything,
+validates the entire joint action, and advances the real game once through
+`GameRecordBuilder`. Search uses separate games. Empty retreat/adjustment actions
+remain valid where permitted; eliminated nations are not asked to choose.
+
+The replay shows phase-start boards, actual submissions, local adjudication
+annotations, supply-center counts, and a separate final frame with the completed
+Fall ownership update. Dislodged units have small dashed tokens at their actual
+retreat origins. Configuration, per-decision seeds (stored as strings to retain
+64-bit precision), post-resolution boards, and native final points are saved.
+The JSON is a presentation record, not a lossless `GameRecord` serialization or
+a resumable game checkpoint. The existing database browser remains unchanged
+in catalog mode.
+
+This is a runnable integration experiment, not a replication of Diplodocus's
+playing strength. The anchor and continuation policy are uniform within bounded
+generated pools, and the leaf value is a simple SoS heuristic. Generation includes
+an all-hold movement candidate; `--candidates 1` therefore produces all-hold
+movement. Learned anchors/values, timing budgets, tournaments, and search
+diagnostic overlays are later work. Seeds preserve RNG inputs, but game/unit UUIDs
+and resolution timestamps are not seeded; byte-identical replay files and
+cross-version reproduction are not guaranteed.
+
+Recorded-play and browser checks:
+
+```sh
+java -cp out testing.selfcheck.AgentGameSelfCheck
+AGENT_GAME_REPLAY=data/agent-demo/replay.json \
+  node --test src/testing/selfcheck/GamesDetectivesSelfCheck.js
+```
+
+An optional new directory argument to `AgentGameSelfCheck` exports its scripted
+retreat/build/disband fixture for inspection with `--replay`.
+
 ## Tactical analysis
 
 The catalogue defines **101 `TacticKind`s**. Current implementations cover

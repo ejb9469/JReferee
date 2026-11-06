@@ -12,9 +12,9 @@
     <script defer src="/ui/games-detectives.js"></script>
     <script defer src="/ui/games.js"></script>
 </head>
-<body>
+<body data-source="catalog">
 <header class="toolbar">
-    <h1>JReferee Games</h1>
+    <h1 id="page-title">JReferee Games</h1>
     <label class="search">
         Search database
         <input id="search" type="search" maxlength="200"
@@ -46,7 +46,7 @@
                 Previous snapshot
             </button>
             <label>
-                Source snapshot
+                <span id="source-label">Source snapshot</span>
                 <select id="phase" disabled></select>
             </label>
             <button id="phase-next" type="button" disabled>Next snapshot</button>
@@ -59,7 +59,17 @@
         </div>
 
         <p id="phase-details" class="muted"></p>
-        <p class="muted">
+        <table id="native-scores" hidden>
+            <caption>Current supply centers and final tournament points</caption>
+            <thead><tr><th>Nation</th><th>Centers in this phase</th><th>Final points</th></tr></thead>
+            <tbody id="native-scores-body"></tbody>
+        </table>
+        <details id="native-settings" hidden>
+            <summary>Agent settings and recorded seeds</summary>
+            <pre id="native-settings-text"></pre>
+            <pre id="native-phase-seeds"></pre>
+        </details>
+        <p id="phase-help" class="muted">
             Positions and ownership are source snapshots, not a local replay.
             Overlays show submissions, not confirmed outcomes.
             Missing orders are not converted to holds.
@@ -72,7 +82,7 @@
             Dashed: support · Dotted line: convoy ·
             Dotted A/F circle: proposed build · Red X: proposed disband
         </p>
-        <p class="muted">
+        <p id="map-help" class="muted">
             Supply centers use their recorded owner's map color.
             Combined source snapshots can show movement and retreat submissions together.
             Hover over a unit for its submitted order.
@@ -148,15 +158,15 @@
         <div class="game-records">
             <section>
                 <h3>Submitted orders</h3>
-                <p class="muted">
+                <p id="orders-help" class="muted">
                     Retreat arrows show submissions, not hypothetical options.
                     Explicit retreat disbands omitted by the parser are not invented.
                 </p>
                 <ul id="orders"></ul>
             </section>
             <section>
-                <h3>DBN result annotations</h3>
-                <p class="muted">
+                <h3 id="annotations-title">DBN result annotations</h3>
+                <p id="annotations-help" class="muted">
                     Source annotations, not JReferee verdicts.
                     These annotations are not detective assessment evidence.
                 </p>
