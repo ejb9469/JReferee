@@ -19,8 +19,8 @@ import java.util.*;
  *
  * <p>Exact ties in the sampled means split selection probability evenly.
  * The searching nation's priors are retained but impose no penalty here;
- * even a zero-prior root candidate may be selected. DiL-piKL's iterative
- * strategy updates and anchor regularization remain future work.</p>
+ * even a zero-prior root candidate may be selected. DiLPiKLSearch supplies
+ * the iterative, regularized alternative.</p>
  *
  * <p>Root alternatives use Simulator.peek(). A RolloutEvaluator can then use
  * a separate game to continue each successor through Fall. Budgets multiply:
@@ -63,16 +63,10 @@ public class Search {
      * @return  immutable candidates, mean payoffs, and selection probabilities
      */
     public SearchResult search(Game game, Nation power) {
-        Objects.requireNonNull(game, "game");
-        Objects.requireNonNull(power, "power");
-        if (game.getSnapshot() != null)
-            throw new IllegalStateException("Search requires a game without a saved checkpoint");
-        GameState root = game.snapshot();
-        if (!root.aliveNations().contains(power))
-            throw new IllegalArgumentException("Cannot search for an eliminated nation: " + power);
-
+        GameState root = SearchSupport.root(game, power);
         Random random = new Random(seed);
-        Map<Nation, List<ActionCandidate>> pools = generatePools(root, random);
+        Map<Nation, List<ActionCandidate>> pools =
+                SearchSupport.generatePools(root, generator, candidateLimit, random);
         Map<Nation, ActionDistribution> opponents = new EnumMap<>(Nation.class);
         for (Nation nation : pools.keySet())
             if (nation != power)
@@ -96,7 +90,7 @@ public class Search {
                 joint.putAll(opponentsJoint);
                 joint.put(power, candidate);
                 GameState successor = simulator.peek(game, joint);
-                mean += valueFor(successor, power) / opponentSamples;
+                mean += SearchSupport.values(evaluator, successor).get(power) / opponentSamples;
                 if (!Double.isFinite(mean))
                     throw new IllegalStateException("Non-finite search mean for " + power);
             }
@@ -112,39 +106,6 @@ public class Search {
         for (double mean : means)
             probabilities.add(mean == best ? 1.0 / ties : 0.0);
         return new SearchResult(new ActionDistribution(candidates, probabilities), means, opponentSamples);
-    }
-
-    private Map<Nation, List<ActionCandidate>> generatePools(GameState state, Random random) {
-        LegalOrderGenerator legalOrders = new LegalOrderGenerator();
-        CatalogActionValidator validator = new CatalogActionValidator();
-        Map<Nation, List<ActionCandidate>> pools = new EnumMap<>(Nation.class);
-        for (Nation nation : state.aliveNations()) {
-            LegalOrderCatalog catalog = legalOrders.generate(state, nation);
-            List<ActionCandidate> candidates = List.copyOf(generator.generate(
-                    new ActionGenerationRequest(state, nation, candidateLimit, random.nextLong()), catalog));
-            if (candidates.isEmpty() || candidates.size() > candidateLimit)
-                throw new IllegalStateException("Invalid candidate count for " + nation + ": " + candidates.size());
-            for (ActionCandidate candidate : candidates) {
-                if (candidate.power() != nation)
-                    throw new IllegalStateException("Generator returned an action for another nation");
-                List<ActionValidationError> errors = validator.validate(state, candidate, catalog);
-                if (!errors.isEmpty())
-                    throw new IllegalStateException("Generator returned an invalid action for " + nation + ": " + errors);
-            }
-            pools.put(nation, candidates);
-        }
-        return pools;
-    }
-
-    private double valueFor(GameState state, Nation power) {
-        Map<Nation, Double> values = Map.copyOf(
-                Objects.requireNonNull(evaluator.evaluate(state), "evaluator result"));
-        if (!values.keySet().equals(EnumSet.allOf(Nation.class)))
-            throw new IllegalStateException("Evaluator must score every nation");
-        for (double value : values.values())
-            if (!Double.isFinite(value))
-                throw new IllegalStateException("Evaluator returned a non-finite score");
-        return values.get(power);
     }
 
 }
