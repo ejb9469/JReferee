@@ -1,0 +1,157 @@
+LegalOrderGenerator.generate(snapshot, power)               ==> LegalOrderCatalog
+ActionGenerator.generate(request, catalog)                  ==> complete action candidates
+LegalOrderCatalog.optionsFor(unit)                          ==> individual order options
+CatalogActionValidator.validate(snapshot, action, catalog)  ==> validation errors; empty if valid
+ActionPrior.logProbability(power, orders)                   ==> fixed anchor log-probability
+ActionDistribution.fromPriors(candidates)                   ==> anchor-conditioned distribution
+
+request = ActionGenerationRequest(snapshot, power, limit, seed)
+action  = ActionCandidate(power, orders, logPrior, source)
+pool    = List<ActionCandidate> for one nation
+joint   = Map<Nation, ActionCandidate> for every living nation
+
+Movement actions order every unit; retreats may be omitted; required disbands
+must be named. Legal options do not guarantee tactical success.
+
+
+GENERATION
+
+Snapshot -> legal catalog -> complete proposals -> validation -> candidate pool
+
+PlausibleActionGenerator                ==> coordinated plans + randomized exploration
+UniformActionGenerator                  ==> simpler baseline
+FriendlyConvoyUniformActionGenerator    ==> optional friendly convoy routes
+
+Plausible generation is the search default; retreats/adjustments use uniform
+generation. Both exclude convoys in default movement. Construction ranking
+and selection probability are separate from the fixed anchor logPrior.
+
+
+SIMULATION AND EVALUATION
+
+Simulator.peek(game, joint)             ==> successor snapshot; root restored
+Simulator.advance(game, joint)          ==> successor snapshot; game stays advanced
+Evaluator.evaluate(snapshot)            ==> finite scores for all seven nations
+JointActionEvaluator.evaluate(joint)    ==> successor scores; optional cached result
+
+JointActionEvaluator.evaluate(joint)
+    -> check unchanged root and complete joint submission
+    -> return cached scores if available
+    -> Simulator.peek(game, joint)
+         -> validate submissions
+         -> take checkpoint
+         -> Game.resolveMovement / resolveRetreats / resolveAdjustments
+         -> capture successor snapshot
+         -> restore root in finally
+    -> Evaluator.evaluate(successor)
+         -> SCEvaluator: raw owned-center counts
+         -> ScoringEvaluator: selected scoring system
+         -> RolloutEvaluator: sampled continuations, then leaf evaluation
+    -> check scores; cache if enabled; return scores
+
+RolloutEvaluator.evaluate(successor)
+    -> if already winter: evaluate leaf immediately
+    -> otherwise create a separate, consistently configured Game
+    -> for each trajectory:
+         -> take checkpoint
+         -> until winter, before adjustment orders:
+              -> generate fresh pools for the current phase
+              -> ActionDistribution.fromPriors(pool).sample(random), per nation
+              -> Simulator.advance(continuationGame, joint)
+         -> leafEvaluator.evaluate(winterSnapshot)
+         -> restore trajectory checkpoint in finally
+    -> average scores across trajectories
+
+Root and rollout games use matching processors but separate checkpoints.
+Caching requires deterministic results at the fixed root. Movement defaults
+to SzykmanJustice; plain Judge is an explicit, potentially differing alternative.
+
+
+FIXED-POOL SEARCH
+
+Search.search(game, power)              ==> SearchResult
+DiLPiKLSearch.search(game, power)       ==> SearchResult
+DiLPiKLSearch.solve(game, pools)        ==> JointSearchResult
+
+DiLPiKLSearch.search()
+    -> generate and validate pools for all living nations
+    -> fixed-pool solve:
+         -> initialize Q = 0 for each candidate
+         -> repeat for the configured iterations:
+              -> sample a lambda and action independently for every nation
+              -> freeze the joint action before updating values
+              -> JointActionEvaluator.evaluate(joint)
+              -> for each nation, try its other candidates against those opponents
+              -> update each candidate's running mean raw payoff Q
+         -> construct final policies from Q and fixed priors
+    -> return the requested nation's SearchResult
+
+solve() enters that loop with supplied pools. Search is the simpler baseline:
+fixed anchor-sampled opponents -> mean payoffs -> equal mass on best-value ties.
+Overloads accept a shared JointActionEvaluator; ordinary calls are uncached.
+
+policy(action) is proportional to prior(action) * exp(Q(action) / lambda)
+
+LambdaDistribution supplies population types; agentLambda sets the playing
+policy. Q averages sampled opponent history, not the final opponent policy.
+More iterations neither add candidates nor deepen rollouts.
+
+
+ADAPTIVE SEARCH
+
+ResponseSearch.discover(game, solved, prior, seed)              ==> selected responses per nation
+ResponseSearch.discover(..., jointEvaluator)                    ==> detailed proposal Report
+AdaptiveDiLPiKLSearch.search(game, power, initialLimit)         ==> Result with solve history
+AdaptiveDiLPiKLSearch.search(game, power, pools, prior, ...)    ==> Result using explicit pools
+
+AdaptiveDiLPiKLSearch.search()
+    -> prepare initial pools and fixed root anchor
+    -> DiLPiKLSearch.solve()
+    -> repeat within expansion and pool limits:
+         -> ResponseSearch.discover()
+              -> freeze final population policies
+              -> generate fresh complete proposals
+              -> apply anchor; reject duplicates and zero-prior actions
+              -> re-evaluate incumbents and proposals on common opponent samples
+              -> select proposals beating the best incumbent by minimumGain
+         -> record proposal decisions and pool-limit rejections
+         -> stop if no additions fit
+         -> append accepted actions for all nations together
+         -> DiLPiKLSearch.solve(expandedPools), starting from Q = 0
+    -> return the last completed solve and discovery history
+
+Movement only; other phases receive one fixed-pool solve. Proposals currently
+use board heuristics, not opponent policies. NO_RESPONSE_FOUND is not convergence.
+
+
+OUTPUT AND REAL PLAY
+
+SearchResult.distribution()                       ==> ActionDistribution
+SearchResult.meanValues()                         ==> aligned candidate payoff estimates
+JointSearchResult.results()                       ==> agent-lambda results for all living nations
+JointSearchResult.populationPolicies()            ==> final population mixtures
+AdaptiveDiLPiKLSearch.Result.result()             ==> requested nation's final SearchResult
+ActionDistribution.sample(random)                 ==> one complete ActionCandidate
+ActionCandidate.orders()                          ==> orders to submit for real play
+
+Final result
+    -> sample one own action
+    -> submit its orders to the real game/server
+    -> receive the adjudicated next position
+    -> search again if play continues
+
+The caller owns the real match loop and game-ending rules. Simulated opponent
+orders are predictions. Search leaves its root unchanged.
+
+
+DIAGNOSTICS AND NEXT WORK
+
+CounterSearchApp / CounterSearchConsoleApp
+    -> fixed-pool convergence sweeps and adaptive-search experiments
+    -> fresh values against final policies
+    -> within-pool gaps, named-probe gaps, regularized-response residuals
+    -> proposal decisions, cache/work counters, fast/reference comparisons
+
+Still to add: convergence-aware budgets, exact expectations for small pools,
+opponent-directed proposals, stronger continuations, and full-game comparisons.
+Learned priors and values can follow those improvements.
