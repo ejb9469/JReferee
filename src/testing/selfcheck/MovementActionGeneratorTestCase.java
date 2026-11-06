@@ -31,6 +31,7 @@ public final class MovementActionGeneratorTestCase implements TestCase {
         checkCandidates(checks);
         checkReproducibility(checks);
         checkSmallSpace(checks);
+        checkConvoyExclusion(checks);
         checkEmptyAction(checks);
         checkLargeSpace(checks);
         checkInputs(checks);
@@ -61,7 +62,7 @@ public final class MovementActionGeneratorTestCase implements TestCase {
 
         double expectedPrior = 0.0;
         for (List<OrderForm> options : catalog.optionsByUnit().values())
-            expectedPrior -= StrictMath.log(options.size());
+            expectedPrior -= StrictMath.log(withoutConvoys(state, options).size());
         Set<List<OrderForm>> seen = new HashSet<>();
         CatalogActionValidator validator = new CatalogActionValidator();
         for (int index = 0; index < candidates.size(); index++) {
@@ -69,7 +70,7 @@ public final class MovementActionGeneratorTestCase implements TestCase {
             checks.expect("Complete valid candidate " + index,
                     List.of(), validator.validate(state, candidate, catalog));
             checks.expect("Unique submitted orders " + index, true, seen.add(candidate.orders()));
-            checks.expect("Full-action uniform prior " + index, true,
+            checks.expect("Full-action convoy-free uniform prior " + index, true,
                     Math.abs(candidate.logPrior() - expectedPrior) < 1.0e-12);
             if (index > 0)
                 checks.expect("Sample source " + index,
@@ -130,9 +131,11 @@ public final class MovementActionGeneratorTestCase implements TestCase {
 
     private static void checkSmallSpace(TestEvaluation.Builder checks) {
         UnitId army = unit(Nation.FRANCE, UnitType.ARMY, Province.Par);
-        GameState_Movement state = state(Map.of(army, Province.Par));
+        GameState_Movement state = state(Map.of(army, Province.Lon));
         LegalOrderCatalog catalog = new LegalOrderGenerator().generate(state, Nation.FRANCE);
         UniformActionGenerator generator = new UniformActionGenerator();
+        Set<OrderForm> expected = Set.of(Order.hold(army),
+                Order.move(army, Province.Wal), Order.move(army, Province.Yor));
         List<ActionCandidate> candidates = generator.generate(
                 request(state, Integer.MAX_VALUE, 3L), catalog);
         Set<OrderForm> actual = new HashSet<>();
@@ -145,18 +148,66 @@ public final class MovementActionGeneratorTestCase implements TestCase {
                 holds++;
         }
         checks.expect("Finite action space caps a very large request",
-                catalog.optionsFor(army).size(), candidates.size());
+                expected.size(), candidates.size());
         checks.expect("Every single-unit option is reached for this seed",
-                new HashSet<>(catalog.optionsFor(army)), actual);
+                expected, actual);
         checks.expect("All-hold is not duplicated with a different source", 1, holds);
         checks.expect("Full-space probabilities sum to one",
                 true, Math.abs(totalProbability - 1.0) < 1.0e-12);
         List<ActionCandidate> one = generator.generate(request(state, 1, 3L), catalog);
         checks.expect("A one-candidate output still uses the full-space prior", true,
                 Math.abs(one.getFirst().logPrior()
-                        + StrictMath.log(catalog.optionsFor(army).size())) < 1.0e-12);
+                        + StrictMath.log(expected.size())) < 1.0e-12);
         checks.expect("All-hold prior is not forced to probability one",
                 true, one.getFirst().logPrior() < 0.0);
+    }
+
+    private static void checkConvoyExclusion(TestEvaluation.Builder checks) {
+        UnitId army = unit(Nation.FRANCE, UnitType.ARMY, Province.Par);
+        UnitId fleet = unit(Nation.FRANCE, UnitType.FLEET, Province.Mar);
+        UnitId supporter = unit(Nation.FRANCE, UnitType.FLEET, Province.Bre);
+        UnitId foreign = unit(Nation.ENGLAND, UnitType.ARMY, Province.Lvp);
+        GameState_Movement state = state(Map.of(
+                army, Province.Lon, fleet, Province.ENG, supporter, Province.Bre, foreign, Province.Wal));
+        LegalOrderCatalog catalog = new LegalOrderGenerator().generate(state, Nation.FRANCE);
+        Order move = Order.move(army, Province.Pic);
+        Order convoy = Order.convoy(fleet, Province.Lon, Province.Pic);
+        Order support = Order.supportMove(supporter, Province.Lon, Province.Pic);
+        Order foreignSupport = Order.supportMove(supporter, Province.Wal, Province.Pic);
+        for (Order order : List.of(move, convoy, support, foreignSupport))
+            checks.expect("Broad catalog retains " + order, true, catalog.contains(order));
+        List<ActionCandidate> candidates = new UniformActionGenerator().generate(request(state, 64, 17L), catalog);
+        for (ActionCandidate candidate : candidates) {
+            checks.expect("No convoy-dependent orders", candidate.orders(), withoutConvoys(state, candidate.orders()));
+            checks.expect("No Army transport despite an available friendly fleet", false, candidate.orders().contains(move));
+            checks.expect("No own convoy landing support", false, candidate.orders().contains(support));
+            checks.expect("No foreign convoy landing support", false, candidate.orders().contains(foreignSupport));
+        }
+        List<ActionCandidate> friendly = new FriendlyConvoyUniformActionGenerator()
+                .generate(request(state, 1024, 17L), catalog);
+        checks.expect("Explicit friendly-convoy policy still transports an Army", true,
+                friendly.stream().anyMatch(candidate -> candidate.orders().contains(move)
+                        && candidate.orders().contains(convoy)));
+    }
+
+    private static List<OrderForm> withoutConvoys(GameState state, List<OrderForm> options) {
+        List<OrderForm> retained = new ArrayList<>();
+        for (OrderForm order : options) {
+            if (order.orderType() == OrderType.CONVOY)
+                continue;
+            if (order instanceof Order move && move.orderType() == OrderType.MOVE
+                    && move.unitType() == UnitType.ARMY
+                    && !state.board().locationOf(move.unit()).isAdjacentTo(move.target()))
+                continue;
+            boolean convoySupport = order.orderType() == OrderType.SUPPORT && order.auxiliaryTarget() != null
+                    && state.board().locations().entrySet().stream().anyMatch(entry ->
+                    entry.getKey().unitType() == UnitType.ARMY
+                            && Province.equalsIgnoreCoast(entry.getValue(), order.target())
+                            && !entry.getValue().isAdjacentTo(order.auxiliaryTarget()));
+            if (!convoySupport)
+                retained.add(order);
+        }
+        return retained;
     }
 
     private static void checkEmptyAction(TestEvaluation.Builder checks) {
@@ -180,13 +231,15 @@ public final class MovementActionGeneratorTestCase implements TestCase {
                 Province.Bre, Province.Pic, Province.Bel, Province.Hol,
                 Province.Kie, Province.Den, Province.Ber, Province.Pru,
                 Province.Lvn, Province.Fin, Province.Stp, Province.Nwy,
-                Province.Con, Province.Ank, Province.Smy, Province.Syr))
+                Province.Con, Province.Ank, Province.Smy, Province.Syr,
+                Province.Par, Province.Bur, Province.Mun, Province.Ruh,
+                Province.Boh, Province.Sil))
             locations.put(unit(Nation.FRANCE, UnitType.ARMY, province), province);
         GameState_Movement state = state(locations);
         LegalOrderCatalog catalog = new LegalOrderGenerator().generate(state, Nation.FRANCE);
         BigInteger combinations = BigInteger.ONE;
         for (List<OrderForm> options : catalog.optionsByUnit().values())
-            combinations = combinations.multiply(BigInteger.valueOf(options.size()));
+            combinations = combinations.multiply(BigInteger.valueOf(withoutConvoys(state, options).size()));
         checks.expect("Fixture exceeds long-sized action counts",
                 true, combinations.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) > 0);
         List<ActionCandidate> candidates = new UniformActionGenerator()

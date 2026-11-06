@@ -2,8 +2,11 @@ package agents.generation;
 
 import contracts.OrderForm;
 import domain.Nation;
+import domain.OrderType;
 import domain.Province;
+import domain.UnitType;
 import game.GameState_Adjustments;
+import game.GameState_Movement;
 import phase.Order;
 import phase.UnitId;
 import phase.adjustments.*;
@@ -13,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,13 +25,19 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * Generates candidates using a uniform baseline policy.
+ * Generates candidates using a uniform baseline policy without convoys.
+ *
+ * <p>Movement proposals omit CONVOY orders, non-adjacent Army moves, and
+ * supports for those moves. Fleet movement and support for ordinary adjacent
+ * moves remain available. The legal catalog and adjudication rules are
+ * unchanged. FriendlyConvoyUniformActionGenerator enables same-nation convoys.</p>
  *
  * <p>The first action is all-hold in movement, or all-omitted in retreats.
  * Omission destroys a dislodged unit. Further actions are sampled without keeping
  * duplicates. Each candidate's logPrior is its probability under the full
  * phase policy, expressed as a natural logarithm. Movement and retreat
- * choices are independent and uniform per unit.</p>
+ * choices are independent and uniform per unit. Movement priors use the
+ * remaining options after convoy-dependent orders have been removed.</p>
  *
  * <p>Units are ordered by current province; options by type and targets.
  * Equivalent states and the same seed therefore produce the same candidates
@@ -55,6 +65,22 @@ public final class UniformActionGenerator implements ActionGenerator {
 
     @Override
     public List<ActionCandidate> generate(
+            ActionGenerationRequest request,
+            LegalOrderCatalog catalog
+    ) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(catalog, "catalog");
+        catalog.requireMatches(request.state(), request.power());
+        if (request.state() instanceof GameState_Movement movement)
+            catalog = withoutConvoys(movement, catalog);
+        return generateFromCatalog(request, catalog);
+    }
+
+    /**
+     * Shared sampler for generators that supply their own restricted catalog.
+     * This method applies no additional convoy policy.
+     */
+    List<ActionCandidate> generateFromCatalog(
             ActionGenerationRequest request,
             LegalOrderCatalog catalog
     ) {
@@ -117,6 +143,34 @@ public final class UniformActionGenerator implements ActionGenerator {
         }
 
         return List.copyOf(candidates);
+    }
+
+    private static LegalOrderCatalog withoutConvoys(
+            GameState_Movement state, LegalOrderCatalog catalog
+    ) {
+        Map<Province, UnitId> occupants = new LinkedHashMap<>();
+        state.board().locations().forEach((unit, location) ->
+                occupants.put(Province.canonical(location), unit));
+        Map<UnitId, List<OrderForm>> options = new LinkedHashMap<>();
+        for (var entry : catalog.optionsByUnit().entrySet()) {
+            List<OrderForm> retained = new ArrayList<>();
+            for (OrderForm form : entry.getValue()) {
+                Order order = (Order) form;
+                if (order.orderType() == OrderType.CONVOY)
+                    continue;
+                UnitId mover = order.orderType() == OrderType.MOVE ? order.unit()
+                        : order.orderType() == OrderType.SUPPORT && order.auxiliaryTarget() != null
+                        ? occupants.get(Province.canonical(order.target())) : null;
+                Province destination = order.orderType() == OrderType.MOVE
+                        ? order.target() : order.auxiliaryTarget();
+                if (mover != null && mover.unitType() == UnitType.ARMY
+                        && !state.board().locationOf(mover).isAdjacentTo(destination))
+                    continue;
+                retained.add(order);
+            }
+            options.put(entry.getKey(), retained);
+        }
+        return new LegalOrderCatalog(state, catalog.power(), options);
     }
 
     private static List<ActionCandidate> generateBuilds(
