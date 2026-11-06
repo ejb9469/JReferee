@@ -1,4 +1,4 @@
-package testing;
+package testing.selfcheck;
 
 import adjudication.util.Convoys;
 import adjudication.util.Orders;
@@ -27,6 +27,8 @@ import phase.movement.MovementResult;
 import phase.retreats.RetreatOrder;
 import phase.retreats.RetreatProcessor;
 import phase.retreats.RetreatResult;
+import testing.TestCase;
+import testing.TestEvaluation;
 
 import java.util.*;
 

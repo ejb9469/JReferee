@@ -1,4 +1,4 @@
-package testing;
+package testing.selfcheck;
 
 import agents.generation.*;
 import contracts.OrderForm;
@@ -19,6 +19,8 @@ import phase.movement.MovementResult;
 import phase.retreats.RetreatOrder;
 import phase.retreats.RetreatProcessor;
 import phase.retreats.RetreatResult;
+import testing.TestCase;
+import testing.TestEvaluation;
 
 import java.util.*;
 

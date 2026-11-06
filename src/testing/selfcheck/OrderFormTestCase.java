@@ -1,4 +1,4 @@
-package testing;
+package testing.selfcheck;
 
 import adjudication.util.OrderComparator;
 import adjudication.util.Orders;
@@ -18,6 +18,8 @@ import phase.adjustments.BuildOrder;
 import phase.adjustments.DisbandOrder;
 import phase.adjustments.WaiveOrder;
 import phase.retreats.RetreatOrder;
+import testing.TestCase;
+import testing.TestEvaluation;
 
 import java.util.*;
 

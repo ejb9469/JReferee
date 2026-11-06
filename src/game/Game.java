@@ -137,6 +137,57 @@ public class Game
 
     }
 
+    // Static constructors \\
+
+    /**
+     * Creates a new game at the supplied position using standard processors.
+     * Press and processor histories start empty.
+     */
+    public static Game fromState(GameState state) {
+        return fromState(
+                state,
+                new MovementProcessor(),
+                new RetreatProcessor(),
+                new AdjustmentProcessor());
+    }
+
+    /**
+     * Creates a new game at the supplied position using the supplied processors.
+     *
+     * <p>GameState contains the board and pending phase results. Processor
+     * configuration and histories are not part of it. The supplied processors
+     * are used directly; use fresh instances for stateful implementations.</p>
+     *
+     * <p>Press and processor histories start empty. Restoring a position does
+     * not resolve any orders or advance the phase.</p>
+     */
+    public static Game fromState(
+            GameState state,
+            Processor<MovementInput, MovementResult> movementProcessor,
+            Processor<RetreatInput, RetreatResult> retreatProcessor,
+            Processor<AdjustmentInput, AdjustmentResult> adjustmentProcessor
+    ) {
+
+        Objects.requireNonNull(state, "state");
+
+        Game game = new Game(
+                state.moment().year(),
+                state.board(),
+                movementProcessor,
+                retreatProcessor,
+                adjustmentProcessor);
+
+        game.phase = state.moment().gamePhase();
+
+        if (state instanceof GameState_Retreats retreats)
+            game.pendingMovement = retreats.movementResult();
+        else if (state instanceof GameState_Adjustments adjustments)
+            game.latestFallRetreat = adjustments.fallRetreatResult();
+
+        return game;
+
+    }
+
     public int year() {
         return year;
     }
@@ -151,20 +202,16 @@ public class Game
 
 
     /**
-     * Returns an <i>immutable snapshot</i> of the current phase.
-     * (not to be confused with `contracts.Snapshot` - they are unrelated)
+     * Returns the immutable position required by {@link #fromState(GameState)}.
+     * Processor configuration, press, and processor history are excluded.
      */
     public GameState snapshot() {
-
-        // this method allocates new [Game]Moments , ...
-            // ... to create an immutable/separate 'snapshot'.
-        // we do this to avoid exposing `Game`'s private data, and entangling the references
 
         GameMoment moment = new GameMoment(year, phase);
         BoardState boardSnapshot =
                 new BoardState(
-                    this.board.locations(),
-                    this.board.owners());
+                        this.board.locations(),
+                        this.board.owners());
 
         return switch (phase) {
             case SPRING_MOVEMENT, FALL_MOVEMENT ->

@@ -1,4 +1,4 @@
-package testing;
+package testing.selfcheck;
 
 import agents.generation.LegalOrderCatalog;
 import agents.generation.LegalOrderGenerator;
@@ -12,6 +12,8 @@ import game.GameMoment;
 import game.GameState_Movement;
 import phase.Order;
 import phase.UnitId;
+import testing.TestCase;
+import testing.TestEvaluation;
 
 import java.util.Map;
 import java.util.Set;
