@@ -8,6 +8,8 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
 
+import org.jetbrains.annotations.NotNull;
+
 /**
  * Evaluates recorded center ownership as if the game stopped at that position.
  *
@@ -28,6 +30,7 @@ import java.util.Objects;
  */
 public final class ScoringEvaluator implements Evaluator {
 
+    @NotNull
     private final ScoringSystem scoringSystem;
 
     public ScoringEvaluator(ScoringSystem scoringSystem) {
