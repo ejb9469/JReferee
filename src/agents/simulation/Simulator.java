@@ -19,8 +19,8 @@ import java.util.*;
  *
  * <p>Each peek temporarily advances a supplied game, captures the resulting
  * position, and restores the game. Every living nation supplies one candidate,
- * including an empty action where appropriate. resolve() keeps the advance
- * and leaves checkpoint ownership to its caller. Eliminated nations may be
+ * including an empty action where appropriate. advance() keeps the resulting
+ * position and leaves checkpoint ownership to its caller. Eliminated nations may be
  * omitted or supply empty candidates. Candidate priors and sources do not
  * affect resolution.</p>
  *
@@ -72,7 +72,7 @@ public class Simulator {
     }
 
     /**
-     * Resolves one phase and keeps the resulting position.
+     * Advances one adjudication phase and keeps the resulting position.
      *
      * <p>Validation finishes before any orders are applied. No checkpoint is
      * taken or restored; an existing checkpoint remains available to the caller.
@@ -88,7 +88,7 @@ public class Simulator {
      * @throws  NullPointerException if an argument, map key, or candidate is null
      * @throws  IllegalArgumentException if a joint action is incomplete or invalid
      */
-    public GameState resolve(Game game, Map<Nation, ActionCandidate> actions) {
+    public GameState advance(Game game, Map<Nation, ActionCandidate> actions) {
         Objects.requireNonNull(game, "game");
         Map<Nation, ActionCandidate> submitted = Map.copyOf(Objects.requireNonNull(actions, "actions"));
         validate(game.snapshot(), submitted);

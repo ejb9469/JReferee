@@ -1,4 +1,13 @@
 legalOrders(snapshot, unit)                         ==> order options
 proposeActions(snapshot, power, limit, seed)        ==> complete action candidates
 
+
 Generate candidates -> Assemble joint action -> Simulator.peek() -> Evaluate
+
+
+Root candidates
+    -> sampled opponent responses
+    -> Simulator.peek()
+    -> RolloutEvaluator through year-end
+    -> estimated action values
+    -> selection distribution

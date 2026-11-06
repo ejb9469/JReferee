@@ -104,7 +104,7 @@ public final class RolloutEvaluator implements Evaluator {
             try {
                 GameState current = state;
                 while (!(current instanceof GameState_Adjustments)) {
-                    GameState next = simulator.resolve(game, sampleActions(current, random));
+                    GameState next = simulator.advance(game, sampleActions(current, random));
                     if (next.moment().year() != state.moment().year()
                             || next.moment().compareTo(current.moment()) <= 0)
                         throw new IllegalStateException("Rollout must advance within the current year");
@@ -133,38 +133,12 @@ public final class RolloutEvaluator implements Evaluator {
                     new ActionGenerationRequest(state, nation, candidateLimit, random.nextLong()), catalog));
             if (candidates.isEmpty() || candidates.size() > candidateLimit)
                 throw new IllegalStateException("Invalid candidate count for " + nation + ": " + candidates.size());
-            actions.put(nation, sample(nation, candidates, random));
+            for (ActionCandidate candidate : candidates)
+                if (candidate.power() != nation)
+                    throw new IllegalStateException("Generator returned an action for another nation");
+            actions.put(nation, ActionDistribution.fromPriors(candidates).sample(random));
         }
         return actions;
-    }
-
-    private static ActionCandidate sample(Nation nation, List<ActionCandidate> candidates, Random random) {
-        double maximum = Double.NEGATIVE_INFINITY;
-        for (ActionCandidate candidate : candidates) {
-            if (candidate.power() != nation)
-                throw new IllegalStateException("Generator returned an action for another nation");
-            maximum = Math.max(maximum, candidate.logPrior());
-        }
-        if (!Double.isFinite(maximum))
-            throw new IllegalStateException("No candidate has positive prior for " + nation);
-
-        double[] weights = new double[candidates.size()];
-        double total = 0.0;
-        int lastPositive = 0;
-        for (int index = 0; index < weights.length; index++) {
-            weights[index] = StrictMath.exp(candidates.get(index).logPrior() - maximum);
-            total += weights[index];
-            if (weights[index] > 0.0)
-                lastPositive = index;
-        }
-        double ticket = random.nextDouble() * total;
-        for (int index = 0; index < lastPositive; index++) {
-            ticket -= weights[index];
-            if (ticket < 0.0)
-                return candidates.get(index);
-        }
-        // The final positive weight owns the remaining interval, including rounding at its edge.
-        return candidates.get(lastPositive);
     }
 
     private Map<Nation, Double> leafValues(GameState state) {

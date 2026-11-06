@@ -113,17 +113,17 @@ public final class RolloutEvaluatorSelfCheck {
         Game game = game(fixture.state());
         Map<Nation, ActionCandidate> actions = joint(fixture.state(), fixture.generator());
         GameState peeked = SIMULATOR.peek(game, actions);
-        require(SIMULATOR.resolve(game, actions).equals(peeked), "resolve and peek must adjudicate identically");
-        require(game.snapshot().equals(peeked) && game.getSnapshot() == null, "resolve must retain its advance without a checkpoint");
+        require(SIMULATOR.advance(game, actions).equals(peeked), "advance and peek must adjudicate identically");
+        require(game.snapshot().equals(peeked) && game.getSnapshot() == null, "advance must keep the new position without creating a checkpoint");
         game.recordPress(new PressMessage(UUID.randomUUID(), new Moment(1907, game.phase(), Instant.EPOCH),
                 Nation.FRANCE, Set.of(Nation.GERMANY), "Orders", "Ready."));
         var processors = game.processorHistory();
         var press = game.pressHistory();
         game.takeSnapshot();
         GameState saved = game.getSnapshot();
-        expect(IllegalArgumentException.class, () -> SIMULATOR.resolve(game, Map.of()));
+        expect(IllegalArgumentException.class, () -> SIMULATOR.advance(game, Map.of()));
         require(game.snapshot().equals(peeked) && game.getSnapshot() == saved, "Invalid actions must not touch the saved checkpoint");
-        SIMULATOR.resolve(game, joint(peeked, new UniformActionGenerator()));
+        SIMULATOR.advance(game, joint(peeked, new UniformActionGenerator()));
         require(game.phase() == GamePhase.WINTER_ADJUSTMENT && game.getSnapshot() == saved,
                 "Resolution under a caller checkpoint must keep both the advance and checkpoint");
         game.restoreFromSnapshot();
@@ -230,7 +230,7 @@ public final class RolloutEvaluatorSelfCheck {
         Game game = game(fixture.state());
         states.add(game.snapshot());
         while (!(states.getLast() instanceof GameState_Adjustments))
-            states.add(SIMULATOR.resolve(game, joint(states.getLast(), fixture.generator())));
+            states.add(SIMULATOR.advance(game, joint(states.getLast(), fixture.generator())));
         require(states.size() == 5, "The fixture must expose all four movement/retreat phases");
         for (int index = 0; index < states.size(); index++)
             require(states.get(index).moment().gamePhase() == GamePhase.values()[index], "Fixture phases must follow the year");
