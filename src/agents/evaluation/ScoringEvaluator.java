@@ -13,10 +13,8 @@ import org.jetbrains.annotations.NotNull;
 /**
  * Evaluates recorded center ownership as if the game stopped at that position.
  *
- * <p>Uses the selected system's fixed-scale rewards. SUM_OF_SQUARES matches
- * the terminal reward used by Diplodocus; at an unfinished position this is
- * only a stop-now heuristic. The paper's value model estimates the reward
- * after future play.</p>
+ * <p>Uses the selected system's fixed-scale rewards. At an unfinished position this is
+ * only a stop-now heuristic.
  *
  * <p>Recorded ownership changes after Fall retreats. Spring tactics, pending
  * retreats, and winter unit choices can therefore tie under this evaluator.
