@@ -7,6 +7,7 @@ import domain.Nation;
 import domain.Province;
 import domain.UnitType;
 import game.*;
+import game.press.PressMessage;
 import phase.*;
 import phase.adjustments.*;
 import phase.movement.MovementProcessor;
@@ -15,19 +16,19 @@ import phase.retreats.RetreatOrder;
 import phase.retreats.RetreatProcessor;
 import phase.retreats.RetreatResult;
 
+import java.time.Instant;
 import java.util.*;
 
 /**
  * Standalone joint-action simulation checks. Run without -ea.
  */
-public final class JointActionSimulatorSelfCheck {
+public final class SimulatorSelfCheck {
 
-    private static final Simulator SIMULATOR =
-            new Simulator(MovementProcessor.Policy.SZYKMAN_JUSTICE, 4, 0L);
+    private static final Simulator SIMULATOR = new Simulator();
 
     private static int checks;
 
-    private JointActionSimulatorSelfCheck() { }
+    private SimulatorSelfCheck() { }
 
     public static void main(String[] args) {
         movementAndOrdering();
@@ -35,8 +36,10 @@ public final class JointActionSimulatorSelfCheck {
         retreats();
         adjustments();
         invalidInputs();
+        checkpointOwnership();
+        failedResolution();
         generatedActions();
-        System.out.println("JointActionSimulatorSelfCheck passed: " + checks + " checks");
+        System.out.println("SimulatorSelfCheck passed: " + checks + " checks");
     }
 
     private static void movementAndOrdering() {
@@ -52,13 +55,14 @@ public final class JointActionSimulatorSelfCheck {
         BoardState board = new BoardState(locations, Map.of(Province.Mun, Nation.GERMANY));
         Game live = new Game(1907, board);
         GameState state = live.snapshot();
+        Game game = game(state);
         Map<Nation, ActionCandidate> actions = joint(
                 action(Nation.FRANCE, Order.hold(otherFrench), Order.move(french, Province.Mun)),
                 action(Nation.ENGLAND, Order.supportMove(english, Province.Bur, Province.Mun)),
                 action(Nation.GERMANY, Order.hold(german)));
         Map<Nation, ActionCandidate> originalActions = Map.copyOf(actions);
 
-        GameState_Retreats next = requireRetreats(SIMULATOR.advance(state, actions));
+        GameState_Retreats next = requireRetreats(advance(game, actions));
         require(next.moment().equals(new GameMoment(1907, GamePhase.SPRING_RETREAT)),
                 "A dislodgement must expose Spring retreats");
         require(next.board().locationOf(french) == Province.Mun, "Foreign support must affect the joint result");
@@ -69,48 +73,56 @@ public final class JointActionSimulatorSelfCheck {
         require(actions.equals(originalActions), "Simulation must not change candidate data");
         require(state.board().locations().equals(locations), "Simulation must not change the input board");
         require(new ArrayList<>(next.movementResult().outcomes().keySet())
-                        .equals(List.of(french, otherFrench, german, english)),
-                "Movement must use current province-name order, independent of unit origins");
+                        .equals(new ArrayList<>(locations.keySet())),
+                "Movement must follow the supplied game's board order");
 
-        Map<UnitId, Province> reversedLocations = new LinkedHashMap<>();
-        for (UnitId unit : new ArrayList<>(locations.keySet()).reversed())
-            reversedLocations.put(unit, locations.get(unit));
         Map<Nation, ActionCandidate> reversedActions = new LinkedHashMap<>();
         for (Nation nation : Arrays.asList(Nation.values()).reversed()) {
             ActionCandidate candidate = actions.get(nation);
             reversedActions.put(nation, new ActionCandidate(nation, candidate.orders().reversed(),
                     candidate.logPrior(), candidate.source()));
         }
-        GameState reordered = new GameState_Movement(state.moment(),
-                new BoardState(reversedLocations, board.owners()));
-        GameState_Retreats repeated = requireRetreats(SIMULATOR.advance(reordered, reversedActions));
+        GameState_Retreats repeated = requireRetreats(advance(game, reversedActions));
         requireSameRetreat(next, repeated);
         require(new ArrayList<>(repeated.movementResult().outcomes().keySet())
                         .equals(new ArrayList<>(next.movementResult().outcomes().keySet())),
-                "Reordered inputs must retain canonical adjudication order");
+                "Reordered submissions must retain the game's adjudication order");
+
+        Map<UnitId, Province> reversedLocations = new LinkedHashMap<>();
+        for (UnitId unit : new ArrayList<>(locations.keySet()).reversed())
+            reversedLocations.put(unit, locations.get(unit));
+        Game reordered = game(new GameState_Movement(state.moment(),
+                new BoardState(reversedLocations, board.owners())));
+        GameState_Retreats reorderedNext = requireRetreats(advance(reordered, actions));
+        requireSameRetreat(next, reorderedNext);
+        require(new ArrayList<>(reorderedNext.movementResult().outcomes().keySet())
+                        .equals(new ArrayList<>(reversedLocations.keySet())),
+                "A different game retains its own board order");
 
         Map<Nation, ActionCandidate> changedMetadata = new EnumMap<>(Nation.class);
         actions.forEach((nation, candidate) -> changedMetadata.put(nation,
                 new ActionCandidate(nation, candidate.orders(), Double.NEGATIVE_INFINITY,
                         ActionCandidate.Source.EXPLORATION)));
-        requireSameRetreat(next, requireRetreats(SIMULATOR.advance(state, changedMetadata)));
+        requireSameRetreat(next, requireRetreats(advance(game, changedMetadata)));
         expect(UnsupportedOperationException.class, () -> next.board().locations().clear());
 
         Map<Nation, ActionCandidate> unsupported = new EnumMap<>(actions);
         unsupported.put(Nation.ENGLAND, action(Nation.ENGLAND, Order.hold(english)));
-        GameState bounced = SIMULATOR.advance(state, unsupported);
+        GameState bounced = advance(game, unsupported);
         require(bounced.moment().gamePhase() == GamePhase.FALL_MOVEMENT,
                 "Movement without dislodgements must skip retreats");
         require(bounced.board().equals(board), "An unsupported attack must bounce");
-        requireSameRetreat(next, requireRetreats(new Simulator(
-                MovementProcessor.Policy.JUSTICE, 1, 17L).advance(state, actions)));
+        Game configured = Game.fromState(state,
+                new MovementProcessor(MovementProcessor.Policy.JUSTICE, 1, 17L),
+                new RetreatProcessor(), new AdjustmentProcessor());
+        requireSameRetreat(next, requireRetreats(advance(configured, actions)));
 
         GameState fall = new GameState_Movement(new GameMoment(1907, GamePhase.FALL_MOVEMENT), board);
-        GameState_Retreats fallRetreats = requireRetreats(SIMULATOR.advance(fall, actions));
+        GameState_Retreats fallRetreats = requireRetreats(advance(game(fall), actions));
         require(fallRetreats.moment().gamePhase() == GamePhase.FALL_RETREAT, "Fall must expose required retreats");
         require(fallRetreats.board().ownerOf(Province.Mun) == Nation.GERMANY,
                 "Fall ownership must wait until retreats finish");
-        GameState winter = SIMULATOR.advance(fallRetreats, joint());
+        GameState winter = advance(game(fallRetreats), joint());
         require(winter instanceof GameState_Adjustments, "Completed Fall retreats must reach winter");
         require(winter.board().ownerOf(Province.Mun) == Nation.FRANCE, "Completed Fall must transfer ownership");
         require(!winter.board().locations().containsKey(german), "An explicitly omitted retreat destroys the unit");
@@ -121,13 +133,14 @@ public final class JointActionSimulatorSelfCheck {
         UnitId fleet = unit(Nation.ENGLAND, UnitType.FLEET, Province.Lon);
         GameState state = new GameState_Movement(new GameMoment(1907, GamePhase.SPRING_MOVEMENT),
                 new BoardState(Map.of(army, Province.Lon, fleet, Province.NTH), Map.of()));
+        Game game = game(state);
         Map<Nation, ActionCandidate> actions = joint(
                 action(Nation.FRANCE, Order.move(army, Province.Bel)),
                 action(Nation.ENGLAND, Order.convoy(fleet, Province.Lon, Province.Bel)));
-        require(SIMULATOR.advance(state, actions).board().locationOf(army) == Province.Bel,
+        require(advance(game, actions).board().locationOf(army) == Province.Bel,
                 "A foreign convoy must resolve together with the Army move");
         actions.put(Nation.ENGLAND, action(Nation.ENGLAND, Order.hold(fleet)));
-        require(SIMULATOR.advance(state, actions).board().locationOf(army) == Province.Lon,
+        require(advance(game, actions).board().locationOf(army) == Province.Lon,
                 "Missing convoy cooperation is an adjudication outcome");
     }
 
@@ -143,19 +156,20 @@ public final class JointActionSimulatorSelfCheck {
                         german, Province.Mun, germanSupport, Province.Ruh,
                         italian, Province.Par, italianSupport, Province.Bre),
                         Map.of(Province.Bel, Nation.RUSSIA)));
-        GameState_Retreats state = requireRetreats(SIMULATOR.advance(movement, joint(
+        GameState_Retreats state = requireRetreats(advance(game(movement), joint(
                 action(Nation.FRANCE, Order.hold(french)),
                 action(Nation.ENGLAND, Order.hold(english)),
                 action(Nation.GERMANY, Order.move(german, Province.Bur),
                         Order.supportMove(germanSupport, Province.Mun, Province.Bur)),
                 action(Nation.ITALY, Order.move(italian, Province.Pic),
                         Order.supportMove(italianSupport, Province.Par, Province.Pic)))));
+        Game game = game(state);
         require(state.movementResult().dislodgements().keySet().equals(Set.of(french, english)),
                 "Fixture must dislodge both retreating units");
         Map<Nation, ActionCandidate> actions = joint(
                 action(Nation.FRANCE, new RetreatOrder(french, Province.Bel)),
                 action(Nation.ENGLAND, new RetreatOrder(english, Province.Bel)));
-        GameState collided = SIMULATOR.advance(state, actions);
+        GameState collided = advance(game, actions);
         require(collided instanceof GameState_Adjustments, "Fall retreats must advance to winter");
         require(!collided.board().locations().containsKey(french)
                         && !collided.board().locations().containsKey(english),
@@ -165,22 +179,23 @@ public final class JointActionSimulatorSelfCheck {
         require(state.movementResult().dislodgements().size() == 2, "The source retreat facts must remain intact");
 
         actions.put(Nation.FRANCE, action(Nation.FRANCE));
-        GameState successful = SIMULATOR.advance(state, actions);
+        GameState successful = advance(game, actions);
         require(successful.board().locationOf(english) == Province.Bel, "A lone legal retreat must succeed");
         require(successful.board().ownerOf(Province.Bel) == Nation.ENGLAND, "Fall retreat occupation transfers control");
         GameState spring = new GameState_Retreats(new GameMoment(1907, GamePhase.SPRING_RETREAT),
                 state.board(), state.movementResult());
-        GameState afterSpring = SIMULATOR.advance(spring, actions);
+        GameState afterSpring = advance(game(spring), actions);
         require(afterSpring.moment().equals(new GameMoment(1907, GamePhase.FALL_MOVEMENT)),
                 "Spring retreats must advance to Fall in the same year");
         require(afterSpring.board().ownerOf(Province.Bel) == Nation.RUSSIA, "Spring retreats retain ownership");
 
         actions.put(Nation.FRANCE, action(Nation.FRANCE, new RetreatOrder(french, Province.Mun)));
-        RuntimeException invalid = expect(IllegalArgumentException.class, () -> SIMULATOR.advance(state, actions));
+        RuntimeException invalid = expect(IllegalArgumentException.class, () -> SIMULATOR.peek(game, actions));
         require(invalid.getMessage().contains("FRANCE") && invalid.getMessage().contains("ORDER_NOT_IN_CATALOG"),
                 "An invalid retreat must report its power and validation error");
-    }
-    private static void adjustments() {
+        require(game.snapshot().equals(state) && game.getSnapshot() == null,
+                "A rejected retreat must leave the game and checkpoint unchanged");
+    }private static void adjustments() {
         UnitId french = unit(Nation.FRANCE, UnitType.ARMY, Province.Par);
         UnitId german = unit(Nation.GERMANY, UnitType.ARMY, Province.Mun);
         UnitId removed = unit(Nation.GERMANY, UnitType.ARMY, Province.Ber);
@@ -188,12 +203,13 @@ public final class JointActionSimulatorSelfCheck {
                 Map.of(Province.Par, Nation.FRANCE, Province.Bre, Nation.FRANCE, Province.Mun, Nation.GERMANY,
                         Province.Stp, Nation.RUSSIA, Province.Mos, Nation.RUSSIA));
         GameState_Adjustments state = winter(board);
+        Game game = game(state);
         Map<Nation, ActionCandidate> actions = joint(
                 action(Nation.FRANCE, new BuildOrder(Nation.FRANCE, UnitType.FLEET, Province.Bre)),
                 action(Nation.GERMANY, new DisbandOrder(Nation.GERMANY, removed)),
                 action(Nation.RUSSIA, new BuildOrder(Nation.RUSSIA, UnitType.FLEET, Province.StpSC),
                         new WaiveOrder(Nation.RUSSIA)));
-        GameState next = SIMULATOR.advance(state, actions);
+        GameState next = advance(game, actions);
         require(next.moment().equals(new GameMoment(1908, GamePhase.SPRING_MOVEMENT)),
                 "Winter must advance the year exactly once");
         require(position(next).equals(Map.of(Province.Bur, "FRANCE:ARMY", Province.Mun, "GERMANY:ARMY",
@@ -204,60 +220,132 @@ public final class JointActionSimulatorSelfCheck {
         require(!next.board().locations().containsKey(removed), "The selected unit must be removed");
         require(next.board().owners().equals(board.owners()), "Winter must preserve center ownership");
         require(state.board().equals(board), "The source winter board must remain unchanged");
-        require(position(next).equals(position(SIMULATOR.advance(state, actions))),
+        require(position(next).equals(position(advance(game, actions))),
                 "Repeated winter simulations agree on positions and types despite new UUIDs");
 
         Map<Nation, ActionCandidate> missing = new EnumMap<>(actions);
         missing.put(Nation.GERMANY, action(Nation.GERMANY));
-        RuntimeException invalid = expect(IllegalArgumentException.class, () -> SIMULATOR.advance(state, missing));
+        RuntimeException invalid = expect(IllegalArgumentException.class, () -> SIMULATOR.peek(game, missing));
         require(invalid.getMessage().contains("MISSING_ADJUSTMENTS"), "Mandatory disbands must not be defaulted");
         Map<Nation, ActionCandidate> duplicate = new EnumMap<>(actions);
         duplicate.put(Nation.RUSSIA, action(Nation.RUSSIA,
                 new BuildOrder(Nation.RUSSIA, UnitType.FLEET, Province.StpNC),
                 new BuildOrder(Nation.RUSSIA, UnitType.FLEET, Province.StpSC)));
-        expect(IllegalArgumentException.class, () -> SIMULATOR.advance(state, duplicate));
+        expect(IllegalArgumentException.class, () -> SIMULATOR.peek(game, duplicate));
         Map<Nation, ActionCandidate> excess = new EnumMap<>(actions);
         excess.put(Nation.FRANCE, action(Nation.FRANCE,
                 new BuildOrder(Nation.FRANCE, UnitType.FLEET, Province.Bre), new WaiveOrder(Nation.FRANCE)));
-        expect(IllegalArgumentException.class, () -> SIMULATOR.advance(state, excess));
+        expect(IllegalArgumentException.class, () -> SIMULATOR.peek(game, excess));
         Map<Nation, ActionCandidate> wrongPhase = new EnumMap<>(actions);
         wrongPhase.put(Nation.FRANCE, action(Nation.FRANCE, Order.hold(french)));
-        expect(IllegalArgumentException.class, () -> SIMULATOR.advance(state, wrongPhase));
+        expect(IllegalArgumentException.class, () -> SIMULATOR.peek(game, wrongPhase));
         require(state.board().equals(board), "Rejected submissions must leave the input unchanged");
+        require(game.snapshot().equals(state) && game.getSnapshot() == null,
+                "Rejected adjustments must leave the game and checkpoint unchanged");
     }
 
     private static void invalidInputs() {
         GameState state = new GameState_Movement(new GameMoment(1907, GamePhase.FALL_MOVEMENT),
                 new BoardState(Map.of(), Map.of()));
+        Game game = game(state);
         Map<Nation, ActionCandidate> actions = joint();
-        expect(NullPointerException.class, () -> SIMULATOR.advance(null, actions));
-        expect(NullPointerException.class, () -> SIMULATOR.advance(state, null));
+        expect(NullPointerException.class, () -> SIMULATOR.peek(null, actions));
+        expect(NullPointerException.class, () -> SIMULATOR.peek(game, null));
         Map<Nation, ActionCandidate> missing = new EnumMap<>(actions);
         missing.remove(Nation.TURKEY);
-        expect(IllegalArgumentException.class, () -> SIMULATOR.advance(state, missing));
+        expect(IllegalArgumentException.class, () -> SIMULATOR.peek(game, missing));
         Map<Nation, ActionCandidate> mismatch = new EnumMap<>(actions);
         mismatch.put(Nation.FRANCE, action(Nation.GERMANY));
-        expect(IllegalArgumentException.class, () -> SIMULATOR.advance(state, mismatch));
+        expect(IllegalArgumentException.class, () -> SIMULATOR.peek(game, mismatch));
         Map<Nation, ActionCandidate> nullCandidate = new EnumMap<>(actions);
         nullCandidate.put(Nation.FRANCE, null);
-        expect(NullPointerException.class, () -> SIMULATOR.advance(state, nullCandidate));
+        expect(NullPointerException.class, () -> SIMULATOR.peek(game, nullCandidate));
         Map<Nation, ActionCandidate> nullKey = new HashMap<>(actions);
         nullKey.put(null, action(Nation.FRANCE));
-        expect(NullPointerException.class, () -> SIMULATOR.advance(state, nullKey));
-        expect(NullPointerException.class, () -> new Simulator(null, 4, 0L));
-        expect(IllegalArgumentException.class, () -> new Simulator(MovementProcessor.Policy.JUSTICE, 0, 0L));
+        expect(NullPointerException.class, () -> SIMULATOR.peek(game, nullKey));
+        require(game.snapshot().equals(state) && game.getSnapshot() == null,
+                "Invalid submissions must leave the game and checkpoint unchanged");
 
-        GameState winter = new Simulator().advance(state, actions);
+        GameState winter = advance(game, actions);
         require(winter instanceof GameState_Adjustments, "Empty Fall movement must reach winter through Game");
-        GameState spring = SIMULATOR.advance(winter, actions);
+        GameState spring = advance(game(winter), actions);
         require(spring.moment().equals(new GameMoment(1908, GamePhase.SPRING_MOVEMENT)),
                 "A balanced winter still advances to the following Spring");
         UnitId french = unit(Nation.FRANCE, UnitType.ARMY, Province.Par);
         GameState occupied = new GameState_Movement(state.moment(),
                 new BoardState(Map.of(french, Province.Par), Map.of()));
-        expect(IllegalArgumentException.class, () -> SIMULATOR.advance(occupied, actions));
+        int[] calls = new int[1];
+        Game occupiedGame = Game.fromState(occupied, input -> {
+            calls[0]++;
+            return movementProcessor().process(input);
+        }, new RetreatProcessor(), new AdjustmentProcessor());
+        expect(IllegalArgumentException.class, () -> SIMULATOR.peek(occupiedGame, actions));
         actions.put(Nation.FRANCE, action(Nation.FRANCE, Order.move(french, Province.NTH)));
-        expect(IllegalArgumentException.class, () -> SIMULATOR.advance(occupied, actions));
+        expect(IllegalArgumentException.class, () -> SIMULATOR.peek(occupiedGame, actions));
+        require(calls[0] == 0, "Invalid candidates must not invoke a processor");
+        require(occupiedGame.snapshot().equals(occupied) && occupiedGame.getSnapshot() == null,
+                "Invalid candidates must not advance or checkpoint the game");
+    }
+
+    private static void checkpointOwnership() {
+        Game game = game(new GameState_Movement(new GameMoment(1907, GamePhase.SPRING_MOVEMENT),
+                new BoardState(Map.of(), Map.of())));
+        game.recordPress(message(game));
+        game.takeSnapshot();
+        GameState saved = game.getSnapshot();
+        game.resolveMovement(List.of());
+        game.recordPress(message(game));
+        GameState current = game.snapshot();
+        var processors = game.processorHistory();
+        var press = game.pressHistory();
+
+        expect(IllegalStateException.class, () -> SIMULATOR.peek(game, joint()));
+        require(game.getSnapshot() == saved, "A caller's checkpoint must remain intact");
+        require(game.snapshot().equals(current), "Rejecting a saved checkpoint must retain the current position");
+        require(game.processorHistory().equals(processors) && game.pressHistory().equals(press),
+                "Rejecting a saved checkpoint must leave both histories unchanged");
+        game.restoreFromSnapshot();
+        require(game.snapshot().equals(saved), "The caller must still be able to restore its checkpoint");
+
+        game.resolveMovement(List.of());
+        game.recordPress(message(game));
+        require(game.processorHistory().size() == 1 && game.pressHistory().size() == 2,
+                "The next trial must start with nonempty histories");
+        GameState winter = advance(game, joint());
+        require(winter instanceof GameState_Adjustments, "A Fall trial must include the skipped retreat");
+        require(game.phase() == GamePhase.FALL_MOVEMENT, "The Fall trial must restore its starting phase");
+    }
+
+    private static void failedResolution() {
+        UnitId french = unit(Nation.FRANCE, UnitType.ARMY, Province.Par);
+        GameState state = new GameState_Movement(new GameMoment(1907, GamePhase.FALL_MOVEMENT),
+                new BoardState(Map.of(french, Province.Pic), Map.of()));
+        IllegalStateException failure = new IllegalStateException("Retreat processor failure");
+        int[] calls = new int[1];
+        Game game = Game.fromState(state, movementProcessor(), input -> {
+            calls[0]++;
+            if (calls[0] == 1)
+                throw failure;
+            return new RetreatProcessor().process(input);
+        }, new AdjustmentProcessor());
+        game.recordPress(message(game));
+        var press = game.pressHistory();
+        Map<Nation, ActionCandidate> actions = joint(
+                action(Nation.FRANCE, Order.move(french, Province.Bel)));
+
+        RuntimeException caught = expect(IllegalStateException.class, () -> SIMULATOR.peek(game, actions));
+        require(caught == failure, "Resolution must propagate the original exception");
+        require(game.snapshot().equals(state), "A partially completed Fall transition must be rolled back");
+        require(game.processorHistory().isEmpty(), "Failed trials must discard partial processor history");
+        require(game.pressHistory().equals(press), "Failed trials must preserve earlier press");
+        require(game.getSnapshot() == null, "A failed trial must consume only its own checkpoint");
+        require(calls[0] == 1, "Rollback must not rerun or rewind a custom processor");
+
+        GameState next = advance(game, actions);
+        require(calls[0] == 2, "The supplied processor must be reused after failure");
+        require(next instanceof GameState_Adjustments && next.board().locationOf(french) == Province.Bel,
+                "The same game must support another trial after failure");
+        require(next.board().ownerOf(Province.Bel) == Nation.FRANCE, "The successful retry must finish Fall");
     }
 
     private static void generatedActions() {
@@ -273,7 +361,14 @@ public final class JointActionSimulatorSelfCheck {
                 actions.put(nation, candidates.getLast());
             }
             GameMoment before = state.moment();
-            state = SIMULATOR.advance(state, actions);
+            Game game = game(state);
+            GameState next = advance(game, actions);
+            GameState repeated = advance(game, actions);
+            require(next.moment().equals(repeated.moment())
+                            && position(next).equals(position(repeated))
+                            && next.board().owners().equals(repeated.board().owners()),
+                    "Repeated generated actions must retain their resulting position and ownership");
+            state = next;
             require(state.moment().compareTo(before) > 0, "Generated joint actions must advance the game");
         }
         require(state.moment().year() >= 1902, "Generated actions must cross a winter boundary");
@@ -281,10 +376,40 @@ public final class JointActionSimulatorSelfCheck {
     }
 
     private static GameState_Adjustments winter(BoardState board) {
-        MovementResult movement = new MovementProcessor(MovementProcessor.Policy.SZYKMAN_JUSTICE, 4, 0L)
+        MovementResult movement = movementProcessor()
                 .process(new MovementInput(board.locations(), List.of()));
         RetreatResult retreats = new RetreatProcessor().process(new RetreatInput(movement, List.of()));
         return new GameState_Adjustments(new GameMoment(1907, GamePhase.WINTER_ADJUSTMENT), board, retreats);
+    }
+
+    private static Game game(GameState state) {
+        return Game.fromState(state, movementProcessor(), new RetreatProcessor(), new AdjustmentProcessor());
+    }
+
+    private static MovementProcessor movementProcessor() {
+        return new MovementProcessor(MovementProcessor.Policy.SZYKMAN_JUSTICE, 4, 0L);
+    }
+
+    private static GameState advance(Game game, Map<Nation, ActionCandidate> actions) {
+        GameState before = game.snapshot();
+        var order = new ArrayList<>(game.board().locations().keySet());
+        var processors = game.processorHistory();
+        var press = game.pressHistory();
+        var submitted = Map.copyOf(actions);
+        GameState next = SIMULATOR.peek(game, actions);
+        require(game.snapshot().equals(before), "Each trial must restore the starting position and phase facts");
+        require(new ArrayList<>(game.board().locations().keySet()).equals(order),
+                "Each trial must restore the board iteration order");
+        require(game.processorHistory().equals(processors), "Each trial must restore processor history");
+        require(game.pressHistory().equals(press), "Each trial must restore press history");
+        require(game.getSnapshot() == null, "Each trial must consume its checkpoint");
+        require(actions.equals(submitted), "Each trial must leave candidate data unchanged");
+        return next;
+    }
+
+    private static PressMessage message(Game game) {
+        return new PressMessage(UUID.randomUUID(), new Moment(game.year(), game.phase(), Instant.EPOCH),
+                Nation.FRANCE, Set.of(Nation.GERMANY), "Orders", "Ready.");
     }
 
     private static GameState_Retreats requireRetreats(GameState state) {
