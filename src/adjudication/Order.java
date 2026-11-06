@@ -7,6 +7,7 @@ import domain.Nation;
 import domain.OrderType;
 import domain.Province;
 import domain.UnitType;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 
@@ -115,25 +116,25 @@ public class Order
     // Snapshots and metadata \\
 
     @Override
-    public Order getSnapshot() {
+    public @Nullable Order getSnapshot() {
         return this.originalOrder;
     }
 
     @Override
     public void takeSnapshot() {
         this.originalOrder = new Order(this);
-        getSnapshot().originalOrder = null;
+        this.originalOrder.originalOrder = null;
     }
 
     @Override
     public void restoreFromSnapshot() {
 
-        this.owner = getSnapshot().owner;
-        this.unitType = getSnapshot().unitType;
-        this.orderType = getSnapshot().orderType;
-        this.pos0 = getSnapshot().pos0;
-        this.pos1 = getSnapshot().pos1;
-        this.pos2 = getSnapshot().pos2;
+        this.owner = this.originalOrder.owner;
+        this.unitType = this.originalOrder.unitType;
+        this.orderType = this.originalOrder.orderType;
+        this.pos0 = this.originalOrder.pos0;
+        this.pos1 = this.originalOrder.pos1;
+        this.pos2 = this.originalOrder.pos2;
 
         this.originalOrder = null;
 

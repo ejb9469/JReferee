@@ -251,7 +251,7 @@ public class Game
      */
     @Override
     public @Nullable GameState getSnapshot() {
-        return savedState;
+        return this.savedState;
     }
 
     /**

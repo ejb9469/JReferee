@@ -18,9 +18,10 @@ import java.util.*;
  * Provides a "peek" at the result of a joint action.
  *
  * <p>Each peek temporarily advances a supplied game, captures the resulting
- * position, and restores the game. Every nation supplies one candidate,
- * including an empty action where appropriate. Candidate priors and sources
- * do not affect resolution.</p>
+ * position, and restores the game. Every living nation supplies one candidate,
+ * including an empty action where appropriate. Eliminated nations may be
+ * omitted or supply empty candidates. Candidate priors and sources do not
+ * affect resolution.</p>
  *
  * <p>Processor settings and board iteration order come from the supplied game.
  * Use a separate simulation game; concurrent and nested peeks on the same
@@ -41,10 +42,10 @@ public class Simulator {
      * <p>An existing checkpoint is left untouched and prevents the peek.</p>
      *
      * @param   game simulation game with no saved checkpoint
-     * @param   actions one candidate for every nation
+     * @param   actions one candidate for every nation in {@link GameState#aliveNations()}
      * @return  the resulting immutable position
      * @throws  NullPointerException if an argument, map key, or candidate is null
-     * @throws  IllegalArgumentException if a nation is missing, a candidate's
+     * @throws  IllegalArgumentException if a living nation is missing, a candidate's
      *         power differs from its map key, or a candidate is invalid
      * @throws  IllegalStateException if the game already has a saved checkpoint
      *         or its state cannot be resolved or restored
@@ -52,14 +53,19 @@ public class Simulator {
     public GameState peek(Game game, Map<Nation, ActionCandidate> actions) {
 
         Objects.requireNonNull(game, "game");
-        Map<Nation, ActionCandidate> submitted = Map.copyOf(
-                Objects.requireNonNull(actions, "actions"));
+        Objects.requireNonNull(actions, "actions");
+
+        Map<Nation, ActionCandidate> submitted = Map.copyOf(actions);
+
         if (game.getSnapshot() != null)
             throw new IllegalStateException("Simulation requires a game without a saved checkpoint");
-        if (!submitted.keySet().equals(EnumSet.allOf(Nation.class)))
-            throw new IllegalArgumentException("A joint action requires one candidate for every nation");
-
         GameState state = game.snapshot();
+        Set<Nation> missing = EnumSet.noneOf(Nation.class);
+        missing.addAll(state.aliveNations());
+        missing.removeAll(submitted.keySet());
+        if (!missing.isEmpty())  // all alive nations must have candidates
+            throw new IllegalArgumentException("Missing candidates for living nations: " + missing);
+
         ActionValidator         validator = new CatalogActionValidator();
         List<Order>             movementOrders = new ArrayList<>();
         List<RetreatOrder>      retreatOrders = new ArrayList<>();
@@ -67,6 +73,8 @@ public class Simulator {
 
         for (Nation nation : Nation.values()) {
             ActionCandidate candidate = submitted.get(nation);
+            if (candidate == null)
+                continue;
             if (candidate.power() != nation)
                 throw new IllegalArgumentException("Candidate power does not match map key: " + nation);
 
