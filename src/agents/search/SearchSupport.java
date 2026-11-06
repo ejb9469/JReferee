@@ -10,6 +10,7 @@ import java.util.*;
 
 /**
  * Root preparation and payoff checks shared by the search implementations.
+ * Static-only, package-private utility class.
  */
 final class SearchSupport {
 
