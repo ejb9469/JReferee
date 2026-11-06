@@ -1,0 +1,129 @@
+package agents.search;
+
+import agents.generation.*;
+import domain.Nation;
+import game.*;
+
+import java.util.*;
+
+/**
+ * Alternates fixed-pool DiL-piKL solves and bounded response discovery.
+ *
+ * <p>All nations discover against frozen population policies. Additions are
+ * appended simultaneously. Each expanded game is solved from fresh Q values
+ * before its policies can be returned. Incumbents and their priors are retained.</p>
+ *
+ * <p>Use the same evaluator and processor configuration for the solver and
+ * response search. The caller supplies these collaborators. Expansion currently
+ * applies to movement; other phases receive one ordinary fixed-pool solve.</p>
+ *
+ * <p>No stop reason proves equilibrium. Proposal coverage, continuation quality,
+ * sampling error, and the configured budgets all limit the result.</p>
+ */
+public class AdaptiveDiLPiKLSearch {
+
+    private final DiLPiKLSearch solver;
+    private final ResponseSearch responses;
+    private final int poolLimit;
+    private final int expansionRounds;
+    private final long seed;
+
+    public AdaptiveDiLPiKLSearch(DiLPiKLSearch solver, ResponseSearch responses,
+                                 int poolLimit, int expansionRounds, long seed) {
+        this.solver = Objects.requireNonNull(solver, "solver");
+        this.responses = Objects.requireNonNull(responses, "responses");
+        if (poolLimit < 1 || expansionRounds < 0)
+            throw new IllegalArgumentException("Invalid adaptive-search budgets");
+        this.poolLimit = poolLimit;
+        this.expansionRounds = expansionRounds;
+        this.seed = seed;
+    }
+
+    public enum StopReason { ROUND_LIMIT, POOL_LIMIT, NO_RESPONSE_FOUND, NON_MOVEMENT }
+
+    /**
+     * Includes the initial solve and every completed re-solve.
+     * Each entry retains its own immutable candidate pools and policies.
+     */
+    public record Result(Nation power, List<JointSearchResult> solves, StopReason reason) {
+        public Result {
+            Objects.requireNonNull(power, "power");
+            Objects.requireNonNull(reason, "reason");
+            solves = List.copyOf(solves);
+            if (solves.isEmpty() || solves.stream().anyMatch(solve -> !solve.results().containsKey(power)))
+                throw new IllegalArgumentException("Every solve must include the requested nation");
+        }
+
+        public JointSearchResult joint() {
+            return solves.getLast();
+        }
+
+        public SearchResult result() {
+            return joint().results().get(power);
+        }
+    }
+
+    /**
+     * Uses plausible initial proposals and their existing convoy-free anchor.
+     * Custom anchors and initial pools can use the explicit overload.
+     */
+    public Result search(Game game, Nation power, int initialLimit) {
+        if (initialLimit < 1 || initialLimit > poolLimit)
+            throw new IllegalArgumentException("Initial limit must fit the pool limit");
+        GameState root = SearchSupport.root(game, power);
+        Map<Nation, List<ActionCandidate>> pools = SearchSupport.generatePools(
+                root, new PlausibleActionGenerator(), initialLimit, new Random(seed));
+        if (!(root instanceof GameState_Movement))
+            return new Result(power, List.of(solver.solve(game, pools)), StopReason.NON_MOVEMENT);
+        return search(game, power, pools, ActionPrior.convoyFreeUniform(root));
+    }
+
+    /**
+     * Expands explicit movement pools under an authoritative fixed root prior.
+     * Existing candidate priors must already match that anchor.
+     */
+    public Result search(Game game, Nation power,
+                         Map<Nation, List<ActionCandidate>> initial, ActionPrior prior) {
+        GameState root = SearchSupport.root(game, power);
+        Map<Nation, List<ActionCandidate>> pools = SearchSupport.pools(root, initial);
+        SearchSupport.requireAnchor(pools, prior);
+        if (pools.values().stream().anyMatch(pool -> pool.size() > poolLimit))
+            throw new IllegalArgumentException("Initial pool exceeds the pool limit");
+        List<JointSearchResult> history = new ArrayList<>();
+        JointSearchResult solved = solver.solve(game, pools);
+        history.add(solved);
+        if (!(root instanceof GameState_Movement))
+            return new Result(power, history, StopReason.NON_MOVEMENT);
+        Random random = new Random(seed);
+        for (int round = 0; round < expansionRounds; round++) {
+            if (pools.values().stream().allMatch(pool -> pool.size() == poolLimit))
+                return new Result(power, history, StopReason.POOL_LIMIT);
+            Map<Nation, List<ResponseSearch.Response>> found =
+                    responses.discover(game, solved, prior, random.nextLong());
+            Map<Nation, List<ActionCandidate>> expanded = new EnumMap<>(Nation.class);
+            boolean changed = false;
+            boolean blocked = false;
+            for (Nation nation : pools.keySet()) {
+                List<ActionCandidate> candidates = new ArrayList<>(pools.get(nation));
+                for (ResponseSearch.Response response : found.get(nation)) {
+                    if (candidates.size() == poolLimit) {
+                        blocked = true;
+                        break;
+                    }
+                    candidates.add(response.candidate());
+                    changed = true;
+                }
+                expanded.put(nation, List.copyOf(candidates));
+            }
+            if (!changed)
+                return new Result(power, history,
+                        blocked ? StopReason.POOL_LIMIT : StopReason.NO_RESPONSE_FOUND);
+
+            // No policy is exposed for the expanded pools until this solve completes.
+            pools = Collections.unmodifiableMap(expanded);
+            solved = solver.solve(game, pools);
+            history.add(solved);
+        }
+        return new Result(power, history, StopReason.ROUND_LIMIT);
+    }
+}

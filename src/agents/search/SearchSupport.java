@@ -2,6 +2,7 @@ package agents.search;
 
 import agents.evaluation.Evaluator;
 import agents.generation.*;
+import contracts.OrderForm;
 import domain.Nation;
 import game.Game;
 import game.GameState;
@@ -16,15 +17,73 @@ final class SearchSupport {
 
     private SearchSupport() { }
 
-    static GameState root(Game game, Nation power) {
+    static GameState root(Game game) {
         Objects.requireNonNull(game, "game");
-        Objects.requireNonNull(power, "power");
         if (game.getSnapshot() != null)
             throw new IllegalStateException("Search requires a game without a saved checkpoint");
-        GameState root = game.snapshot();
+        return game.snapshot();
+    }
+
+    static GameState root(Game game, Nation power) {
+        Objects.requireNonNull(power, "power");
+        GameState root = root(game);
         if (!root.aliveNations().contains(power))
             throw new IllegalArgumentException("Cannot search for an eliminated nation: " + power);
         return root;
+    }
+
+    /**
+     * Copies explicit pools, preserving candidate order and original priors.
+     * Submission equality ignores list order and construction metadata.
+     */
+    static Map<Nation, List<ActionCandidate>> pools(
+            GameState root, Map<Nation, List<ActionCandidate>> supplied
+    ) {
+        Objects.requireNonNull(supplied, "pools");
+        if (supplied.isEmpty() || !supplied.keySet().equals(root.aliveNations()))
+            throw new IllegalArgumentException("Pools must cover exactly the living nations");
+        Map<Nation, List<ActionCandidate>> result = new EnumMap<>(Nation.class);
+        CatalogActionValidator validator = new CatalogActionValidator();
+        LegalOrderGenerator legal = new LegalOrderGenerator();
+        for (Nation nation : root.aliveNations()) {
+            List<ActionCandidate> candidates = List.copyOf(supplied.get(nation));
+            if (candidates.isEmpty())
+                throw new IllegalArgumentException("Empty pool for " + nation);
+            LegalOrderCatalog catalog = legal.generate(root, nation);
+            Set<Map<OrderForm, Integer>> seen = new HashSet<>();
+            for (ActionCandidate candidate : candidates) {
+                if (candidate.power() != nation)
+                    throw new IllegalArgumentException("Candidate belongs to another nation");
+                List<ActionValidationError> errors = validator.validate(root, candidate, catalog);
+                if (!errors.isEmpty())
+                    throw new IllegalArgumentException("Invalid candidate: " + errors);
+                if (!seen.add(key(candidate)))
+                    throw new IllegalArgumentException("Duplicate action for " + nation);
+            }
+            if (candidates.stream().noneMatch(candidate -> Double.isFinite(candidate.logPrior())))
+                throw new IllegalStateException("No candidate has positive prior for " + nation);
+            result.put(nation, candidates);
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    static Map<OrderForm, Integer> key(ActionCandidate candidate) {
+        Map<OrderForm, Integer> counts = new HashMap<>();
+        candidate.orders().forEach(order -> counts.merge(order, 1, Integer::sum));
+        return Map.copyOf(counts);
+    }
+
+    static ActionCandidate anchored(ActionCandidate candidate, ActionPrior prior) {
+        return new ActionCandidate(candidate.power(), candidate.orders(),
+                prior.logProbability(candidate.power(), candidate.orders()), candidate.source());
+    }
+
+    static void requireAnchor(Map<Nation, List<ActionCandidate>> pools, ActionPrior prior) {
+        Objects.requireNonNull(prior, "prior");
+        for (List<ActionCandidate> candidates : pools.values())
+            for (ActionCandidate candidate : candidates)
+                if (anchored(candidate, prior).logPrior() != candidate.logPrior())
+                    throw new IllegalArgumentException("Candidate prior differs from the fixed root anchor");
     }
 
     static Map<Nation, List<ActionCandidate>> generatePools(

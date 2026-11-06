@@ -62,7 +62,7 @@ import java.util.*;
  *
  * @author Evan B.
  */
-public final class DiLPiKLSearch {
+public class DiLPiKLSearch {
 
     // Search configuration \\
 
@@ -174,6 +174,28 @@ public final class DiLPiKLSearch {
         // Candidate generation finishes before any trial advances the root.
         Map<Nation, List<ActionCandidate>> pools =
                 SearchSupport.generatePools(root, generator, candidateLimit, random);
+        return solve(game, SearchSupport.pools(root, pools), random).results().get(power);
+    }
+
+    /**
+     * Solves caller-supplied pools for all living nations.
+     *
+     * <p>The generation limit does not cap explicit pools. They must contain
+     * distinct, valid actions and positive prior support for each living nation.
+     * Input order and priors are retained. No new candidates are generated.</p>
+     *
+     * <p>The seed starts directly at population sampling. `search()` first uses
+     * its random stream for generation seeds, so the two entry points need not
+     * produce identical samples even when supplied the same pools.</p>
+     */
+    public JointSearchResult solve(Game game, Map<Nation, List<ActionCandidate>> pools) {
+        return solve(game, SearchSupport.pools(SearchSupport.root(game), pools), new Random(seed));
+    }
+
+    /**
+     * Shared iteration loop. Existing search calls retain their random stream.
+     */
+    private JointSearchResult solve(Game game, Map<Nation, List<ActionCandidate>> pools, Random random) {
         Map<Nation, double[]> means = new EnumMap<>(Nation.class);
         for (Nation nation : pools.keySet()) {
             List<ActionCandidate> candidates = pools.get(nation);
@@ -230,10 +252,29 @@ public final class DiLPiKLSearch {
             }
         }
 
-        // agentLambda affects the returned policy only, after all population updates.
-        double[] values = means.get(power);
-        return new SearchResult(policy(pools.get(power), values, agentLambda),
-                Arrays.stream(values).boxed().toList(), iterations);
+        // Final policies use the completed values, without drawing further samples.
+        Map<Nation, SearchResult> results = new EnumMap<>(Nation.class);
+        Map<Nation, ActionDistribution> populations = new EnumMap<>(Nation.class);
+        for (Nation nation : pools.keySet()) {
+            List<ActionCandidate> candidates = pools.get(nation);
+            double[] values = means.get(nation);
+            results.put(nation, new SearchResult(policy(candidates, values, agentLambda),
+                    Arrays.stream(values).boxed().toList(), iterations));
+            List<Double> mixture = new ArrayList<>(Collections.nCopies(candidates.size(), 0.0));
+            for (int type = 0; type < population.values().size(); type++) {
+                double mass = population.probabilities().get(type);
+                if (mass == 0.0)
+                    continue;
+                List<Double> probabilities = policy(candidates, values, population.values().get(type)).probabilities();
+                for (int index = 0; index < mixture.size(); index++)
+                    mixture.set(index, mixture.get(index) + mass * probabilities.get(index));
+            }
+            double total = mixture.stream().mapToDouble(Double::doubleValue).sum();
+            for (int index = 0; index < mixture.size(); index++)
+                mixture.set(index, mixture.get(index) / total);
+            populations.put(nation, new ActionDistribution(candidates, mixture));
+        }
+        return new JointSearchResult(results, populations);
     }
 
     // Policy calculation \\
