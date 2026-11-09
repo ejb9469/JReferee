@@ -11,18 +11,23 @@ type = a lambda value controlling preference for the anchor
 POLICY SEARCH CONTRACT
 
 PolicySearch.search(game, power)                             ==> SearchResult
-Search and DiLPiKLSearch implement PolicySearch.
-adaptive.asSearch(initialLimit) supplies the same interface, using fresh
-plausible initial pools at each root. adaptive.search(...) retains its reports.
-ResponseSearch discovers additions; it does not select a complete policy.
+BestResponseSearch and DiLPiKLSearch implement PolicySearch.
+adaptive.asSearch(initialLimit, generator, priorFactory) supplies the same
+interface. Each call generates fresh pools; the prior factory binds each
+movement root. Other phases skip discovery and prior binding.
+adaptive.search(...) retains its reports.
+ResponseDiscovery discovers additions; it does not select a complete policy.
 
 SearchResult.distribution is the policy to sample. meanValues are aligned raw
-payoff means: fixed anchor opponents for Search, sampled history for DiL-piKL.
+payoff means: fixed anchor opponents for BestResponseSearch, sampled history
+for DiL-piKL.
 They exclude search penalties and are not fresh returned-policy evaluations.
 samplesPerCandidate counts observations per mean, including cached payoffs,
 but excluding extra evaluator rollouts and earlier adaptive solves.
 Root pools must contain distinct complete actions and positive prior support.
-Search may select an individual zero-prior action; DiL-piKL assigns it no mass.
+BestResponseSearch may select an individual zero-prior action; DiL-piKL assigns it no mass.
+BestResponseSearch and ResponseDiscovery share fixed-sample payoff measurement;
+each retains its own sampling order and candidate-selection rules.
 
 
 FIXED-POOL BASELINE
@@ -58,7 +63,12 @@ Older factories and constructors retain FINAL output.
 FINAL uses the policy after the last update. AVERAGE uses the equal-weight
 average of pre-update policies from iterations 1 through T, including startup.
 The output choice does not change sampling, Q, temperatures, or evaluation work.
-solved.withOutput(choice, profile) selects either output from the same solve.
+JointSearchResult retains immutable Settings: population, playing lambda,
+and temperature schedule. Construction validates the selected policies.
+solved.withOutput(choice) selects either output from the same solve.
+Selecting the existing output returns the same result.
+The profile-taking overload checks the recorded settings exactly.
+Manually constructed results must also supply settings and temperatures.
 trace() takes increasing checkpoints ending at the iteration budget.
 It records one continuous solve; no restart, extra sampling, or extra trials.
 Each immutable snapshot reports its own completed iteration count.
@@ -78,12 +88,13 @@ The caller supplies matching root/continuation processors and an isolated Game.
 
 TYPE RECEIPTS
 
-TypeReceipt.exact(profile, solved, trials)                   ==> List<TypeReceipt>
-TypeReceipt.sampled(profile, solved, trials, samples, seed)   ==> List<TypeReceipt>
+TypeReceipt.exact(solved, trials)                            ==> List<TypeReceipt>
+TypeReceipt.sampled(solved, trials, samples, seed)            ==> List<TypeReceipt>
 receipt.values()                                           ==> immutable List<Double>
 receipt.toString()                                         ==> printed receipt
 
 Same root and payoff function as the solve:
+    -> read the recorded solve settings
     -> freeze population mixtures in the selected output mode
     -> compute fresh values against those opponents
     -> read every type, including a separate playing lambda if needed
@@ -106,6 +117,8 @@ PlausibleActionGenerator: existing heuristic option and older constructor defaul
 FriendlyConvoyUniformActionGenerator: optional friendly convoy plans.
 ProvinceScope / ScopedActionGenerator: fixture boundaries, not paper settings.
 AdaptiveDiLPiKLSearch: optional response discovery and fresh solves of larger pools.
+Initial generation and its root prior are supplied explicitly, for example:
+adaptive.asSearch(limit, new UniformActionGenerator(), ActionPrior::convoyFreeUniform)
 
 PaperSearchConsoleApp -> both plans -> checkpoints -> FINAL/AVERAGE comparisons.
 TwoActionReference -> independent two-player/two-action Algorithm 1 calculation.

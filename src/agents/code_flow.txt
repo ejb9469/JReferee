@@ -66,11 +66,15 @@ FINAL uses the policy formed after T updates. AVERAGE uses the equal-weight
 average of the T policies used before those updates, including startup.
 Each nation and lambda has its own average; output-only types are also tracked.
 Q, temperatures, sampled actions, and evaluation work are identical in both modes.
-JointSearchResult.withOutput(choice, profile) switches output without another solve.
+JointSearchResult retains the original lambda population, playing lambda, and
+temperature schedule in immutable Settings. Its policies are checked at construction.
+withOutput(choice) switches output without another solve; the same choice returns
+the same result. The profile-taking overload checks those settings exactly.
 
 4. Read the receipts
 -------------------
-TypeReceipt.exact(profile, solved, trials) enumerates retained joint actions.
+TypeReceipt.exact(solved, trials) enumerates retained joint actions using the
+recorded settings.
 Use deterministic payoffs. TypeReceipt.sampled(..., samples, seed) instead
 estimates fresh values using common opponent draws and a separate random seed.
 It reports per-action standard errors; these are not error bounds for the
@@ -121,6 +125,10 @@ The older CounterSearch applications retain their expansion experiments.
 AdaptiveDiLPiKLSearch remains an optional wrapper: discover responses, append
 actions, and restart a fixed-pool solve. NO_RESPONSE_FOUND describes discovery,
 not convergence. The paper omits double-oracle exploration during training.
+asSearch(initialLimit, generator, priorFactory) binds initial generation explicitly.
+The factory receives each movement root; retreats and adjustments skip discovery.
+BestResponseSearch and ResponseDiscovery share payoff measurement over frozen
+samples, while retaining their separate sampling and selection rules.
 
 Completing an iteration budget does not prove equilibrium. Next come full-game
 execution, a human-imitation anchor, learned proposals and values, and self-play
