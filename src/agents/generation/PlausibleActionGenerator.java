@@ -41,7 +41,7 @@ import java.util.*;
  * <p>Small pools cannot cover every useful plan. Proposal ranking uses local
  * geometry and supply-center ownership, without adjudication or opponent
  * probabilities. Response-driven expansion, friendly convoy bundles, and a
- * learned anchor remain future work. BestResponseSearch and evaluation decide which of
+ * learned anchor remain future work. Search and evaluation decide which of
  * these candidates are worth playing.</p>
  */
 public class PlausibleActionGenerator implements ActionGenerator {

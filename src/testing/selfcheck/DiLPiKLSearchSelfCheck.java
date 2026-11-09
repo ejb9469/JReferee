@@ -246,7 +246,7 @@ public final class DiLPiKLSearchSelfCheck {
         saved.takeSnapshot();
         GameState checkpoint = saved.getSnapshot();
         expect(IllegalStateException.class, () -> solver.search(saved, Nation.FRANCE));
-        require(saved.getSnapshot() == checkpoint, "BestResponseSearch must leave an existing checkpoint untouched");
+        require(saved.getSnapshot() == checkpoint, "Search must leave an existing checkpoint untouched");
         saved.restoreFromSnapshot();
 
         ActionGenerator noSupport = (request, catalog) -> fixture.generator().generate(request, catalog).stream()

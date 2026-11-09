@@ -12,7 +12,7 @@ import java.util.*;
  * Distributional-lambda piKL search over fixed candidate pools.
  *
  * <p>Each candidate is one nation's complete set of orders for the current
- * phase. All living nations choose simultaneously. BestResponseSearch compares each
+ * phase. All living nations choose simultaneously. Search compares each
  * candidate against sampled orders from the other nations.</p>
  *
  * <p>Uses Algorithm 1 and Equation 5 of arXiv:2210.05492.
@@ -54,7 +54,7 @@ import java.util.*;
  * policies and values. Convergence in seven-player Diplomacy is not guaranteed.</p>
  *
  * <p>Each root trial uses `Simulator.peek()` and restores the supplied game.
- * BestResponseSearch iterations repeat the current phase; they do not increase search depth.
+ * Search iterations repeat the current phase; they do not increase search depth.
  * A `RolloutEvaluator` can extend each successor on a separate game using
  * `advance()`. Future-phase equilibrium searches would require further work.</p>
  *
@@ -68,7 +68,7 @@ import java.util.*;
  */
 public class DiLPiKLSearch implements PolicySearch {
 
-    // BestResponseSearch configuration \\
+    // Search configuration \\
 
     private final Evaluator evaluator;
     private final ActionGenerator generator;
@@ -402,7 +402,8 @@ public class DiLPiKLSearch implements PolicySearch {
             for (var type : moments.get(nation).entrySet()) {
                 double kappa = kappa(type.getValue());
                 finalTemperatures.put(type.getKey(), kappa);
-                finalPolicies.put(type.getKey(), policy(candidates, values, type.getKey(), kappa));
+                if (output == PolicyOutput.FINAL)
+                    finalPolicies.put(type.getKey(), policy(candidates, values, type.getKey(), kappa));
                 double[] sums = policySums.get(nation).get(type.getKey());
                 // Total mass equals the iteration count, apart from rounding.
                 double total = Arrays.stream(sums).sum();
@@ -411,12 +412,14 @@ public class DiLPiKLSearch implements PolicySearch {
             }
             temperatures.put(nation, finalTemperatures);
             averages.put(nation, averagePolicies);
-            results.put(nation, new SearchResult(finalPolicies.get(agentLambda),
+            Map<Double, ActionDistribution> selected =
+                    output == PolicyOutput.FINAL ? finalPolicies : averagePolicies;
+            results.put(nation, new SearchResult(selected.get(agentLambda),
                     Arrays.stream(values).boxed().toList(), completed));
-            populations.put(nation, JointSearchResult.mixture(finalPolicies, population));
+            populations.put(nation, JointSearchResult.mixture(selected, population));
         }
-        return new JointSearchResult(results, populations, temperatures, averages, PolicyOutput.FINAL)
-                .withOutput(output, population, agentLambda);
+        return new JointSearchResult(results, populations, temperatures, averages,
+                new JointSearchResult.Settings(population, agentLambda, temperature), output);
     }
 
     // Utility observations \\

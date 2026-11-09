@@ -94,18 +94,8 @@ public class BestResponseSearch implements PolicySearch {
 
         List<ActionCandidate> candidates = pools.get(power);
         List<Double> means = new ArrayList<>(candidates.size());
-        for (ActionCandidate candidate : candidates) {
-            double mean = 0.0;
-            for (Map<Nation, ActionCandidate> opponentsJoint : samples) {
-                Map<Nation, ActionCandidate> joint = new EnumMap<>(Nation.class);
-                joint.putAll(opponentsJoint);
-                joint.put(power, candidate);
-                mean += trials.evaluate(joint).get(power) / opponentSamples;
-                if (!Double.isFinite(mean))
-                    throw new IllegalStateException("Non-finite search mean for " + power);
-            }
-            means.add(mean);
-        }
+        for (ActionCandidate candidate : candidates)
+            means.add(SearchSupport.meanValue(trials, candidate, samples));
 
         double best = Collections.max(means);
         int ties = 0;

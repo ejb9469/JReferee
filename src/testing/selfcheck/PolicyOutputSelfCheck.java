@@ -78,7 +78,7 @@ public final class PolicyOutputSelfCheck {
         require(trials.counts().requests() == 7 * 9, "Output tracking must not add evaluation requests");
         long requests = trials.counts().requests();
         List<JointSearchResult> averages = history.stream()
-                .map(result -> result.withOutput(PolicyOutput.AVERAGE, profile)).toList();
+                .map(result -> result.withOutput(PolicyOutput.AVERAGE)).toList();
         require(trials.counts().requests() == requests, "Output selection must not evaluate actions");
 
         for (Nation nation : Nation.values()) {
@@ -101,7 +101,7 @@ public final class PolicyOutputSelfCheck {
         }
         JointSearchResult last = history.getLast(), average = averages.getLast();
         require(last.output() == PolicyOutput.FINAL && average.output() == PolicyOutput.AVERAGE, "Output labels differ");
-        require(average.withOutput(PolicyOutput.FINAL, profile).equals(last), "Output selection must be reversible");
+        require(average.withOutput(PolicyOutput.FINAL).equals(last), "Output selection must be reversible");
         require(profile.solver(evaluator, generator, 2, 9, 17, PolicyOutput.AVERAGE)
                 .solve(game, pools, trials).equals(average), "Configured output must match snapshot selection");
         SearchResult finalSearch = solver.search(game, Nation.FRANCE, trials);
@@ -120,7 +120,7 @@ public final class PolicyOutputSelfCheck {
         }
 
         requests = trials.counts().requests();
-        List<TypeReceipt> receipts = TypeReceipt.exact(profile, average, trials);
+        List<TypeReceipt> receipts = TypeReceipt.exact(average, trials);
         require(trials.counts().requests() - requests == 64, "Exact checks must enumerate each joint action once");
         require(receipts.size() == 28, "Every nation needs population and output-only type receipts");
         for (TypeReceipt receipt : receipts) {
@@ -153,9 +153,9 @@ public final class PolicyOutputSelfCheck {
                     && receipt.toString().contains("Final temperature:"), "Receipt labels are missing");
         }
         requests = trials.counts().requests();
-        List<TypeReceipt> sampled = TypeReceipt.sampled(profile, average, trials, 500, 31);
+        List<TypeReceipt> sampled = TypeReceipt.sampled(average, trials, 500, 31);
         require(trials.counts().requests() - requests == 7 * 500, "Sampled evaluation work differs");
-        require(sampled.equals(TypeReceipt.sampled(profile, average, trials, 500, 31)), "Sampled receipts must replay");
+        require(sampled.equals(TypeReceipt.sampled(average, trials, 500, 31)), "Sampled receipts must replay");
         checkSamples(sampled, average);
         require(game.snapshot().equals(root) && game.getSnapshot() == null && game.processorHistory().isEmpty(),
                 "Output selection and receipts must preserve the game");
@@ -168,15 +168,16 @@ public final class PolicyOutputSelfCheck {
         Map<Double, ActionDistribution> types = new LinkedHashMap<>(mutable.get(Nation.FRANCE));
         mutable.put(Nation.FRANCE, types);
         JointSearchResult copied = new JointSearchResult(average.results(), average.populationPolicies(),
-                average.temperatures(), mutable, PolicyOutput.AVERAGE);
+                average.temperatures(), mutable, average.settings(), PolicyOutput.AVERAGE);
         types.clear();
         mutable.clear();
         require(copied.equals(average), "Average maps must be copied deeply");
-        JointSearchResult legacy = new JointSearchResult(last.results(), last.populationPolicies(), last.temperatures());
-        require(legacy.withOutput(PolicyOutput.FINAL, profile).equals(legacy), "Legacy final results must remain usable");
-        expect(IllegalArgumentException.class, () -> legacy.withOutput(PolicyOutput.AVERAGE, profile));
+        JointSearchResult finalOnly = new JointSearchResult(last.results(), last.populationPolicies(),
+                last.temperatures(), last.settings());
+        require(finalOnly.withOutput(PolicyOutput.FINAL) == finalOnly, "Same-output selection must return this result");
+        expect(IllegalArgumentException.class, () -> finalOnly.withOutput(PolicyOutput.AVERAGE));
         expect(IllegalArgumentException.class, () -> new JointSearchResult(last.results(),
-                last.populationPolicies(), last.temperatures(), Map.of(), PolicyOutput.AVERAGE));
+                last.populationPolicies(), last.temperatures(), Map.of(), last.settings(), PolicyOutput.AVERAGE));
         expect(IllegalArgumentException.class, () -> average.policy(Nation.FRANCE, 0.9));
         expect(NullPointerException.class, () -> profile.solver(evaluator, generator, 2, 9, 17, null));
         SearchProfile wrong = new Profile(new LambdaDistribution(List.of(0.1, 0.8, 0.4), List.of(0.75, 0.25, 0.0)),

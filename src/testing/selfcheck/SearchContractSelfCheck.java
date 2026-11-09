@@ -8,6 +8,7 @@ import domain.Nation;
 import domain.Province;
 import domain.UnitType;
 import game.*;
+import performance.PerformanceStats;
 import phase.Order;
 import phase.UnitId;
 import phase.adjustments.AdjustmentProcessor;
@@ -16,6 +17,7 @@ import phase.retreats.RetreatProcessor;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * Shared policy calls, payoff meanings, and adaptive result extraction.
@@ -43,6 +45,8 @@ public final class SearchContractSelfCheck {
         algorithmDifferences();
         invalidPools();
         adaptiveResults();
+        solveSettings();
+        explicitGeneration();
         failures();
         System.out.println("SearchContractSelfCheck passed: " + checks + " checks");
     }
@@ -70,7 +74,7 @@ public final class SearchContractSelfCheck {
             game.takeSnapshot();
             GameState checkpoint = game.getSnapshot();
             expect(IllegalStateException.class, () -> search.search(game, Nation.FRANCE));
-            require(game.getSnapshot() == checkpoint, "BestResponseSearch consumed the caller's checkpoint");
+            require(game.getSnapshot() == checkpoint, "Search consumed the caller's checkpoint");
             game.restoreFromSnapshot();
             requireRestored(game, ROOT);
         }
@@ -126,11 +130,13 @@ public final class SearchContractSelfCheck {
 
     private static void adaptiveResults() {
         AdaptiveDiLPiKLSearch adaptive = adaptive(VALUE);
-        PolicySearch search = adaptive.asSearch(1);
-        expect(IllegalArgumentException.class, () -> adaptive.asSearch(0));
-        expect(IllegalArgumentException.class, () -> adaptive.asSearch(3));
+        ActionGenerator generator = new UniformActionGenerator();
+        PolicySearch search = adaptive.asSearch(1, generator, ActionPrior::convoyFreeUniform);
+        expect(IllegalArgumentException.class, () -> adaptive.asSearch(0, generator, ActionPrior::convoyFreeUniform));
+        expect(IllegalArgumentException.class, () -> adaptive.asSearch(3, generator, ActionPrior::convoyFreeUniform));
         Game game = game(ROOT);
-        AdaptiveDiLPiKLSearch.Result report = adaptive.search(game, Nation.FRANCE, 1);
+        AdaptiveDiLPiKLSearch.Result report = adaptive.search(game, Nation.FRANCE, 1, generator,
+                ActionPrior::convoyFreeUniform);
         require(report.solves().size() == 2, "Fixture must complete an expansion and re-solve");
         require(report.reason() == AdaptiveDiLPiKLSearch.StopReason.ROUND_LIMIT,
                 "Unexpected adaptive stop reason");
@@ -149,7 +155,8 @@ public final class SearchContractSelfCheck {
         GameState root = winter.snapshot();
         var history = winter.processorHistory();
         require(root instanceof GameState_Adjustments, "Fixture must reach adjustments");
-        AdaptiveDiLPiKLSearch.Result winterReport = adaptive.search(winter, Nation.FRANCE, 1);
+        AdaptiveDiLPiKLSearch.Result winterReport = adaptive.search(winter, Nation.FRANCE, 1, generator,
+                ActionPrior::convoyFreeUniform);
         require(winterReport.reason() == AdaptiveDiLPiKLSearch.StopReason.NON_MOVEMENT
                 && winterReport.solves().size() == 1, "Nonmovement phase attempted expansion");
         require(search.search(winter, Nation.FRANCE).equals(winterReport.result()),
@@ -163,9 +170,100 @@ public final class SearchContractSelfCheck {
         for (PolicySearch search : searches(state -> { throw failure; })) {
             Game game = game(ROOT);
             require(expect(IllegalStateException.class, () -> search.search(game, Nation.FRANCE)) == failure,
-                    "BestResponseSearch replaced the evaluator failure");
+                    "Search replaced the evaluator failure");
             requireRestored(game, ROOT);
         }
+    }
+
+    private static void solveSettings() {
+        List<ActionCandidate> pool = List.of(action(Order.hold(FRENCH), StrictMath.log(0.75)),
+                action(Order.move(FRENCH, Province.Bel), StrictMath.log(0.25)));
+        ActionGenerator generator = (request, catalog) -> pool;
+        Evaluator constant = state -> {
+            Map<Nation, Double> values = new EnumMap<>(Nation.class);
+            for (Nation nation : Nation.values())
+                values.put(nation, 0.0);
+            return values;
+        };
+        var settings = new JointSearchResult.Settings(new LambdaDistribution(
+                List.of(0.1, 0.2), List.of(0.25, 0.75)), 0.1, TemperatureSchedule.ZERO);
+        SearchProfile[] source = {settings};
+        SearchProfile mutable = new SearchProfile() {
+            public LambdaDistribution population() { return source[0].population(); }
+            public double agentLambda() { return source[0].agentLambda(); }
+            public TemperatureSchedule temperature() { return source[0].temperature(); }
+        };
+        DiLPiKLSearch solver = mutable.solver(constant, generator, 2, SAMPLES, 7);
+        source[0] = PaperSearchProfile.STANDARD;
+        Game game = game(ROOT);
+        JointSearchResult solved = solver.solve(game, Map.of(Nation.FRANCE, pool));
+        require(solved.settings().equals(settings), "Solve settings retained a mutable profile");
+        require(solved.withOutput(PolicyOutput.FINAL) == solved, "Same output allocated a replacement");
+        require(solved.withOutput(PolicyOutput.FINAL, settings) == solved, "Checked same output allocated a replacement");
+        JointSearchResult average = solved.withOutput(PolicyOutput.AVERAGE);
+        require(average.settings().equals(settings), "Conversion changed the solve settings");
+        require(average.withOutput(PolicyOutput.FINAL).equals(solved), "Conversion must remain reversible");
+        expect(UnsupportedOperationException.class, () -> solved.settings().population().probabilities().clear());
+        JointActionEvaluator trials = JointActionEvaluator.deterministic(game, constant, 2, new PerformanceStats(false));
+        List<SearchProfile> mismatches = List.of(
+                new JointSearchResult.Settings(new LambdaDistribution(
+                        List.of(0.1, 0.2), List.of(0.75, 0.25)), 0.1, TemperatureSchedule.ZERO),
+                new JointSearchResult.Settings(settings.population(), 0.2, TemperatureSchedule.ZERO),
+                new JointSearchResult.Settings(settings.population(), 0.1, TemperatureSchedule.ADAPTIVE));
+        for (SearchProfile mismatch : mismatches) {
+            expect(IllegalArgumentException.class, () -> solved.withOutput(PolicyOutput.FINAL, mismatch));
+            expect(IllegalArgumentException.class, () -> solved.withOutput(PolicyOutput.AVERAGE, mismatch));
+            expect(IllegalArgumentException.class, () -> TypeReceipt.exact(mismatch, solved, trials));
+        }
+        require(trials.counts().requests() == 0, "Settings checks evaluated actions");
+        require(TypeReceipt.exact(solved, trials).equals(TypeReceipt.exact(settings, solved, trials)),
+                "Recorded and explicit profiles produced different receipts");
+        require(TypeReceipt.sampled(solved, trials, 2, 7).equals(
+                TypeReceipt.sampled(settings, solved, trials, 2, 7)), "Sampled receipt overloads disagree");
+        SearchResult inconsistent = new SearchResult(
+                new ActionDistribution(pool, List.of(1.0, 0.0)), List.of(0.0, 0.0), SAMPLES);
+        expect(IllegalArgumentException.class, () -> new JointSearchResult(
+                Map.of(Nation.FRANCE, inconsistent), solved.populationPolicies(), solved.temperatures(), settings));
+        expect(NullPointerException.class, () -> new JointSearchResult(
+                solved.results(), solved.populationPolicies(), solved.temperatures(), null));
+        requireRestored(game, ROOT);
+    }
+
+    private static void explicitGeneration() {
+        List<GameState> generated = new ArrayList<>(), bound = new ArrayList<>();
+        ActionGenerator generator = (request, catalog) -> {
+            catalog.requireMatches(request.state(), request.power());
+            generated.add(request.state());
+            List<OrderForm> orders = List.of(Order.move(FRENCH, Province.Bel));
+            return List.of(new ActionCandidate(request.power(), orders,
+                    ActionPrior.convoyFreeUniform(request.state()).logProbability(request.power(), orders),
+                    ActionCandidate.Source.HEURISTIC));
+        };
+        Function<GameState, ActionPrior> priors = root -> {
+            bound.add(root);
+            return ActionPrior.convoyFreeUniform(root);
+        };
+        ResponseDiscovery responses = new ResponseDiscovery(VALUE, generator, 1, 1, 1, 0);
+        AdaptiveDiLPiKLSearch adaptive = new AdaptiveDiLPiKLSearch(
+                solver(VALUE, new PlausibleActionGenerator(), PolicyOutput.AVERAGE), responses, 2, 0, 7);
+        PolicySearch search = adaptive.asSearch(1, generator, priors);
+        GameState later = new GameState_Movement(new GameMoment(1908, GamePhase.SPRING_MOVEMENT), ROOT.board());
+        for (GameState root : List.of(ROOT, later)) {
+            Game game = game(root);
+            SearchResult result = search.search(game, Nation.FRANCE);
+            require(result.distribution().candidates().getFirst().orders().equals(List.of(Order.move(FRENCH, Province.Bel))),
+                    "Adaptive search ignored the supplied initial generator");
+            requireRestored(game, root);
+        }
+        require(generated.equals(List.of(ROOT, later)) && bound.equals(generated),
+                "Initial generation and prior binding must use each call's root");
+        expect(NullPointerException.class, () -> adaptive.asSearch(1, null, priors));
+        expect(NullPointerException.class, () -> adaptive.asSearch(1, generator, null));
+        Game game = game(ROOT);
+        expect(NullPointerException.class, () -> adaptive.search(game, Nation.FRANCE, 1, generator, root -> null));
+        expect(IllegalArgumentException.class, () -> adaptive.search(game, Nation.FRANCE, 1, generator,
+                root -> (power, orders) -> 0.0));
+        requireRestored(game, ROOT);
     }
 
     private static List<PolicySearch> searches(Evaluator evaluator) {
@@ -175,7 +273,7 @@ public final class SearchContractSelfCheck {
         return List.of(new BestResponseSearch(evaluator, generator, 2, SAMPLES, 7),
                 solver(evaluator, generator, PolicyOutput.FINAL),
                 solver(evaluator, generator, PolicyOutput.AVERAGE),
-                adaptive(evaluator).asSearch(1));
+                adaptive(evaluator).asSearch(1, new UniformActionGenerator(), ActionPrior::convoyFreeUniform));
     }
 
     private static DiLPiKLSearch solver(Evaluator evaluator, ActionGenerator generator, PolicyOutput output) {
@@ -207,7 +305,7 @@ public final class SearchContractSelfCheck {
 
     private static void requireRestored(Game game, GameState root) {
         require(game.snapshot().equals(root) && game.getSnapshot() == null
-                && game.processorHistory().isEmpty(), "BestResponseSearch changed the root or histories");
+                && game.processorHistory().isEmpty(), "Search changed the root or histories");
     }
 
     private static void require(boolean condition, String message) {

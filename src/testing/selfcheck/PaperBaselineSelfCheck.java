@@ -127,7 +127,7 @@ public final class PaperBaselineSelfCheck {
         require(solved.equals(solver.solve(game, fixture.pools(), trials)),
                 "Diagnostics must not change later seeded search results");
         require(game.snapshot().equals(fixture.root()) && game.getSnapshot() == null
-                && game.processorHistory().isEmpty(), "BestResponseSearch and receipts must restore the game");
+                && game.processorHistory().isEmpty(), "Search and receipts must restore the game");
         require(trials.counts().simulations() == 8 && trials.counts().failures() == 0,
                 "The deterministic fixture should use only eight simulations");
 
@@ -148,8 +148,8 @@ public final class PaperBaselineSelfCheck {
         SearchProfile wrong = new Profile(
                 new LambdaDistribution(List.of(0.1, 0.8), List.of(0.75, 0.25)), 0.2, TemperatureSchedule.ADAPTIVE);
         expect(IllegalArgumentException.class, () -> TypeReceipt.exact(wrong, solved, trials));
-        JointSearchResult missing = new JointSearchResult(solved.results(), solved.populationPolicies());
-        expect(IllegalArgumentException.class, () -> TypeReceipt.exact(PROFILE, missing, trials));
+        expect(IllegalArgumentException.class, () -> new JointSearchResult(
+                solved.results(), solved.populationPolicies(), Map.of(), solved.settings()));
         expect(IllegalArgumentException.class, () -> new TypeReceipt(Nation.FRANCE, 0.1, 1, true,
                 0, 0, List.of(0.5), List.of(1.0), List.of(0.0), 0, 0, 0));
         expect(IllegalArgumentException.class, () -> new TypeReceipt(Nation.FRANCE, 0.1, 1, true,
@@ -226,7 +226,8 @@ public final class PaperBaselineSelfCheck {
         ActionDistribution policy = DiLPiKLSearch.policy(pool, List.of(0.0, 0.0, 0.0), 1e-4);
         JointSearchResult solved = new JointSearchResult(
                 Map.of(Nation.FRANCE, new SearchResult(policy, List.of(0.0, 0.0, 0.0), 1)),
-                Map.of(Nation.FRANCE, policy), Map.of(Nation.FRANCE, Map.of(1e-4, 0.0)));
+                Map.of(Nation.FRANCE, policy), Map.of(Nation.FRANCE, Map.of(1e-4, 0.0)),
+                new JointSearchResult.Settings(profile));
         Evaluator evaluator = state -> {
             Map<Nation, Double> scores = zeros();
             Province location = state.board().locationOf(unit);

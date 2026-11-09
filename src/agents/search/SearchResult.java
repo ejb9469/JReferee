@@ -37,7 +37,7 @@ public record SearchResult(
             throw new IllegalArgumentException("samplesPerCandidate must be at least 1");
         for (double value : meanValues)
             if (!Double.isFinite(value))
-                throw new IllegalArgumentException("BestResponseSearch values must be finite");
+                throw new IllegalArgumentException("Search values must be finite");
     }
 
 }

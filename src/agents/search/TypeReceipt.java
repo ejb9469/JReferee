@@ -95,30 +95,39 @@ public record TypeReceipt(
      * Enumerates all retained joint actions once. Requires deterministic payoffs;
      * use sampled() when the opposing action space is too large to enumerate.
      */
-    public static List<TypeReceipt> exact(SearchProfile profile, JointSearchResult solved,
-                                          JointActionEvaluator trials) {
-        return evaluate(profile, solved, trials, 0, 0);
+    public static List<TypeReceipt> exact(JointSearchResult solved, JointActionEvaluator trials) {
+        return evaluate(solved, trials, 0, 0);
     }
 
     /**
      * Uses common opponent draws for every alternative, with a separate RNG.
      * Standard errors concern action values, not the derived response measures.
      */
-    public static List<TypeReceipt> sampled(SearchProfile profile, JointSearchResult solved,
-                                            JointActionEvaluator trials, int samples, long seed) {
+    public static List<TypeReceipt> sampled(JointSearchResult solved, JointActionEvaluator trials,
+                                            int samples, long seed) {
         if (samples < 2)
             throw new IllegalArgumentException("Sampled receipts require at least two observations");
-        return evaluate(profile, solved, trials, samples, seed);
+        return evaluate(solved, trials, samples, seed);
     }
 
-    private static List<TypeReceipt> evaluate(SearchProfile profile, JointSearchResult solved,
-                                              JointActionEvaluator trials, int samples, long seed) {
-        Objects.requireNonNull(profile, "profile");
+    public static List<TypeReceipt> exact(SearchProfile profile, JointSearchResult solved,
+                                          JointActionEvaluator trials) {
+        Objects.requireNonNull(solved, "solved").requireProfile(profile);
+        return exact(solved, trials);
+    }
+
+    public static List<TypeReceipt> sampled(SearchProfile profile, JointSearchResult solved,
+                                            JointActionEvaluator trials, int samples, long seed) {
+        Objects.requireNonNull(solved, "solved").requireProfile(profile);
+        return sampled(solved, trials, samples, seed);
+    }
+
+    private static List<TypeReceipt> evaluate(JointSearchResult solved, JointActionEvaluator trials,
+                                              int samples, long seed) {
         Objects.requireNonNull(solved, "solved");
         Objects.requireNonNull(trials, "trials");
-        solved = solved.withOutput(solved.output(), profile);
-        LambdaDistribution population = Objects.requireNonNull(profile.population(), "population");
-        LambdaDistribution.requirePositive(profile.agentLambda());
+        JointSearchResult.Settings profile = solved.settings();
+        LambdaDistribution population = profile.population();
         Set<Double> lambdas = new LinkedHashSet<>(population.values());
         lambdas.add(profile.agentLambda());
         List<Nation> nations = new ArrayList<>(solved.results().keySet());

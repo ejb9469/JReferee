@@ -192,8 +192,8 @@ public final class TemperatureSearchSelfCheck {
         expect(UnsupportedOperationException.class, () -> actual.temperatures().clear());
         expect(UnsupportedOperationException.class, () -> actual.temperatures().get(Nation.FRANCE).clear());
         expect(IllegalArgumentException.class, () -> actual.temperature(Nation.FRANCE, 0.3));
-        JointSearchResult legacy = new JointSearchResult(actual.results(), actual.populationPolicies());
-        expect(IllegalArgumentException.class, () -> legacy.temperature(Nation.FRANCE, AGENT));
+        expect(IllegalArgumentException.class, () -> new JointSearchResult(
+                actual.results(), actual.populationPolicies(), Map.of(), actual.settings()));
     }
 
     private static void cachingAndCompatibility() {

@@ -115,8 +115,8 @@ public final class PaperSearchConsoleApp {
             TwoActionReference.Snapshot expected = reference.get(index);
             System.out.printf(Locale.ROOT, "%nCHECKPOINT seed=%d iteration=%d%n", seed, checkpoints.get(index));
             for (PolicyOutput output : PolicyOutput.values()) {
-                JointSearchResult solved = history.get(index).withOutput(output, profile);
-                List<TypeReceipt> receipts = TypeReceipt.exact(profile, solved, trials);
+                JointSearchResult solved = history.get(index).withOutput(output);
+                List<TypeReceipt> receipts = TypeReceipt.exact(solved, trials);
                 double referenceError = 0, probabilityError = 0, gain = 0;
                 System.out.println("OUTPUT " + output);
                 for (int player = 0; player < nations.size(); player++) {

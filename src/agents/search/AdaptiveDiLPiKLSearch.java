@@ -5,6 +5,7 @@ import domain.Nation;
 import game.*;
 
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * Alternates fixed-pool DiL-piKL solves and bounded response discovery.<br><br>
@@ -94,28 +95,35 @@ public class AdaptiveDiLPiKLSearch {
     }
 
     /**
-     * Binds the initial pool limit for the one-nation policy interface.
-     * Each call generates fresh plausible pools and binds the anchor to its
-     * supplied root. The result belongs to the last completed fixed-pool solve.
+     * Binds initial generation for the one-nation policy interface.
+     * Each call generates fresh pools. The prior factory is called once per
+     * movement root; other phases receive one fixed-pool solve without it.
+     * The result belongs to the last completed fixed-pool solve.
      * Use search() directly to retain the expansion history and stop reason.
      */
-    public PolicySearch asSearch(int initialLimit) {
+    public PolicySearch asSearch(int initialLimit, ActionGenerator generator,
+                                 Function<GameState, ActionPrior> priors) {
         requireInitialLimit(initialLimit);
-        return (game, power) -> search(game, power, initialLimit).result();
+        Objects.requireNonNull(generator, "generator");
+        Objects.requireNonNull(priors, "priors");
+        return (game, power) -> search(game, power, initialLimit, generator, priors).result();
     }
 
     /**
-     * Uses plausible initial proposals and their existing convoy-free anchor.
-     * Custom anchors and initial pools can use the explicit overload.
+     * Generates initial pools and binds an authoritative prior to this root.
+     * Movement candidates must already carry that prior's log probabilities.
      */
-    public Result search(Game game, Nation power, int initialLimit) {
+    public Result search(Game game, Nation power, int initialLimit, ActionGenerator generator,
+                         Function<GameState, ActionPrior> priors) {
         requireInitialLimit(initialLimit);
+        Objects.requireNonNull(generator, "generator");
+        Objects.requireNonNull(priors, "priors");
         GameState root = SearchSupport.root(game, power);
         Map<Nation, List<ActionCandidate>> pools = SearchSupport.generatePools(
-                root, new PlausibleActionGenerator(), initialLimit, new Random(seed));
+                root, generator, initialLimit, new Random(seed));
         if (!(root instanceof GameState_Movement))
             return new Result(power, List.of(solver.solve(game, pools)), StopReason.NON_MOVEMENT);
-        return search(game, power, pools, ActionPrior.convoyFreeUniform(root));
+        return search(game, power, pools, Objects.requireNonNull(priors.apply(root), "root prior"));
     }
 
     private void requireInitialLimit(int initialLimit) {

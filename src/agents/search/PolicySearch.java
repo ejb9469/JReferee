@@ -19,7 +19,7 @@ public interface PolicySearch {
      * The caller samples the policy and submits the chosen orders.
      *
      * <p>The supplied game must be isolated and have no saved checkpoint.
-     * BestResponseSearch preserves its position and histories, including after a failed
+     * Search preserves its position and histories, including after a failed
      * trial. Generation, adjudication, and evaluation failures propagate.
      * Collaborators must preserve the supplied state; their external state
      * is outside Game's rollback.</p>

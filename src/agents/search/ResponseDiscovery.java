@@ -174,9 +174,9 @@ public class ResponseDiscovery {
                 double incumbent = Double.NEGATIVE_INFINITY;
                 for (ActionCandidate candidate : pools.get(nation))
                     if (Double.isFinite(candidate.logPrior()))
-                        incumbent = Math.max(incumbent, value(trials, candidate, samples));
+                        incumbent = Math.max(incumbent, SearchSupport.meanValue(trials, candidate, samples));
                 for (ActionCandidate candidate : fresh) {
-                    double mean = value(trials, candidate, samples);
+                    double mean = SearchSupport.meanValue(trials, candidate, samples);
                     responses.add(new Response(candidate, mean, incumbent));
                 }
                 responses.sort(Comparator.comparingDouble(Response::meanValue).reversed());
@@ -195,18 +195,4 @@ public class ResponseDiscovery {
         return new Report(seed, proposalLimit, opponentSamples, additionsPerNation, minimumGain, result);
     }
 
-    private double value(JointActionEvaluator trials, ActionCandidate candidate,
-                         List<Map<Nation, ActionCandidate>> samples) {
-        double mean = 0.0;
-        for (int index = 0; index < samples.size(); index++) {
-            Map<Nation, ActionCandidate> joint = new EnumMap<>(samples.get(index));
-            joint.put(candidate.power(), candidate);
-            double payoff = trials.evaluate(joint).get(candidate.power());
-            double count = index + 1.0;
-            mean = mean * (index / count) + payoff / count;
-            if (!Double.isFinite(mean))
-                throw new IllegalStateException("Non-finite response value for " + candidate.power());
-        }
-        return mean;
-    }
 }

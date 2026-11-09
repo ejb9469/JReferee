@@ -20,7 +20,7 @@ final class SearchSupport {
     static GameState root(Game game) {
         Objects.requireNonNull(game, "game");
         if (game.getSnapshot() != null)
-            throw new IllegalStateException("BestResponseSearch requires a game without a saved checkpoint");
+            throw new IllegalStateException("Search requires a game without a saved checkpoint");
         return game.snapshot();
     }
 
@@ -108,6 +108,28 @@ final class SearchSupport {
             pools.put(nation, candidates);
         }
         return Collections.unmodifiableMap(pools);
+    }
+
+    /**
+     * Measures one candidate against supplied, frozen opponent samples.
+     * Sampling and candidate selection remain with the caller.
+     */
+    static double meanValue(JointActionEvaluator trials, ActionCandidate candidate,
+                            List<Map<Nation, ActionCandidate>> samples) {
+        if (samples.isEmpty())
+            throw new IllegalArgumentException("At least one opponent sample is required");
+        double mean = 0.0;
+        for (int index = 0; index < samples.size(); index++) {
+            Map<Nation, ActionCandidate> joint = new EnumMap<>(Nation.class);
+            joint.putAll(samples.get(index));
+            joint.put(candidate.power(), candidate);
+            double payoff = trials.evaluate(joint).get(candidate.power());
+            double count = index + 1.0;
+            mean = mean * (index / count) + payoff / count;
+            if (!Double.isFinite(mean))
+                throw new IllegalStateException("Non-finite action value for " + candidate.power());
+        }
+        return mean;
     }
 
     static Map<Nation, Double> values(Evaluator evaluator, GameState state) {
