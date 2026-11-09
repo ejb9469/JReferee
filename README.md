@@ -62,7 +62,7 @@ The existence of a convoy operation is an implied result of the convoying fleet 
   - `Game` — primary orchestrator / internal representation of a Dip game: stores board & time information, board state, and related *Processor*s
   - `BoardState` — record (immutable) of a Board State - i.e. unit locations & supply-center ownership
   - `record` package: `GameRecord` and `GameRecordBuilder` — record & record-builder for Games
-  - `press` package: `PressMessage` and `PressLedger` for basic storage
+  - ~~`press` package: `PressMessage` and `PressLedger` for basic storage~~ *DEPRECATED*
 
 - ### `src.ui.*`
   - `BoardViewerServer` — loopback-only HTTP endpoint at `GET /api/board` for current `Game` state
