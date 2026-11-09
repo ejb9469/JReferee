@@ -204,7 +204,7 @@ public final class CounterSearchApp {
         ActionGenerator proposals = new ScopedActionGenerator(plausible ? new PlausibleActionGenerator()
                 : (request, catalog) -> probes.get(request.power()), SCOPE);
         DiLPiKLSearch solver = solver(context, seed, options);
-        ResponseSearch responses = new ResponseSearch(context.evaluator(), proposals, 32, 32, 1, 0.001);
+        ResponseDiscovery responses = new ResponseDiscovery(context.evaluator(), proposals, 32, 32, 1, 0.001);
         AdaptiveDiLPiKLSearch adaptive = new AdaptiveDiLPiKLSearch(
                 solver, responses, 8, options.expansionRounds(), seed);
         Map<Nation, List<ActionCandidate>> initial = Map.of(
@@ -497,7 +497,7 @@ public final class CounterSearchApp {
             html.append("<details><summary>Discovery after solve ").append(expansion.solveIndex())
                     .append("</summary><table><tr><th>Nation</th><th>Decision</th><th>Measured gain</th><th>Orders</th></tr>");
             for (Nation nation : List.of(Nation.FRANCE, Nation.GERMANY))
-                for (ResponseSearch.Proposal proposal : expansion.report().proposals().get(nation))
+                for (ResponseDiscovery.Proposal proposal : expansion.report().proposals().get(nation))
                     html.append("<tr><td>").append(nation).append("</td><td>")
                             .append(expansion.blocked().get(nation).contains(proposal.candidate())
                                     ? "POOL_LIMIT" : proposal.decision())

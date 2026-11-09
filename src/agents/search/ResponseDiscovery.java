@@ -25,7 +25,7 @@ import java.util.*;
  * regularized game. Small samples can miss responses or promote noisy estimates.
  * Future work includes policy-directed bundle construction and held-out checks.</p>
  */
-public class ResponseSearch {
+public class ResponseDiscovery {
 
     private final Evaluator evaluator;
     private final ActionGenerator generator;
@@ -34,8 +34,8 @@ public class ResponseSearch {
     private final int additionsPerNation;
     private final double minimumGain;
 
-    public ResponseSearch(Evaluator evaluator, ActionGenerator generator, int proposalLimit,
-                          int opponentSamples, int additionsPerNation, double minimumGain) {
+    public ResponseDiscovery(Evaluator evaluator, ActionGenerator generator, int proposalLimit,
+                             int opponentSamples, int additionsPerNation, double minimumGain) {
         this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
         this.generator = Objects.requireNonNull(generator, "generator");
         if (proposalLimit < 1 || opponentSamples < 1 || additionsPerNation < 1

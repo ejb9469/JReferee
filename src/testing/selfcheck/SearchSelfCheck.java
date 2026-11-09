@@ -2,7 +2,7 @@ package testing.selfcheck;
 
 import agents.evaluation.*;
 import agents.generation.*;
-import agents.search.Search;
+import agents.search.BestResponseSearch;
 import agents.search.SearchResult;
 import agents.simulation.Simulator;
 import contracts.OrderForm;
@@ -73,7 +73,7 @@ public final class SearchSelfCheck {
         List<Double> means = new ArrayList<>(List.of(-2.0, -1.0));
         SearchResult result = new SearchResult(forced, means, 4);
         means.set(0, 99.0);
-        require(result.meanValues().equals(List.of(-2.0, -1.0)), "Search values must be copied");
+        require(result.meanValues().equals(List.of(-2.0, -1.0)), "BestResponseSearch values must be copied");
         expect(UnsupportedOperationException.class, () -> result.meanValues().clear());
         expect(IllegalArgumentException.class, () -> new SearchResult(forced, List.of(1.0), 1));
         expect(IllegalArgumentException.class, () -> new SearchResult(forced, List.of(1.0, 2.0), 0));
@@ -104,7 +104,7 @@ public final class SearchSelfCheck {
             values.put(Nation.ENGLAND, captured ? 0.0 : 100.0);
             return values;
         };
-        Search search = new Search(evaluator, generator, 2, 128, 7L);
+        BestResponseSearch search = new BestResponseSearch(evaluator, generator, 2, 128, 7L);
         SearchResult result = search.search(game, Nation.FRANCE);
         require(generated.equals(Map.of(Nation.FRANCE, 1, Nation.ENGLAND, 1)),
                 "Root pools must be generated once for living nations only");
@@ -120,18 +120,18 @@ public final class SearchSelfCheck {
                 "A selected root action must retain its zero anchor prior");
         require(result.samplesPerCandidate() == 128, "The result must report the sample count");
         require(result.equals(search.search(game, Nation.FRANCE)), "Seeded searches must repeat");
-        require(game.snapshot().equals(root) && game.processorHistory().equals(history), "Search must retain the root and history");
+        require(game.snapshot().equals(root) && game.processorHistory().equals(history), "BestResponseSearch must retain the root and history");
     }
 
     private static void tiesAndEmptyActions() {
         Fixture fixture = fixture(GamePhase.FALL_MOVEMENT);
-        SearchResult tied = new Search(state -> values(-2), fixture.generator(), 2, 3, 0L)
+        SearchResult tied = new BestResponseSearch(state -> values(-2), fixture.generator(), 2, 3, 0L)
                 .search(game(fixture.state()), Nation.FRANCE);
         require(tied.distribution().probabilities().equals(List.of(0.5, 0.5)), "Exact ties must share probability");
 
         GameState alone = new GameState_Movement(fixture.state().moment(),
                 new BoardState(Map.of(fixture.french(), Province.Pic), Map.of(Province.Par, Nation.FRANCE)));
-        SearchResult singlePower = new Search(new SCEvaluator(), fixture.generator(), 2, 2, 0L)
+        SearchResult singlePower = new BestResponseSearch(new SCEvaluator(), fixture.generator(), 2, 2, 0L)
                 .search(game(alone), Nation.FRANCE);
         require(singlePower.distribution().probabilities().equals(List.of(0.0, 1.0)),
                 "An empty opponent profile must still permit a search");
@@ -139,7 +139,7 @@ public final class SearchSelfCheck {
         GameState noUnits = new GameState_Movement(fixture.state().moment(),
                 new BoardState(Map.of(fixture.english(), Province.Lon),
                         Map.of(Province.Par, Nation.FRANCE, Province.Lon, Nation.ENGLAND)));
-        SearchResult empty = new Search(SOS, 2, 2, 0L).search(game(noUnits), Nation.FRANCE);
+        SearchResult empty = new BestResponseSearch(SOS, 2, 2, 0L).search(game(noUnits), Nation.FRANCE);
         require(empty.distribution().candidates().size() == 1
                         && empty.distribution().candidates().getFirst().orders().isEmpty()
                         && empty.distribution().probabilities().equals(List.of(1.0)),
@@ -148,15 +148,15 @@ public final class SearchSelfCheck {
 
     private static void yearEndAndPhases() {
         Fixture fixture = fixture(GamePhase.SPRING_MOVEMENT);
-        SearchResult immediate = new Search(SOS, fixture.generator(), 2, 2, 0L)
+        SearchResult immediate = new BestResponseSearch(SOS, fixture.generator(), 2, 2, 0L)
                 .search(game(fixture.state()), Nation.FRANCE);
         require(immediate.distribution().probabilities().equals(List.of(0.5, 0.5)), "Spring ownership must remain unchanged");
         Evaluator rollout = new RolloutEvaluator(SOS, new UniformActionGenerator(),
                 SearchSelfCheck::game, 2, 1, 0L);
-        SearchResult yearEnd = new Search(rollout, fixture.generator(), 2, 2, 0L)
+        SearchResult yearEnd = new BestResponseSearch(rollout, fixture.generator(), 2, 2, 0L)
                 .search(game(fixture.state()), Nation.FRANCE);
         require(yearEnd.distribution().probabilities().equals(List.of(0.0, 1.0)),
-                "Search plus rollout must recognize a Spring capture retained through Fall");
+                "BestResponseSearch plus rollout must recognize a Spring capture retained through Fall");
         close(yearEnd.meanValues().get(0), 0.2, "Holding must retain the original center share");
         close(yearEnd.meanValues().get(1), 0.8, "Capturing must improve the year-end center share");
 
@@ -172,7 +172,7 @@ public final class SearchSelfCheck {
                 Nation.GERMANY, action(Nation.GERMANY, 0, Order.move(german, Province.Bur),
                         Order.supportMove(support, Province.Mun, Province.Bur))));
         require(retreatRoot instanceof GameState_Retreats, "The fixture must expose retreats");
-        SearchResult retreatResult = new Search(SOS, 4, 2, 0L).search(retreats, Nation.FRANCE);
+        SearchResult retreatResult = new BestResponseSearch(SOS, 4, 2, 0L).search(retreats, Nation.FRANCE);
         require(retreatResult.distribution().candidates().stream().allMatch(candidate ->
                         candidate.orders().stream().allMatch(order -> order instanceof RetreatOrder)),
                 "Retreat search must generate retreat actions");
@@ -187,25 +187,25 @@ public final class SearchSelfCheck {
                     "Winter root actions must be evaluated through the following year's Fall");
             return SOS.evaluate(state);
         }, new UniformActionGenerator(), SearchSelfCheck::game, 1, 1, 0L);
-        new Search(nextYear, 4, 1, 0L).search(winterGame, Nation.FRANCE);
+        new BestResponseSearch(nextYear, 4, 1, 0L).search(winterGame, Nation.FRANCE);
         require(winterGame.snapshot().equals(winter), "Winter search must restore the pre-adjustment root");
     }
 
     private static void failures() {
         Fixture fixture = fixture(GamePhase.FALL_MOVEMENT);
         Game game = game(fixture.state());
-        Search search = new Search(SOS, fixture.generator(), 2, 2, 0L);
+        BestResponseSearch search = new BestResponseSearch(SOS, fixture.generator(), 2, 2, 0L);
         expect(IllegalArgumentException.class, () -> search.search(game, Nation.TURKEY));
         expect(NullPointerException.class, () -> search.search(null, Nation.FRANCE));
         expect(NullPointerException.class, () -> search.search(game, null));
-        expect(NullPointerException.class, () -> new Search(null, 1, 1, 0L));
-        expect(NullPointerException.class, () -> new Search(SOS, null, 1, 1, 0L));
-        expect(IllegalArgumentException.class, () -> new Search(SOS, 0, 1, 0L));
-        expect(IllegalArgumentException.class, () -> new Search(SOS, 1, 0, 0L));
+        expect(NullPointerException.class, () -> new BestResponseSearch(null, 1, 1, 0L));
+        expect(NullPointerException.class, () -> new BestResponseSearch(SOS, null, 1, 1, 0L));
+        expect(IllegalArgumentException.class, () -> new BestResponseSearch(SOS, 0, 1, 0L));
+        expect(IllegalArgumentException.class, () -> new BestResponseSearch(SOS, 1, 0, 0L));
         game.takeSnapshot();
         GameState checkpoint = game.getSnapshot();
         expect(IllegalStateException.class, () -> search.search(game, Nation.FRANCE));
-        require(game.getSnapshot() == checkpoint, "Search must not consume a caller's checkpoint");
+        require(game.getSnapshot() == checkpoint, "BestResponseSearch must not consume a caller's checkpoint");
         game.restoreFromSnapshot();
 
         IllegalStateException failure = new IllegalStateException("Injected failure");
@@ -236,9 +236,9 @@ public final class SearchSelfCheck {
                                                   Evaluator evaluator, Class<? extends RuntimeException> type) {
         Game game = game(fixture.state());
         RuntimeException failure = expect(type,
-                () -> new Search(evaluator, generator, 2, 2, 0L).search(game, Nation.FRANCE));
+                () -> new BestResponseSearch(evaluator, generator, 2, 2, 0L).search(game, Nation.FRANCE));
         require(game.snapshot().equals(fixture.state()) && game.getSnapshot() == null
-                && game.processorHistory().isEmpty(), "Search failures must retain the root");
+                && game.processorHistory().isEmpty(), "BestResponseSearch failures must retain the root");
         return failure;
     }
 

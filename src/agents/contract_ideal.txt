@@ -8,6 +8,23 @@ joint = one action per living nation; policy = probabilities over a pool
 type = a lambda value controlling preference for the anchor
 
 
+POLICY SEARCH CONTRACT
+
+PolicySearch.search(game, power)                             ==> SearchResult
+Search and DiLPiKLSearch implement PolicySearch.
+adaptive.asSearch(initialLimit) supplies the same interface, using fresh
+plausible initial pools at each root. adaptive.search(...) retains its reports.
+ResponseSearch discovers additions; it does not select a complete policy.
+
+SearchResult.distribution is the policy to sample. meanValues are aligned raw
+payoff means: fixed anchor opponents for Search, sampled history for DiL-piKL.
+They exclude search penalties and are not fresh returned-policy evaluations.
+samplesPerCandidate counts observations per mean, including cached payoffs,
+but excluding extra evaluator rollouts and earlier adaptive solves.
+Root pools must contain distinct complete actions and positive prior support.
+Search may select an individual zero-prior action; DiL-piKL assigns it no mass.
+
+
 FIXED-POOL BASELINE
 
 PaperSearchProfile implements SearchProfile.

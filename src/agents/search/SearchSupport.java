@@ -20,7 +20,7 @@ final class SearchSupport {
     static GameState root(Game game) {
         Objects.requireNonNull(game, "game");
         if (game.getSnapshot() != null)
-            throw new IllegalStateException("Search requires a game without a saved checkpoint");
+            throw new IllegalStateException("BestResponseSearch requires a game without a saved checkpoint");
         return game.snapshot();
     }
 

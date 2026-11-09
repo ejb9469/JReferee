@@ -9,12 +9,12 @@ import game.GameState;
 import java.util.*;
 
 /**
- * Estimates a "best" response to fixed, independently sampled opponent policies.
+ * Estimates a best response to fixed, independently sampled opponent policies.
  *
  * <p>Candidate pools are generated once at the root. Opponent policies use
- * their anchor priors conditioned on those pools. Every searching candidate
- * faces the same sampled opponent joint actions. Its value is the searching
- * nation's mean payoff.</p>
+ * their anchor priors conditioned on those pools. Each pool must have positive
+ * prior support. Every searching candidate faces the same sampled opponent
+ * joint actions. Its value is the searching nation's mean payoff.</p>
  *
  * <p>Exact ties in the sampled means split selection probability evenly.
  * The searching nation's priors are retained but impose no penalty here;
@@ -27,7 +27,7 @@ import java.util.*;
  * The seed restarts on each search. Reproducibility also depends on the
  * supplied generator, evaluator, and game processors.</p>
  */
-public class Search {
+public class BestResponseSearch implements PolicySearch {
 
     private final Evaluator evaluator;
     private final ActionGenerator generator;
@@ -35,12 +35,12 @@ public class Search {
     private final int opponentSamples;
     private final long seed;
 
-    public Search(Evaluator evaluator, int candidateLimit, int opponentSamples, long seed) {
+    public BestResponseSearch(Evaluator evaluator, int candidateLimit, int opponentSamples, long seed) {
         this(evaluator, new PlausibleActionGenerator(), candidateLimit, opponentSamples, seed);
     }
 
-    public Search(Evaluator evaluator, ActionGenerator generator,
-                  int candidateLimit, int opponentSamples, long seed) {
+    public BestResponseSearch(Evaluator evaluator, ActionGenerator generator,
+                              int candidateLimit, int opponentSamples, long seed) {
         this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
         this.generator = Objects.requireNonNull(generator, "generator");
         if (candidateLimit < 1 || opponentSamples < 1)
@@ -61,6 +61,7 @@ public class Search {
      * @param   power living nation whose action is being selected
      * @return  immutable candidates, mean payoffs, and selection probabilities
      */
+    @Override
     public SearchResult search(Game game, Nation power) {
         return search(game, power, JointActionEvaluator.uncached(game, evaluator));
     }
@@ -77,6 +78,7 @@ public class Search {
         try (var generation = trials.measure("candidate generation")) {
             pools = SearchSupport.generatePools(root, generator, candidateLimit, random);
         }
+        pools = SearchSupport.pools(root, pools);
         Map<Nation, ActionDistribution> opponents = new EnumMap<>(Nation.class);
         for (Nation nation : pools.keySet())
             if (nation != power)

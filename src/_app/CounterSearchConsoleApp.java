@@ -6,7 +6,7 @@ import agents.search.AdaptiveDiLPiKLSearch;
 import agents.search.JointSearchResult;
 import agents.search.SearchResult;
 import agents.search.JointActionEvaluator;
-import agents.search.ResponseSearch;
+import agents.search.ResponseDiscovery;
 import agents.search.TemperatureSchedule;
 import adjudication.Justice;
 import contracts.OrderForm;
@@ -242,23 +242,23 @@ public final class CounterSearchConsoleApp {
 
     private static void printExpansion(CounterSearchApp.Report report,
                                        AdaptiveDiLPiKLSearch.Expansion expansion) {
-        ResponseSearch.Report discovery = expansion.report();
+        ResponseDiscovery.Report discovery = expansion.report();
         System.out.printf(Locale.ROOT,
                 "%nDISCOVERY after_solve=%d seed=%d proposal_limit=%d samples=%d additions_limit=%d minimum_gain=%.10f%n",
                 expansion.solveIndex(), discovery.seed(), discovery.proposalLimit(), discovery.opponentSamples(),
                 discovery.additionsPerNation(), discovery.minimumGain());
         for (Nation nation : List.of(Nation.FRANCE, Nation.GERMANY)) {
-            List<ResponseSearch.Proposal> proposals = discovery.proposals().get(nation);
-            Map<ResponseSearch.Decision, Integer> counts = new EnumMap<>(ResponseSearch.Decision.class);
+            List<ResponseDiscovery.Proposal> proposals = discovery.proposals().get(nation);
+            Map<ResponseDiscovery.Decision, Integer> counts = new EnumMap<>(ResponseDiscovery.Decision.class);
             proposals.forEach(proposal -> counts.merge(proposal.decision(), 1, Integer::sum));
             System.out.println(nation + " proposed=" + proposals.size() + " decisions=" + counts
                     + " pool_limit_rejections=" + expansion.blocked().get(nation).size());
-            for (ResponseSearch.Proposal proposal : proposals) {
+            for (ResponseDiscovery.Proposal proposal : proposals) {
                 String decision = expansion.blocked().get(nation).contains(proposal.candidate())
                         ? "POOL_LIMIT" : proposal.decision().name();
                 System.out.print("  PROPOSAL " + decision);
                 if (proposal.measured().isPresent()) {
-                    ResponseSearch.Response value = proposal.measured().get();
+                    ResponseDiscovery.Response value = proposal.measured().get();
                     System.out.printf(Locale.ROOT, " mean=%.10f incumbent=%.10f sampled_gain=%.10f%n",
                             value.meanValue(), value.incumbentValue(), value.meanValue() - value.incumbentValue());
                 } else {
@@ -272,9 +272,9 @@ public final class CounterSearchConsoleApp {
         boolean retained = report.search().solves().get(expansion.solveIndex()).populationPolicies()
                 .get(Nation.GERMANY).candidates().stream()
                 .anyMatch(candidate -> Set.copyOf(candidate.orders()).equals(orders));
-        List<ResponseSearch.Decision> decisions = discovery.proposals().get(Nation.GERMANY).stream()
+        List<ResponseDiscovery.Decision> decisions = discovery.proposals().get(Nation.GERMANY).stream()
                 .filter(proposal -> Set.copyOf(proposal.candidate().orders()).equals(orders))
-                .map(ResponseSearch.Proposal::decision).distinct().toList();
+                .map(ResponseDiscovery.Proposal::decision).distinct().toList();
         CounterSearchApp.PolicyCheck check = report.checks().get(expansion.solveIndex()).get(Nation.GERMANY);
         System.out.printf(Locale.ROOT,
                 "MUNICH DEFENSE retained=%s proposed=%s decisions=%s fresh_gain_over_best_retained=%.10f%n",

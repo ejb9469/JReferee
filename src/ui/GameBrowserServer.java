@@ -180,7 +180,7 @@ public final class GameBrowserServer implements AutoCloseable {
                 String search = query.getOrDefault("q", "").strip();
 
                 if (search.length() > MAX_QUERY_LENGTH)
-                    throw new RequestFailure(400, "Search text is too long");
+                    throw new RequestFailure(400, "BestResponseSearch text is too long");
 
                 int offset;
 

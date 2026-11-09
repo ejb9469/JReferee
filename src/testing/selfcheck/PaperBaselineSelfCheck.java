@@ -127,7 +127,7 @@ public final class PaperBaselineSelfCheck {
         require(solved.equals(solver.solve(game, fixture.pools(), trials)),
                 "Diagnostics must not change later seeded search results");
         require(game.snapshot().equals(fixture.root()) && game.getSnapshot() == null
-                && game.processorHistory().isEmpty(), "Search and receipts must restore the game");
+                && game.processorHistory().isEmpty(), "BestResponseSearch and receipts must restore the game");
         require(trials.counts().simulations() == 8 && trials.counts().failures() == 0,
                 "The deterministic fixture should use only eight simulations");
 

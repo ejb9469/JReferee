@@ -76,9 +76,9 @@ public final class SearchDiagnosticsSelfCheck {
         require(full.counts().requests() == 128 * 3, "Joint request count differs from the solver budget");
         require(solver.solve(game, fixture.probes(), full).equals(cached), "A warm cache changed a solve");
         require(full.counts().simulations() == 4, "A repeated solve missed cached profiles");
-        Search baseline = new Search(evaluator, (request, catalog) -> fixture.probes().get(request.power()), 2, 4, 7);
+        BestResponseSearch baseline = new BestResponseSearch(evaluator, (request, catalog) -> fixture.probes().get(request.power()), 2, 4, 7);
         require(baseline.search(game, Nation.FRANCE).equals(baseline.search(game, Nation.FRANCE, full)),
-                "Caching changed baseline Search");
+                "Caching changed baseline BestResponseSearch");
         require(full.timings().stream().anyMatch(row -> row.name().equals("fixed-pool solve")),
                 "Solve timing was omitted");
         expect(IllegalArgumentException.class, () -> solver.solve(game(fixture.root()), fixture.probes(), full));
@@ -184,26 +184,26 @@ public final class SearchDiagnosticsSelfCheck {
         JointActionEvaluator trials = JointActionEvaluator.deterministic(game, EVALUATOR, 64,
                 new PerformanceStats(true));
         JointSearchResult solved = solver(EVALUATOR, 1).solve(game, initial, trials);
-        ResponseSearch responses = new ResponseSearch(EVALUATOR, generator, 4, 4, 1, 0.001);
-        ResponseSearch.Report report = responses.discover(game, solved, fixture.prior(), 7, trials);
-        require(count(report, Nation.FRANCE, ResponseSearch.Decision.DUPLICATE) == 2, "Duplicate count differs");
-        require(count(report, Nation.FRANCE, ResponseSearch.Decision.SELECTED) == 1, "Selected count differs");
-        require(count(report, Nation.FRANCE, ResponseSearch.Decision.ADDITION_LIMIT) == 1,
+        ResponseDiscovery responses = new ResponseDiscovery(EVALUATOR, generator, 4, 4, 1, 0.001);
+        ResponseDiscovery.Report report = responses.discover(game, solved, fixture.prior(), 7, trials);
+        require(count(report, Nation.FRANCE, ResponseDiscovery.Decision.DUPLICATE) == 2, "Duplicate count differs");
+        require(count(report, Nation.FRANCE, ResponseDiscovery.Decision.SELECTED) == 1, "Selected count differs");
+        require(count(report, Nation.FRANCE, ResponseDiscovery.Decision.ADDITION_LIMIT) == 1,
                 "Addition-limit rejection was omitted");
-        require(count(report, Nation.GERMANY, ResponseSearch.Decision.BELOW_GAIN) == 1,
+        require(count(report, Nation.GERMANY, ResponseDiscovery.Decision.BELOW_GAIN) == 1,
                 "Threshold rejection was omitted");
         ActionPrior excluding = (nation, orders) -> nation == Nation.FRANCE && orders.equals(extraOrders)
                 ? Double.NEGATIVE_INFINITY : fixture.prior().logProbability(nation, orders);
         report = responses.discover(game, solved, excluding, 7, trials);
-        require(count(report, Nation.FRANCE, ResponseSearch.Decision.ZERO_PRIOR) == 1, "Zero-prior rejection omitted");
-        final ResponseSearch.Report immutable = report;
+        require(count(report, Nation.FRANCE, ResponseDiscovery.Decision.ZERO_PRIOR) == 1, "Zero-prior rejection omitted");
+        final ResponseDiscovery.Report immutable = report;
         expect(UnsupportedOperationException.class, () -> immutable.proposals().clear());
         expect(UnsupportedOperationException.class, () -> immutable.proposals().get(Nation.FRANCE).clear());
         Evaluator positional = state -> values(state.board().locationOf(pic) == Province.Par ? 1 : 0, 0);
         JointActionEvaluator positionalTrials = JointActionEvaluator.deterministic(
                 game, positional, 64, new PerformanceStats(false));
         DiLPiKLSearch solver = solver(positional, 2);
-        ResponseSearch positionalResponses = new ResponseSearch(positional, generator, 4, 4, 1, 0);
+        ResponseDiscovery positionalResponses = new ResponseDiscovery(positional, generator, 4, 4, 1, 0);
         Map<Nation, List<ActionCandidate>> capped = Map.of(
                 Nation.FRANCE, probes.get(Nation.FRANCE), Nation.GERMANY, initial.get(Nation.GERMANY));
         var result = new AdaptiveDiLPiKLSearch(solver, positionalResponses, 2, 2, 7)
@@ -240,7 +240,7 @@ public final class SearchDiagnosticsSelfCheck {
                 "Expanded pools did not receive a fresh final solve");
     }
 
-    private static long count(ResponseSearch.Report report, Nation nation, ResponseSearch.Decision decision) {
+    private static long count(ResponseDiscovery.Report report, Nation nation, ResponseDiscovery.Decision decision) {
         return report.proposals().get(nation).stream().filter(proposal -> proposal.decision() == decision).count();
     }
 

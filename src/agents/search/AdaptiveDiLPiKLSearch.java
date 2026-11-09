@@ -28,12 +28,12 @@ import java.util.*;
 public class AdaptiveDiLPiKLSearch {
 
     private final DiLPiKLSearch solver;
-    private final ResponseSearch responses;
+    private final ResponseDiscovery responses;
     private final int poolLimit;
     private final int expansionRounds;
     private final long seed;
 
-    public AdaptiveDiLPiKLSearch(DiLPiKLSearch solver, ResponseSearch responses,
+    public AdaptiveDiLPiKLSearch(DiLPiKLSearch solver, ResponseDiscovery responses,
                                  int poolLimit, int expansionRounds, long seed) {
         this.solver = Objects.requireNonNull(solver, "solver");
         this.responses = Objects.requireNonNull(responses, "responses");
@@ -81,7 +81,7 @@ public class AdaptiveDiLPiKLSearch {
      * Discovery against one completed solve, including pool-cap rejections.
      * A final unsuccessful discovery has no following solve.
      */
-    public record Expansion(int solveIndex, ResponseSearch.Report report,
+    public record Expansion(int solveIndex, ResponseDiscovery.Report report,
                             Map<Nation, List<ActionCandidate>> blocked) {
         public Expansion {
             if (solveIndex < 0)
@@ -94,18 +94,33 @@ public class AdaptiveDiLPiKLSearch {
     }
 
     /**
+     * Binds the initial pool limit for the one-nation policy interface.
+     * Each call generates fresh plausible pools and binds the anchor to its
+     * supplied root. The result belongs to the last completed fixed-pool solve.
+     * Use search() directly to retain the expansion history and stop reason.
+     */
+    public PolicySearch asSearch(int initialLimit) {
+        requireInitialLimit(initialLimit);
+        return (game, power) -> search(game, power, initialLimit).result();
+    }
+
+    /**
      * Uses plausible initial proposals and their existing convoy-free anchor.
      * Custom anchors and initial pools can use the explicit overload.
      */
     public Result search(Game game, Nation power, int initialLimit) {
-        if (initialLimit < 1 || initialLimit > poolLimit)
-            throw new IllegalArgumentException("Initial limit must fit the pool limit");
+        requireInitialLimit(initialLimit);
         GameState root = SearchSupport.root(game, power);
         Map<Nation, List<ActionCandidate>> pools = SearchSupport.generatePools(
                 root, new PlausibleActionGenerator(), initialLimit, new Random(seed));
         if (!(root instanceof GameState_Movement))
             return new Result(power, List.of(solver.solve(game, pools)), StopReason.NON_MOVEMENT);
         return search(game, power, pools, ActionPrior.convoyFreeUniform(root));
+    }
+
+    private void requireInitialLimit(int initialLimit) {
+        if (initialLimit < 1 || initialLimit > poolLimit)
+            throw new IllegalArgumentException("Initial limit must fit the pool limit");
     }
 
     /**
@@ -143,9 +158,9 @@ public class AdaptiveDiLPiKLSearch {
         for (int round = 0; round < expansionRounds; round++) {
             if (pools.values().stream().allMatch(pool -> pool.size() == poolLimit))
                 return new Result(power, history, StopReason.POOL_LIMIT, expansions);
-            ResponseSearch.Report report = responses.discover(game, solved, prior, random.nextLong(),
+            ResponseDiscovery.Report report = responses.discover(game, solved, prior, random.nextLong(),
                     trials == null ? responses.trials(game) : trials);
-            Map<Nation, List<ResponseSearch.Response>> found = report.responses();
+            Map<Nation, List<ResponseDiscovery.Response>> found = report.responses();
             Map<Nation, List<ActionCandidate>> expanded = new EnumMap<>(Nation.class);
             Map<Nation, List<ActionCandidate>> rejected = new EnumMap<>(Nation.class);
             boolean changed = false;
@@ -153,7 +168,7 @@ public class AdaptiveDiLPiKLSearch {
             for (Nation nation : pools.keySet()) {
                 List<ActionCandidate> candidates = new ArrayList<>(pools.get(nation));
                 List<ActionCandidate> blockedCandidates = new ArrayList<>();
-                for (ResponseSearch.Response response : found.get(nation)) {
+                for (ResponseDiscovery.Response response : found.get(nation)) {
                     if (candidates.size() == poolLimit) {
                         blocked = true;
                         blockedCandidates.add(response.candidate());
