@@ -34,10 +34,12 @@ import java.util.*;
  * Payoffs contain no KL penalty; regularization enters when forming a policy.</p>
  *
  * <p>The population distribution applies to every nation, including the
- * requested nation. `agentLambda` selects its returned policy after the final
- * value update. Its temperature observations do not affect population play.
- * That policy is neither a time average nor a mixture of population types.
- * `agentLambda` may be absent from the population.</p>
+ * requested nation. `agentLambda` selects its returned type and may be absent
+ * from the population. Tracking that extra type does not affect sampled play.
+ * FINAL returns the policy after the last value update. AVERAGE returns the
+ * equal-weight average of that type's pre-update policies, including startup.
+ * Output selection changes neither the sampled actions nor the Q updates.
+ * Older constructors retain FINAL output.</p>
  *
  * <p>All lambdas must be finite, positive, and appropriate for the evaluator's
  * payoff scale. Multiplying payoffs by a positive factor requires scaling
@@ -76,6 +78,7 @@ public class DiLPiKLSearch {
     private final double agentLambda;
     private final long seed;
     private final TemperatureSchedule temperature;
+    private final PolicyOutput output;
 
     // Constructors \\
 
@@ -117,6 +120,16 @@ public class DiLPiKLSearch {
     }
 
     /**
+     * Uses plausible root generation and an explicit output choice.
+     */
+    public DiLPiKLSearch(Evaluator evaluator, int candidateLimit, int iterations,
+                         LambdaDistribution population, double agentLambda, long seed,
+                         TemperatureSchedule temperature, PolicyOutput output) {
+        this(evaluator, new PlausibleActionGenerator(), candidateLimit, iterations,
+                population, agentLambda, seed, temperature, output);
+    }
+
+    /**
      * Supplies the root generator and search settings explicitly.
      *
      * <p>The generator must return distinct, complete actions with fixed anchor
@@ -146,10 +159,21 @@ public class DiLPiKLSearch {
     public DiLPiKLSearch(Evaluator evaluator, ActionGenerator generator,
                          int candidateLimit, int iterations, LambdaDistribution population,
                          double agentLambda, long seed, TemperatureSchedule temperature) {
+        this(evaluator, generator, candidateLimit, iterations, population, agentLambda,
+                seed, temperature, PolicyOutput.FINAL);
+    }
+
+    /**
+     * Supplies all settings. Both policy outputs are retained at each checkpoint.
+     */
+    public DiLPiKLSearch(Evaluator evaluator, ActionGenerator generator,
+                         int candidateLimit, int iterations, LambdaDistribution population,
+                         double agentLambda, long seed, TemperatureSchedule temperature, PolicyOutput output) {
         this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
         this.generator = Objects.requireNonNull(generator, "generator");
         this.population = Objects.requireNonNull(population, "population");
         this.temperature = Objects.requireNonNull(temperature, "temperature");
+        this.output = Objects.requireNonNull(output, "output");
         if (candidateLimit < 1 || iterations < 1)
             throw new IllegalArgumentException("candidateLimit and iterations must be at least 1");
         LambdaDistribution.requirePositive(agentLambda);
@@ -185,7 +209,7 @@ public class DiLPiKLSearch {
      *
      * @param game isolated simulation game at the phase to search
      * @param power living nation whose policy is requested
-     * @return final agent-lambda policy and aligned mean evaluator payoffs
+     * @return selected agent-lambda policy and aligned mean evaluator payoffs
      * @throws NullPointerException if an argument or required collaborator result is null
      * @throws IllegalArgumentException if power is eliminated
      * @throws IllegalStateException if a checkpoint exists, a pool is invalid,
@@ -238,19 +262,44 @@ public class DiLPiKLSearch {
     }
 
     /**
+     * Records completed iterations during one fixed-pool solve.
+     * Checkpoints must increase strictly and end at the configured budget.
+     * Snapshots are immutable and do not draw samples or evaluate extra actions.
+     */
+    public List<JointSearchResult> trace(Game game, Map<Nation, List<ActionCandidate>> pools,
+                                         List<Integer> checkpoints, JointActionEvaluator trials) {
+        checkpoints = List.copyOf(checkpoints);
+        int previous = 0;
+        for (int checkpoint : checkpoints) {
+            if (checkpoint <= previous || checkpoint > iterations)
+                throw new IllegalArgumentException("Checkpoints must increase within the iteration budget");
+            previous = checkpoint;
+        }
+        if (previous != iterations)
+            throw new IllegalArgumentException("The last checkpoint must equal the iteration budget");
+        Objects.requireNonNull(trials, "trials").requireContext(game, evaluator);
+        Map<Nation, List<ActionCandidate>> checked = SearchSupport.pools(SearchSupport.root(game), pools);
+        try (var solving = trials.measure("fixed-pool solve")) {
+            return iterate(checked, new Random(seed), trials, checkpoints);
+        }
+    }
+
+    /**
      * Shared iteration loop. Existing search calls retain their random stream.
      */
     private JointSearchResult solve(Map<Nation, List<ActionCandidate>> pools, Random random,
                                     JointActionEvaluator trials) {
         try (var solving = trials.measure("fixed-pool solve")) {
-            return iterate(pools, random, trials);
+            return iterate(pools, random, trials, List.of(iterations)).getLast();
         }
     }
 
-    private JointSearchResult iterate(Map<Nation, List<ActionCandidate>> pools, Random random,
-                                      JointActionEvaluator trials) {
+    private List<JointSearchResult> iterate(Map<Nation, List<ActionCandidate>> pools, Random random,
+                                            JointActionEvaluator trials, List<Integer> checkpoints) {
+        List<JointSearchResult> history = new ArrayList<>();
         Map<Nation, double[]> means = new EnumMap<>(Nation.class);
         Map<Nation, Map<Double, UtilityMoments>> moments = new EnumMap<>(Nation.class);
+        Map<Nation, Map<Double, double[]>> policySums = new EnumMap<>(Nation.class);
         Set<Double> lambdas = new LinkedHashSet<>(population.values());
         lambdas.add(agentLambda);
         for (Nation nation : pools.keySet()) {
@@ -262,9 +311,13 @@ public class DiLPiKLSearch {
 
             means.put(nation, new double[candidates.size()]);
             Map<Double, UtilityMoments> types = new LinkedHashMap<>();
-            for (double lambda : lambdas)
+            Map<Double, double[]> sums = new LinkedHashMap<>();
+            for (double lambda : lambdas) {
                 types.put(lambda, new UtilityMoments());
+                sums.put(lambda, new double[candidates.size()]);
+            }
             moments.put(nation, types);
+            policySums.put(nation, sums);
         }
 
         for (int iteration = 0; iteration < iterations; iteration++) {
@@ -277,10 +330,14 @@ public class DiLPiKLSearch {
                 // Types are redrawn independently; a nation has no permanent sampled type.
                 double lambda = population.sample(random);
                 Map<Double, ActionDistribution> current = new LinkedHashMap<>();
-                for (var type : moments.get(nation).entrySet())
-                    if (temperature != TemperatureSchedule.ZERO || type.getKey() == lambda)
-                        current.put(type.getKey(), policy(pools.get(nation), means.get(nation),
-                                type.getKey(), kappa(type.getValue())));
+                for (var type : moments.get(nation).entrySet()) {
+                    ActionDistribution policy = policy(pools.get(nation), means.get(nation),
+                            type.getKey(), kappa(type.getValue()));
+                    current.put(type.getKey(), policy);
+                    double[] sums = policySums.get(nation).get(type.getKey());
+                    for (int action = 0; action < sums.length; action++)
+                        sums[action] += policy.probabilities().get(action);
+                }
                 policies.put(nation, current);
                 played.put(nation, current.get(lambda).sample(random));
             }
@@ -320,40 +377,45 @@ public class DiLPiKLSearch {
                     for (var type : moments.get(nation).entrySet())
                         type.getValue().add(expectedUtility(policies.get(nation).get(type.getKey()), payoffs));
             }
+            if (iteration + 1 == checkpoints.get(history.size()))
+                history.add(result(pools, means, moments, policySums, iteration + 1));
         }
+        return List.copyOf(history);
+    }
 
-        // Final policies use the completed values, without drawing further samples.
+    private JointSearchResult result(Map<Nation, List<ActionCandidate>> pools,
+                                     Map<Nation, double[]> means,
+                                     Map<Nation, Map<Double, UtilityMoments>> moments,
+                                     Map<Nation, Map<Double, double[]>> policySums, int completed) {
+        // Checkpoint and final policies use completed values without drawing samples.
         Map<Nation, SearchResult> results = new EnumMap<>(Nation.class);
         Map<Nation, ActionDistribution> populations = new EnumMap<>(Nation.class);
         Map<Nation, Map<Double, Double>> temperatures = new EnumMap<>(Nation.class);
+        Map<Nation, Map<Double, ActionDistribution>> averages = new EnumMap<>(Nation.class);
         for (Nation nation : pools.keySet()) {
             List<ActionCandidate> candidates = pools.get(nation);
             double[] values = means.get(nation);
             Map<Double, Double> finalTemperatures = new LinkedHashMap<>();
             Map<Double, ActionDistribution> finalPolicies = new LinkedHashMap<>();
+            Map<Double, ActionDistribution> averagePolicies = new LinkedHashMap<>();
             for (var type : moments.get(nation).entrySet()) {
                 double kappa = kappa(type.getValue());
                 finalTemperatures.put(type.getKey(), kappa);
                 finalPolicies.put(type.getKey(), policy(candidates, values, type.getKey(), kappa));
+                double[] sums = policySums.get(nation).get(type.getKey());
+                // Total mass equals the iteration count, apart from rounding.
+                double total = Arrays.stream(sums).sum();
+                averagePolicies.put(type.getKey(), new ActionDistribution(candidates,
+                        Arrays.stream(sums).map(sum -> sum / total).boxed().toList()));
             }
             temperatures.put(nation, finalTemperatures);
+            averages.put(nation, averagePolicies);
             results.put(nation, new SearchResult(finalPolicies.get(agentLambda),
-                    Arrays.stream(values).boxed().toList(), iterations));
-            List<Double> mixture = new ArrayList<>(Collections.nCopies(candidates.size(), 0.0));
-            for (int type = 0; type < population.values().size(); type++) {
-                double mass = population.probabilities().get(type);
-                if (mass == 0.0)
-                    continue;
-                List<Double> probabilities = finalPolicies.get(population.values().get(type)).probabilities();
-                for (int index = 0; index < mixture.size(); index++)
-                    mixture.set(index, mixture.get(index) + mass * probabilities.get(index));
-            }
-            double total = mixture.stream().mapToDouble(Double::doubleValue).sum();
-            for (int index = 0; index < mixture.size(); index++)
-                mixture.set(index, mixture.get(index) / total);
-            populations.put(nation, new ActionDistribution(candidates, mixture));
+                    Arrays.stream(values).boxed().toList(), completed));
+            populations.put(nation, JointSearchResult.mixture(finalPolicies, population));
         }
-        return new JointSearchResult(results, populations, temperatures);
+        return new JointSearchResult(results, populations, temperatures, averages, PolicyOutput.FINAL)
+                .withOutput(output, population, agentLambda);
     }
 
     // Utility observations \\
@@ -525,5 +587,4 @@ public class DiLPiKLSearch {
             probabilities.set(index, probabilities.get(index) / total);
         return new ActionDistribution(candidates, probabilities);
     }
-
 }

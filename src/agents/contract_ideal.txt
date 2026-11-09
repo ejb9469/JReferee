@@ -1,189 +1,102 @@
 LegalOrderGenerator.generate(snapshot, power)               ==> LegalOrderCatalog
 ActionGenerator.generate(request, catalog)                  ==> complete action candidates
-LegalOrderCatalog.optionsFor(unit)                          ==> individual order options
-CatalogActionValidator.validate(snapshot, action, catalog)  ==> validation errors; empty if valid
-ActionPrior.logProbability(power, orders)                   ==> fixed anchor log-probability
-ActionDistribution.fromPriors(candidates)                   ==> anchor-conditioned distribution
+CatalogActionValidator.validate(snapshot, action, catalog)   ==> errors; empty if valid
+ActionPrior.logProbability(power, orders)                    ==> fixed anchor log-probability
 
-request = ActionGenerationRequest(snapshot, power, limit, seed)
-action  = ActionCandidate(power, orders, logPrior, source)
-pool    = List<ActionCandidate> for one nation
-joint   = Map<Nation, ActionCandidate> for every living nation
-
-Movement actions order every unit; retreats may be omitted; required disbands
-must be named. Legal options do not guarantee tactical success.
+action = one nation's complete orders; pool = its candidate actions
+joint = one action per living nation; policy = probabilities over a pool
+type = a lambda value controlling preference for the anchor
 
 
-GENERATION
+FIXED-POOL BASELINE
 
-Snapshot -> legal catalog -> complete proposals -> validation -> candidate pool
+PaperSearchProfile implements SearchProfile.
+PaperSearchProfile.forState(snapshot)
+    -> Spring 1901 movement: uniform {10^-2, 10^-1.5, 10^-1, 10^-0.5}; play 10^-2
+    -> later turns: uniform {10^-4, 10^-3, 10^-2, 10^-1}; play 10^-4
+    -> ADAPTIVE temperature; caller supplies iterations and seed
 
-PlausibleActionGenerator                ==> coordinated plans + randomized exploration
-UniformActionGenerator                  ==> simpler baseline
-FriendlyConvoyUniformActionGenerator    ==> optional friendly convoy routes
+profile.solver(evaluator, generator, limit, iterations, seed) ==> DiLPiKLSearch
+profile.solver(..., seed, PolicyOutput.AVERAGE)               ==> averaged output
+solver.search(game, power)                                  ==> SearchResult
+solver.solve(game, pools, trials)                           ==> JointSearchResult
+solver.trace(game, pools, checkpoints, trials)               ==> List<JointSearchResult>
 
-Plausible generation is the search default; retreats/adjustments use uniform
-generation. Both exclude convoys in default movement. Construction ranking
-and selection probability are separate from the fixed anchor logPrior.
+search() generates pools; solve() accepts explicit pools. Both validate them.
+    -> freeze complete, distinct actions and anchor probabilities
+    -> initialize Q = 0 and per-type utility statistics
+    -> each iteration:
+         -> form policies from previous Q and temperature
+         -> accumulate each type's probabilities, including the playing type
+         -> independently sample a lambda and action per nation
+         -> freeze opponents; evaluate each nation's alternatives
+         -> update equal-weight mean payoffs Q and per-type utility statistics
+    -> return selected playing policies, population mixtures, Q, and temperatures
 
-Optional geographic scoping, for movement fixtures:
-    ProvinceScope.restrict(snapshot, catalog)              ==> scoped order catalog
-    ScopedActionGenerator.generate(request, catalog)
-         -> check every owned unit's current location is in scope
-         -> remove orders referencing outside provinces, including support/convoy endpoints
-         -> delegate construction using that filtered catalog; retain holds
-         -> validate; restore full-state ActionPrior values
-    Explicit pools / probes -> ProvinceScope.requireWithin(snapshot, action) before use
-
-The scope is fixed; split coasts share membership but keep exact order targets.
-Use the same scope for initial, response, and continuation movement generation.
-Continuation anchors bind their current state. Retreats/adjustments pass through.
-The full board, ownership, scoring, and adjudication remain unchanged.
-This fixture restriction is optional and is not part of Diplodocus.
+policy(a) proportional to exp((Q(a) + lambda * logPrior(a)) / (kappa + lambda))
+kappa_t = 3 S_t / (10 sqrt(t)); S_t measures per-type policy-averaged utilities.
+Startup is uniform over positive-prior actions. Zero-prior actions stay excluded.
+Older solver constructors without a schedule retain ZERO temperature.
+Older factories and constructors retain FINAL output.
+FINAL uses the policy after the last update. AVERAGE uses the equal-weight
+average of pre-update policies from iterations 1 through T, including startup.
+The output choice does not change sampling, Q, temperatures, or evaluation work.
+solved.withOutput(choice, profile) selects either output from the same solve.
+trace() takes increasing checkpoints ending at the iteration budget.
+It records one continuous solve; no restart, extra sampling, or extra trials.
+Each immutable snapshot reports its own completed iteration count.
 
 
-SIMULATION AND EVALUATION
-
-Simulator.peek(game, joint)             ==> successor snapshot; root restored
-Simulator.advance(game, joint)          ==> successor snapshot; game stays advanced
-Evaluator.evaluate(snapshot)            ==> finite scores for all seven nations
-JointActionEvaluator.evaluate(joint)    ==> successor scores; optional cached result
+SIMULATION
 
 JointActionEvaluator.evaluate(joint)
-    -> check unchanged root and complete joint submission
-    -> return cached scores if available
-    -> Simulator.peek(game, joint)
-         -> validate submissions
-         -> take checkpoint
-         -> Game.resolveMovement / resolveRetreats / resolveAdjustments
-         -> capture successor snapshot
-         -> restore root in finally
-    -> Evaluator.evaluate(successor)
-         -> SCEvaluator: raw owned-center counts
-         -> ScoringEvaluator: selected scoring system
-         -> RolloutEvaluator: sampled continuations, then leaf evaluation
-    -> check scores; cache if enabled; return scores
+    -> check unchanged root; use optional deterministic cache
+    -> Simulator.peek(): resolve one phase, capture successor, restore root
+    -> Evaluator: finite scores for all seven nations
 
-RolloutEvaluator.evaluate(successor)
-    -> if already winter: evaluate leaf immediately
-    -> otherwise create a separate, consistently configured Game
-    -> for each trajectory:
-         -> take checkpoint
-         -> until winter, before adjustment orders:
-              -> generate fresh pools for the current phase
-              -> ActionDistribution.fromPriors(pool).sample(random), per nation
-              -> Simulator.advance(continuationGame, joint)
-         -> leafEvaluator.evaluate(winterSnapshot)
-         -> restore trajectory checkpoint in finally
-    -> average scores across trajectories
-
-Root and rollout games use matching processors but separate checkpoints.
-Caching requires deterministic results at the fixed root. Movement defaults
-to SzykmanJustice; plain Judge is an explicit, potentially differing alternative.
+RolloutEvaluator -> separate Game -> continuations until winter -> leaf score.
+Movement defaults to SzykmanJustice; JUDGE is an explicit alternative.
+The caller supplies matching root/continuation processors and an isolated Game.
 
 
-FIXED-POOL SEARCH
+TYPE RECEIPTS
 
-Search.search(game, power)              ==> SearchResult
-DiLPiKLSearch.search(game, power)       ==> SearchResult
-DiLPiKLSearch.solve(game, pools)        ==> JointSearchResult
+TypeReceipt.exact(profile, solved, trials)                   ==> List<TypeReceipt>
+TypeReceipt.sampled(profile, solved, trials, samples, seed)   ==> List<TypeReceipt>
+receipt.values()                                           ==> immutable List<Double>
+receipt.toString()                                         ==> printed receipt
 
-DiLPiKLSearch.search()
-    -> generate and validate pools for all living nations
-    -> fixed-pool solve:
-         -> initialize Q = 0; initialize utility moments for each nation/lambda
-         -> repeat for the configured iterations:
-              -> form type policies from completed Q and kappa
-              -> sample a lambda and action independently for every nation
-              -> freeze the joint action before updating values
-              -> JointActionEvaluator.evaluate(joint)
-              -> for each nation, try its other candidates against those opponents
-              -> update each candidate's running mean raw payoff Q
-              -> for each type: observe sum_a(previous policy(a) * this iteration's payoff(a))
-              -> update that type's utility moments, including on cache hits
-         -> construct final policies from completed Q, completed kappa, and fixed priors
-    -> return the requested nation's SearchResult
+Same root and payoff function as the solve:
+    -> freeze population mixtures in the selected output mode
+    -> compute fresh values against those opponents
+    -> read every type, including a separate playing lambda if needed
+    -> compare with fresh regularized responses at kappa=0 and final kappa
 
-solve() enters that loop with supplied pools. Search is the simpler baseline:
-fixed anchor-sampled opponents -> mean payoffs -> equal mass on best-value ties.
-Overloads accept a shared JointActionEvaluator; ordinary calls are uncached.
-
-policy(action) proportional to exp((Q(action) + lambda * logPrior(action)) / (kappa + lambda))
-
-TemperatureSchedule.ZERO       ==> kappa = 0; retained by constructors without a schedule
-TemperatureSchedule.ADAPTIVE   ==> kappa_t = 3 S_t / (10 sqrt(t)); paper Section 2.2
-S_t = population standard deviation of that type's policy-averaged utility observations.
-At t=0: uniform over positive-prior actions. At t=1: zero population variance.
-The observation definition and startup follow the public implementation;
-equal-weight updates follow Algorithm 1. No variance floor or prior smoothing.
-DiLPiKLSearch.policy(pool, values, lambda) remains the kappa=0 response helper.
-
-LambdaDistribution supplies population types; agentLambda sets the playing
-policy. Q averages sampled opponent history, not the final opponent policy.
-More iterations neither add candidates nor deepen rollouts.
+exact() enumerates all retained joint actions and requires deterministic payoffs.
+sampled() uses its own RNG; at least two samples; action-value standard errors.
+Numeric header: lambda, population weight, playing flag (0/1), temperature,
+sample count (0=exact), expected score, response residual, regularized gain,
+temperature residual. Then probability, fresh value, standard error per action.
+Nation and output mode are separate metadata; the numeric layout is unchanged.
+Temperature always means final recorded kappa, even for an averaged policy.
+All checks concern retained actions; none certifies full-game equilibrium.
 
 
-ADAPTIVE SEARCH
+OPTIONS AND REAL PLAY
 
-ResponseSearch.discover(game, solved, prior, seed)              ==> selected responses per nation
-ResponseSearch.discover(..., jointEvaluator)                    ==> detailed proposal Report
-AdaptiveDiLPiKLSearch.search(game, power, initialLimit)         ==> Result with solve history
-AdaptiveDiLPiKLSearch.search(game, power, pools, prior, ...)    ==> Result using explicit pools
+UniformActionGenerator: baseline proposals; default movement excludes convoys.
+PlausibleActionGenerator: existing heuristic option and older constructor default.
+FriendlyConvoyUniformActionGenerator: optional friendly convoy plans.
+ProvinceScope / ScopedActionGenerator: fixture boundaries, not paper settings.
+AdaptiveDiLPiKLSearch: optional response discovery and fresh solves of larger pools.
 
-AdaptiveDiLPiKLSearch.search()
-    -> prepare initial pools and fixed root anchor
-    -> DiLPiKLSearch.solve()
-    -> repeat within expansion and pool limits:
-         -> ResponseSearch.discover()
-              -> freeze final population policies
-              -> generate fresh complete proposals
-              -> apply anchor; reject duplicates and zero-prior actions
-              -> re-evaluate incumbents and proposals on common opponent samples
-              -> select proposals beating the best incumbent by minimumGain
-         -> record proposal decisions and pool-limit rejections
-         -> stop if no additions fit
-         -> append accepted actions for all nations together
-         -> DiLPiKLSearch.solve(expandedPools), resetting Q and utility moments
-    -> return the last completed solve and discovery history
+PaperSearchConsoleApp -> both plans -> checkpoints -> FINAL/AVERAGE comparisons.
+TwoActionReference -> independent two-player/two-action Algorithm 1 calculation.
+It uses measured payoffs, payoff sums, and ordinary utility-variance updates.
+Reference agreement and closeness to the known 50/50 answer are reported separately.
+Two-player convergence results do not guarantee seven-player performance.
+CounterSearchApp / CounterSearchConsoleApp retain the older expansion experiments.
 
-Movement only; other phases receive one fixed-pool solve. Proposals currently
-use board heuristics, not opponent policies. NO_RESPONSE_FOUND is not convergence.
-
-
-OUTPUT AND REAL PLAY
-
-SearchResult.distribution()                       ==> ActionDistribution
-SearchResult.meanValues()                         ==> aligned candidate payoff estimates
-JointSearchResult.results()                       ==> agent-lambda results for all living nations
-JointSearchResult.populationPolicies()            ==> final population mixtures
-JointSearchResult.temperature(nation, lambda)      ==> completed kappa for a tracked type
-AdaptiveDiLPiKLSearch.Result.result()             ==> requested nation's final SearchResult
-ActionDistribution.sample(random)                 ==> one complete ActionCandidate
-ActionCandidate.orders()                          ==> orders to submit for real play
-
-Final result
-    -> sample one own action
-    -> submit its orders to the real game/server
-    -> receive the adjudicated next position
-    -> search again if play continues
-
-The caller owns the real match loop and game-ending rules. Simulated opponent
-orders are predictions. Search leaves its root unchanged.
-
-
-DIAGNOSTICS AND NEXT WORK
-
-CounterSearchApp / CounterSearchConsoleApp
-    -> fixed scope {Pic, Bur, Tyr, Bel, Ruh, Mun}; validate named probes and initial pools
-    -> fixed-pool ZERO / ADAPTIVE comparisons; adaptive-temperature expansion experiments
-    -> fresh values against final policies
-    -> within-pool gaps, named-probe gaps, kappa=0 response residuals, final temperatures
-    -> proposal decisions, cache/work counters, fast/reference comparisons
-
-Demo Options.standard() uses ADAPTIVE; the older four-argument Options keeps ZERO.
-Finite temperature can contribute to the response residual. Neither a small
-fixture gap nor a discovery stop proves full-game equilibrium.
-
-Still to add: convergence-aware budgets, exact expectations for small pools,
-opponent-directed proposals, stronger continuations, and full-game comparisons.
-Learned priors and values can follow those improvements.
+Caller -> sample own playing policy -> submit orders -> receive next state -> repeat.
+Game ending and the full-match loop belong to the caller.
+No learned anchor, proposal model, or value model is present yet.
