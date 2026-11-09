@@ -7,7 +7,10 @@ import game.*;
 import java.util.*;
 
 /**
- * Alternates fixed-pool DiL-piKL solves and bounded response discovery.
+ * Alternates fixed-pool DiL-piKL solves and bounded response discovery.<br><br>
+ *
+ * Think of `DiLPiKLSearch` as the solver, and `AdaptiveDiLPiKLSearch` as a separate
+ * controller that repeatedly runs the former.
  *
  * <p>All nations discover against frozen population policies. Additions are
  * appended simultaneously. Each expanded game is solved from fresh Q values
@@ -19,6 +22,8 @@ import java.util.*;
  *
  * <p>No stop reason proves equilibrium. Proposal coverage, continuation quality,
  * sampling error, and the configured budgets all limit the result.</p>
+ *
+ * @author Evan B.
  */
 public class AdaptiveDiLPiKLSearch {
 
