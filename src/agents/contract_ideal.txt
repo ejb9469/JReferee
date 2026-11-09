@@ -26,6 +26,21 @@ Plausible generation is the search default; retreats/adjustments use uniform
 generation. Both exclude convoys in default movement. Construction ranking
 and selection probability are separate from the fixed anchor logPrior.
 
+Optional geographic scoping, for movement fixtures:
+    ProvinceScope.restrict(snapshot, catalog)              ==> scoped order catalog
+    ScopedActionGenerator.generate(request, catalog)
+         -> check every owned unit's current location is in scope
+         -> remove orders referencing outside provinces, including support/convoy endpoints
+         -> delegate construction using that filtered catalog; retain holds
+         -> validate; restore full-state ActionPrior values
+    Explicit pools / probes -> ProvinceScope.requireWithin(snapshot, action) before use
+
+The scope is fixed; split coasts share membership but keep exact order targets.
+Use the same scope for initial, response, and continuation movement generation.
+Continuation anchors bind their current state. Retreats/adjustments pass through.
+The full board, ownership, scoring, and adjudication remain unchanged.
+This fixture restriction is optional and is not part of Diplodocus.
+
 
 SIMULATION AND EVALUATION
 
@@ -76,21 +91,32 @@ DiLPiKLSearch.solve(game, pools)        ==> JointSearchResult
 DiLPiKLSearch.search()
     -> generate and validate pools for all living nations
     -> fixed-pool solve:
-         -> initialize Q = 0 for each candidate
+         -> initialize Q = 0; initialize utility moments for each nation/lambda
          -> repeat for the configured iterations:
+              -> form type policies from completed Q and kappa
               -> sample a lambda and action independently for every nation
               -> freeze the joint action before updating values
               -> JointActionEvaluator.evaluate(joint)
               -> for each nation, try its other candidates against those opponents
               -> update each candidate's running mean raw payoff Q
-         -> construct final policies from Q and fixed priors
+              -> for each type: observe sum_a(previous policy(a) * this iteration's payoff(a))
+              -> update that type's utility moments, including on cache hits
+         -> construct final policies from completed Q, completed kappa, and fixed priors
     -> return the requested nation's SearchResult
 
 solve() enters that loop with supplied pools. Search is the simpler baseline:
 fixed anchor-sampled opponents -> mean payoffs -> equal mass on best-value ties.
 Overloads accept a shared JointActionEvaluator; ordinary calls are uncached.
 
-policy(action) is proportional to prior(action) * exp(Q(action) / lambda)
+policy(action) proportional to exp((Q(action) + lambda * logPrior(action)) / (kappa + lambda))
+
+TemperatureSchedule.ZERO       ==> kappa = 0; retained by constructors without a schedule
+TemperatureSchedule.ADAPTIVE   ==> kappa_t = 3 S_t / (10 sqrt(t)); paper Section 2.2
+S_t = population standard deviation of that type's policy-averaged utility observations.
+At t=0: uniform over positive-prior actions. At t=1: zero population variance.
+The observation definition and startup follow the public implementation;
+equal-weight updates follow Algorithm 1. No variance floor or prior smoothing.
+DiLPiKLSearch.policy(pool, values, lambda) remains the kappa=0 response helper.
 
 LambdaDistribution supplies population types; agentLambda sets the playing
 policy. Q averages sampled opponent history, not the final opponent policy.
@@ -117,7 +143,7 @@ AdaptiveDiLPiKLSearch.search()
          -> record proposal decisions and pool-limit rejections
          -> stop if no additions fit
          -> append accepted actions for all nations together
-         -> DiLPiKLSearch.solve(expandedPools), starting from Q = 0
+         -> DiLPiKLSearch.solve(expandedPools), resetting Q and utility moments
     -> return the last completed solve and discovery history
 
 Movement only; other phases receive one fixed-pool solve. Proposals currently
@@ -130,6 +156,7 @@ SearchResult.distribution()                       ==> ActionDistribution
 SearchResult.meanValues()                         ==> aligned candidate payoff estimates
 JointSearchResult.results()                       ==> agent-lambda results for all living nations
 JointSearchResult.populationPolicies()            ==> final population mixtures
+JointSearchResult.temperature(nation, lambda)      ==> completed kappa for a tracked type
 AdaptiveDiLPiKLSearch.Result.result()             ==> requested nation's final SearchResult
 ActionDistribution.sample(random)                 ==> one complete ActionCandidate
 ActionCandidate.orders()                          ==> orders to submit for real play
@@ -147,10 +174,15 @@ orders are predictions. Search leaves its root unchanged.
 DIAGNOSTICS AND NEXT WORK
 
 CounterSearchApp / CounterSearchConsoleApp
-    -> fixed-pool convergence sweeps and adaptive-search experiments
+    -> fixed scope {Pic, Bur, Tyr, Bel, Ruh, Mun}; validate named probes and initial pools
+    -> fixed-pool ZERO / ADAPTIVE comparisons; adaptive-temperature expansion experiments
     -> fresh values against final policies
-    -> within-pool gaps, named-probe gaps, regularized-response residuals
+    -> within-pool gaps, named-probe gaps, kappa=0 response residuals, final temperatures
     -> proposal decisions, cache/work counters, fast/reference comparisons
+
+Demo Options.standard() uses ADAPTIVE; the older four-argument Options keeps ZERO.
+Finite temperature can contribute to the response residual. Neither a small
+fixture gap nor a discovery stop proves full-game equilibrium.
 
 Still to add: convergence-aware budgets, exact expectations for small pools,
 opponent-directed proposals, stronger continuations, and full-game comparisons.

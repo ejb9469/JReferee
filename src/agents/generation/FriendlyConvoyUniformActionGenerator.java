@@ -38,7 +38,7 @@ import java.util.Objects;
  * the broad legal catalog and adjudicator still accept foreign convoys.
  * Matching orders and a route do not guarantee survival or success.</p>
  */
-public final class FriendlyConvoyUniformActionGenerator implements ActionGenerator {
+public class FriendlyConvoyUniformActionGenerator implements ActionGenerator {
 
     private static final int PROPOSALS_PER_CANDIDATE = 32;
 

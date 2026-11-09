@@ -29,7 +29,7 @@ import java.util.Objects;
  * Convoy availability depends on the combined orders of all nations and is
  * not required for catalog membership.</p>
  */
-public final class LegalOrderGenerator {
+public class LegalOrderGenerator {
 
     public LegalOrderCatalog generate(GameState state, Nation power) {
         Objects.requireNonNull(state, "state");

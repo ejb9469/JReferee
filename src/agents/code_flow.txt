@@ -9,7 +9,7 @@ Search considers possible orders for every living nation, tries joint
 submissions, and returns probabilities for the requested nation's actions.
 
 This file describes the current implementation, including adaptive search and
-optional payoff caching.
+optional payoff caching, movement scoping, and adaptive temperature.
 Planned improvements are listed separately at the end.
 There is currently no trained policy or value model. [ @ 11-06-26 ]
 
@@ -84,6 +84,18 @@ Adjustments:
 
 These are individual order options. They are not yet coordinated actions.
 
+Optional movement boundary:
+    ProvinceScope stores a fixed set of canonical provinces.
+    ProvinceScope.restrict(state, catalog) keeps every owned unit and its hold,
+    but removes orders whose target or auxiliary target lies outside that set.
+    Issuing units must already be inside it, using current board locations.
+    Coast-specific orders retain their exact targets.
+
+The full board, owned centers, movement rules, and scoring are preserved.
+The scope does not follow the occupied provinces as units move. An outside
+unit is an error. This is a tactical-fixture tool; Diplodocus uses full-board
+input and does not prescribe geographic clipping of actions.
+
 3. Construct complete action candidates
 ---------------------------------------
 ActionGenerationRequest(state, power, candidateLimit, seed)
@@ -123,6 +135,18 @@ The route can still be disrupted during adjudication. Convoy-enabled adaptive
 search also needs a compatible anchor; ActionPrior.convoyFreeUniform cannot
 score those convoy actions.
 
+ScopedActionGenerator wraps a generator for a movement experiment:
+    Filter the catalog before constructing actions.
+    Validate the returned actions against that filtered catalog.
+    Restore each action's logPrior from an anchor bound to the full state.
+
+Its default anchor is ActionPrior.convoyFreeUniform. A constructor accepts
+a different state-to-anchor factory. The factory is called for the actual
+movement state, so rollout anchors are not bound to an earlier root.
+Use the same scope for initial, response, and continuation movement generation.
+Retreat and adjustment generation passes through unchanged. A retreat or build
+outside the scope will cause an error if later scoped movement reaches it.
+
 4. Validate actions and retain their anchor probabilities
 ---------------------------------------------------------
 CatalogActionValidator.validate(state, candidate, catalog)
@@ -158,6 +182,11 @@ on the retained pool. This normalization does not rewrite candidate priors.
 DiL-piKL assigns zero mass to zero-prior actions and requires positive support
 somewhere in every pool.
 
+Caller-supplied movement pools and diagnostic probes bypass generation.
+Check them with ProvinceScope.requireWithin(state, candidate) before solving
+or evaluating a geographically restricted fixture. This also checks complete
+orders against the scoped catalog. General solve() calls remain unrestricted.
+
 5. Solve the fixed pools
 ------------------------
 DiLPiKLSearch.search(game, power)
@@ -173,31 +202,60 @@ Q stores each action's running mean raw payoff. It starts at zero.
 Lambda controls how strongly the policy follows its anchor:
 
     probability(action) is proportional to
-        prior(action) * exp(Q(action) / lambda)
+        exp((Q(action) + lambda * logPrior(action)) / (kappa + lambda))
+
+Both Q and logPrior are divided by the full denominator. Equivalently:
+    logit = Q / (kappa + lambda) + lambda / (kappa + lambda) * logPrior
 
 Larger lambda gives the anchor more influence. LambdaDistribution supplies
 the population's positive lambda values and their probabilities. agentLambda
 controls the policy returned for play. Both must suit the evaluator's scale.
 
 Each iteration:
-    a. Independently sample a population lambda and action for every nation.
+    a. Form the type policies from the previous completed Q and temperature.
+       Independently sample a population lambda and action for every nation.
     b. Freeze the resulting joint submission before updating any Q values.
     c. Evaluate that joint submission.
     d. For each nation, replace only its action with each other candidate.
        Keep the sampled opponents unchanged and evaluate the replacement.
     e. Update the running mean for every candidate.
+    f. For each lambda type, observe the dot product of its frozen policy
+       with this iteration's counterfactual payoff vector. Update its utility
+       moments for the next iteration. All types share Q but keep separate
+       moments. An output-only agentLambda is tracked without affecting play.
 
 The played joint payoff is reused for each nation's sampled action.
 For pool sizes K_i, an iteration requests 1 + sum_i(K_i - 1) joint evaluations.
 A deterministic cache can reduce the actual simulations.
+Cache hits still contribute Q updates and utility observations.
 
 Pools and priors remain fixed during this solve. Iterations improve estimates
 at the same root; they do not increase rollout depth or add missing actions.
 Q describes sampled opponent history, not fresh values against the final
 opponent policy. The returned policies use final Q, not a time average.
 
-This implementation uses the kappa=0 form of DiL-piKL. It does not implement
-the paper's experimental adaptive temperature schedule.
+Constructors without a temperature argument preserve TemperatureSchedule.ZERO.
+Explicit TemperatureSchedule.ADAPTIVE enables the Section 2.2 schedule:
+
+    kappa_t = 3 S_t / (10 sqrt(t))
+    S_t = population standard deviation of t policy-averaged raw utilities
+
+Each completed search iteration contributes one equally weighted observation.
+At t=0 the adaptive policy is uniform over positive-prior actions, represented
+by the infinite-temperature limit. One observation has zero variance.
+Final agent policies and population mixtures use completed Q and completed
+type temperatures. Negative-infinity priors always retain zero probability.
+
+The paper gives the formula but leaves the variance estimator and startup
+details unspecified. Per-type policy-averaged observations and uniform startup
+follow the public implementation in fairdiplomacy/agents/bqre1p_agent.py and
+dipcc/dipcc/cc/cfrstats.cc, inspected at revision
+e85afeddb34f5b7c1ea0827203b425a0f7e68ead of facebookresearch/diplomacy_cicero.
+The release also uses linear weighting and numerical floors. Here Q retains
+Algorithm 1's equal-weight update; utility observations use the same weighting.
+No variance floor or prior smoothing is added. Returned policies remain
+final-iterate policies.
+This implements the full formula; it is not a bit-for-bit port of the release.
 
 6. Resolve and score a joint action
 -----------------------------------
@@ -281,7 +339,8 @@ After the initial fixed-pool solve:
     f. Select proposals exceeding the best incumbent's mean raw payoff by
        more than minimumGain, subject to additionsPerNation.
     g. Apply pool limits and append accepted actions for all nations together.
-    h. Solve the expanded pools from zero Q before returning any new policy.
+    h. Solve the expanded pools from zero Q and fresh utility moments before
+       returning any new policy.
 
 Current proposal construction does not inspect the frozen opponent policies.
 Only proposal evaluation uses them. ResponseSearch is a bounded heuristic,
@@ -303,6 +362,10 @@ it is not the number of cache misses or rollout trajectories.
 
 JointSearchResult contains agent-lambda results for every living nation and
 populationPolicies mixing their final-Q lambda-type policies.
+Its temperatures map records final kappa by nation and lambda, including an
+output-only agentLambda. temperature(nation, lambda) returns a recorded value;
+it reports an error for an untracked type. The older two-argument result
+constructor remains available but supplies no temperature diagnostics.
 AdaptiveDiLPiKLSearch.Result.result() returns the requested nation's result
 from the last completed solve.
 
@@ -332,6 +395,17 @@ Diagnostics
 CounterSearchApp and CounterSearchConsoleApp exercise a small two-player
 position. They compare controlled and plausible pools and plain/reference
 adjudication. Their settings are demo choices, not global package defaults.
+The movement boundary is {Pic, Bur, Tyr, Bel, Ruh, Mun}; root, response, and
+continuation generation share it. The fixture validates explicit probes and
+initial plans against that scope. France still owns Paris, Marseilles, and
+Brest; Germany retains Berlin and Kiel. Unoccupied outside centers remain on
+the board, but scoped actions cannot move to them.
+
+Options.standard() selects ADAPTIVE temperature. The existing four-argument
+Options constructor retains ZERO; the five-argument constructor chooses
+explicitly. The browser has a temperature selector. Console diagnostics v3
+compare both schedules over complete two-action pools, then use ADAPTIVE for
+response expansion. Output includes final kappa per nation at the demo lambda.
 
 Fresh values are recomputed against the final opposing policy.
 Within-pool gap compares the current policy's raw payoff with its best
@@ -339,7 +413,9 @@ retained action. Missing-probe gap compares named probes with that best
 retained action. Neither measures all omitted legal actions.
 
 Response residual compares the returned policy with a regularized response
-formed from fresh values. The demo uses a single lambda. Multiple lambda
+formed from fresh values with kappa=0, using the three-argument policy helper.
+The equilibrium-response definition is unchanged; a finite search temperature
+can contribute to its residual. The demo uses a single lambda. Multiple lambda
 types need type-aware checks. Raw gaps can remain positive under intended
 regularization; NO_RESPONSE_FOUND does not measure policy convergence.
 

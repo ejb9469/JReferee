@@ -7,6 +7,7 @@ import agents.search.JointSearchResult;
 import agents.search.SearchResult;
 import agents.search.JointActionEvaluator;
 import agents.search.ResponseSearch;
+import agents.search.TemperatureSchedule;
 import adjudication.Justice;
 import contracts.OrderForm;
 import domain.Nation;
@@ -22,6 +23,7 @@ import java.util.*;
  *
  * <p>Runs complete-pool convergence checks, then controlled and plausible
  * expansion for three fixed seeds with fast/reference comparisons.
+ * Complete-pool checks compare zero and adaptive temperatures.
  * No arguments, console input, browser, or files are required.
  * CounterSearchApp.run() supplies the same experiment used by the web page.</p>
  *
@@ -51,7 +53,7 @@ public final class CounterSearchConsoleApp {
      * Failures propagate; a failed batch does not print the completion marker.
      */
     public static void main(String[] args) {
-        System.out.println("BEGIN COUNTER SEARCH DIAGNOSTICS v2");
+        System.out.println("BEGIN COUNTER SEARCH DIAGNOSTICS v3");
         System.out.println("Experiment: CounterSearchApp.run(seed, plausible)");
         System.out.println("Java: " + System.getProperty("java.runtime.version"));
         System.out.println("VM: " + System.getProperty("java.vm.name"));
@@ -59,26 +61,35 @@ public final class CounterSearchConsoleApp {
         System.out.println("Seeds: " + Arrays.toString(SEEDS));
         System.out.println("Rewards: winter Sum-of-Squares; dislodged units receive no retreat orders.");
         System.out.println("Controlled mode supplies two plans per nation.");
-        System.out.println("Plausible mode generates response proposals from the full board.");
+        System.out.println("Movement scope: " + CounterSearchApp.SCOPE.provinces());
+        System.out.println("Plausible proposals and movement continuations use that fixed scope.");
+        System.out.println("The complete board and center ownership are preserved.");
+        System.out.println("Temperature modes: ZERO and ADAPTIVE; expansion runs use ADAPTIVE.");
+        System.out.println("Adaptive kappa_t = 3 S_t / (10 sqrt(t)); uniform startup over supported actions.");
+        System.out.println("S_t is each lambda type's population standard deviation of policy-averaged utilities.");
+        System.out.println("One observation per completed iteration; equal weights; no variance floor.");
         System.out.println("Q values average sampled opponent history, not the final opponent policy.");
         System.out.println("Deviation gains are exact only over the displayed experiment's probe menu.");
         System.out.println("Positive gain means a tested unilateral alternative improves raw payoff.");
         System.out.println("No stop reason certifies equilibrium. Results may worsen between solves.");
         System.out.println("Population and agent lambda: " + CounterSearchApp.LAMBDA);
+        System.out.println("Response residuals compare with the kappa=0 regularized response.");
+        System.out.println("The scope, lambda, budgets, and acceptance targets are fixture settings, not paper defaults.");
         System.out.println("Complete-pool targets at 8192 iterations: probability error <= 0.05; raw gap <= 0.02.");
         System.out.println("Caching is explicitly enabled for this fixed-seed deterministic experiment.");
         System.out.println("Timings include failed attempts; nested categories overlap.");
         boolean targetsMet = true;
-        for (MovementProcessor.Policy policy : List.of(
-                MovementProcessor.Policy.JUDGE, MovementProcessor.Policy.SZYKMAN_JUSTICE))
-            for (int iterations : ITERATIONS)
-                for (long seed : SEEDS) {
-                    CounterSearchApp.Benchmark benchmark = CounterSearchApp.benchmark(seed,
-                            new CounterSearchApp.Options(policy, iterations, 0, 4_096));
-                    printBenchmark(benchmark);
-                    if (iterations == 8_192 && !benchmark.meetsTarget())
-                        targetsMet = false;
-                }
+        for (TemperatureSchedule temperature : TemperatureSchedule.values())
+            for (MovementProcessor.Policy policy : List.of(
+                    MovementProcessor.Policy.JUDGE, MovementProcessor.Policy.SZYKMAN_JUSTICE))
+                for (int iterations : ITERATIONS)
+                    for (long seed : SEEDS) {
+                        CounterSearchApp.Benchmark benchmark = CounterSearchApp.benchmark(seed,
+                                new CounterSearchApp.Options(policy, iterations, 0, 4_096, temperature));
+                        printBenchmark(benchmark);
+                        if (iterations == 8_192 && !benchmark.meetsTarget())
+                            targetsMet = false;
+                    }
         List<Summary> summaries = new ArrayList<>();
         for (boolean plausible : new boolean[]{false, true}) {
             String mode = plausible ? "PLAUSIBLE" : "CONTROLLED";
@@ -125,17 +136,19 @@ public final class CounterSearchConsoleApp {
 
     private static void printBenchmark(CounterSearchApp.Benchmark benchmark) {
         System.out.printf(Locale.ROOT,
-                "%nBENCHMARK engine=%s seed=%d iterations=%d probability_error=%.10f raw_gap=%.10f target_met=%s%n",
-                benchmark.options().policy(), benchmark.seed(), benchmark.options().iterations(),
+                "%nBENCHMARK engine=%s temperature=%s seed=%d iterations=%d probability_error=%.10f raw_gap=%.10f target_met=%s%n",
+                benchmark.options().policy(), benchmark.options().temperature(),
+                benchmark.seed(), benchmark.options().iterations(),
                 benchmark.probabilityError(), benchmark.maximumGap(), benchmark.meetsTarget());
         for (Nation nation : List.of(Nation.FRANCE, Nation.GERMANY)) {
             SearchResult result = benchmark.solve().results().get(nation);
             CounterSearchApp.PolicyCheck check = benchmark.checks().get(nation);
             for (int index = 0; index < result.meanValues().size(); index++)
                 System.out.printf(Locale.ROOT,
-                        "  %s-P%d p=%.10f historical_Q=%.10f fresh_value=%.10f response_residual=%.10f%n",
+                        "  %s-P%d p=%.10f historical_Q=%.10f fresh_value=%.10f response_residual=%.10f kappa=%.10f%n",
                         nation, index, result.distribution().probabilities().get(index),
-                        result.meanValues().get(index), check.freshValues().get(index), check.responseResidual());
+                        result.meanValues().get(index), check.freshValues().get(index), check.responseResidual(),
+                        benchmark.solve().temperature(nation, CounterSearchApp.LAMBDA));
         }
         printWork(benchmark.options(), benchmark.timings(), benchmark.movement(), benchmark.trials());
     }
@@ -145,10 +158,10 @@ public final class CounterSearchConsoleApp {
                                   MovementProcessor.Counts movement, JointActionEvaluator.Counts trials) {
         boolean plain = options.policy() == MovementProcessor.Policy.JUDGE;
         System.out.printf(Locale.ROOT,
-                "CONFIG engine=%s configured_trials=%s shuffle_seed=%s iterations=%d rounds=%d cache_capacity=%d%n",
+                "CONFIG engine=%s configured_trials=%s shuffle_seed=%s iterations=%d rounds=%d cache_capacity=%d temperature=%s%n",
                 options.policy(), plain ? "unused" : Integer.toString(Justice.NUM_TRIALS_DEFAULT),
                 plain ? "unused" : Long.toString(Justice.SHUFFLE_SEED_DEFAULT),
-                options.iterations(), options.expansionRounds(), options.cacheEntries());
+                options.iterations(), options.expansionRounds(), options.cacheEntries(), options.temperature());
         System.out.println("JOINT WORK " + trials);
         System.out.println("MOVEMENT WORK " + movement);
         for (PerformanceStats.Measurement timing : timings)
@@ -200,8 +213,9 @@ public final class CounterSearchConsoleApp {
                         .results().get(nation).distribution().candidates().size();
                 System.out.printf(Locale.ROOT, "%s candidates=%d observations_per_candidate=%d deviation_gain=%.10f%n",
                         nation, candidates.size(), result.samplesPerCandidate(), report.gains().get(index).get(nation));
-                System.out.printf(Locale.ROOT, "  agent_mass=%.12f population_mass=%.12f%n",
-                        mass(result.distribution()), mass(population));
+                System.out.printf(Locale.ROOT, "  agent_mass=%.12f population_mass=%.12f kappa=%.10f%n",
+                        mass(result.distribution()), mass(population),
+                        solve.temperature(nation, CounterSearchApp.LAMBDA));
                 CounterSearchApp.PolicyCheck check = report.checks().get(index).get(nation);
                 System.out.printf(Locale.ROOT,
                         "  fresh_current=%.10f best_retained=%.10f best_probe=%.10f within_pool_gap=%.10f missing_probe_gap=%.10f response_residual=%.10f%n",

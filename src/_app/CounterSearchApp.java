@@ -29,10 +29,13 @@ import java.util.function.Function;
  *
  * <p>France can concentrate an attack on Belgium or Munich. Germany's Ruhr
  * army can reinforce either defender. The initial pools omit France's Munich
- * attack and Germany's Munich defense.</p>
+ * attack and Germany's Munich defense.<br>
+ * See here: <a href="https://www.backstabbr.com/sandbox/JReferee-agentsgen-Example/5464925934256128">Backstabbr sandbox</a>
+ * </p>
  *
  * <p>Controlled mode supplies two hand-built plans per nation to isolate the
- * expansion algorithm. Plausible mode generates responses from the full board.
+ * expansion algorithm. Plausible mode generates responses within the six
+ * occupied provinces. Full-board ownership and scoring are preserved.
  * Neither mode measures full-game strength. Retreats are deliberately omitted
  * during evaluation, and SoS rewards are measured at the resulting winter.</p>
  */
@@ -41,17 +44,31 @@ public final class CounterSearchApp {
     private CounterSearchApp() {        }
 
     public static final double LAMBDA = 0.03;
+    public static final ProvinceScope SCOPE = new ProvinceScope(
+            List.of(Province.Pic, Province.Bur, Province.Tyr, Province.Bel, Province.Ruh, Province.Mun));
 
     public record Options(MovementProcessor.Policy policy, int iterations,
-                          int expansionRounds, int cacheEntries) {
+                          int expansionRounds, int cacheEntries, TemperatureSchedule temperature) {
         public Options {
             Objects.requireNonNull(policy, "policy");
+            Objects.requireNonNull(temperature, "temperature");
             if (iterations < 1 || expansionRounds < 0 || cacheEntries < 0)
                 throw new IllegalArgumentException("Invalid demonstration budgets");
         }
 
+        /**
+         * Preserves the zero-temperature setting of earlier explicit budgets.
+         */
+        public Options(MovementProcessor.Policy policy, int iterations, int expansionRounds, int cacheEntries) {
+            this(policy, iterations, expansionRounds, cacheEntries, TemperatureSchedule.ZERO);
+        }
+
         public static Options standard(MovementProcessor.Policy policy) {
-            return new Options(policy, 2_048, 8, 4_096);
+            return standard(policy, TemperatureSchedule.ADAPTIVE);
+        }
+
+        public static Options standard(MovementProcessor.Policy policy, TemperatureSchedule temperature) {
+            return new Options(policy, 2_048, 8, 4_096, temperature);
         }
     }
 
@@ -60,12 +77,16 @@ public final class CounterSearchApp {
             Objects.requireNonNull(root, "root");
             Objects.requireNonNull(prior, "prior");
             probes = copyProbes(probes);
+            for (List<ActionCandidate> candidates : probes.values())
+                for (ActionCandidate candidate : candidates)
+                    SCOPE.requireWithin(root, candidate);
         }
     }
 
     /**
      * Fresh expected values against the final opposing population policy.
-     * Residual compares that policy with the lambda=0.03 regularized response.
+     * Residual compares that policy with the lambda=0.03, kappa=0 regularized
+     * response. A solver's finite temperature can contribute to the residual.
      */
     public record PolicyCheck(List<Double> freshValues, List<Double> probeValues, double currentValue,
                               double bestRetained, double bestProbe, double withinPoolGap,
@@ -180,9 +201,9 @@ public final class CounterSearchApp {
         GameState root = fixture.root();
         Map<Nation, List<ActionCandidate>> probes = fixture.probes();
         Context context = context(fixture, seed, options);
-        ActionGenerator proposals = plausible ? new PlausibleActionGenerator()
-                : (request, catalog) -> probes.get(request.power());
-        DiLPiKLSearch solver = solver(context, seed, options.iterations());
+        ActionGenerator proposals = new ScopedActionGenerator(plausible ? new PlausibleActionGenerator()
+                : (request, catalog) -> probes.get(request.power()), SCOPE);
+        DiLPiKLSearch solver = solver(context, seed, options);
         ResponseSearch responses = new ResponseSearch(context.evaluator(), proposals, 32, 32, 1, 0.001);
         AdaptiveDiLPiKLSearch adaptive = new AdaptiveDiLPiKLSearch(
                 solver, responses, 8, options.expansionRounds(), seed);
@@ -220,7 +241,7 @@ public final class CounterSearchApp {
     public static Benchmark benchmark(long seed, Options options) {
         Fixture fixture = fixture();
         Context context = context(fixture, seed, options);
-        JointSearchResult solve = solver(context, seed, options.iterations())
+        JointSearchResult solve = solver(context, seed, options)
                 .solve(context.game(), fixture.probes(), context.trials());
         Map<Nation, PolicyCheck> checks;
         try (var diagnostics = context.trials().measure("policy diagnostics")) {
@@ -239,16 +260,16 @@ public final class CounterSearchApp {
                 new RetreatProcessor(), new AdjustmentProcessor());
         Game game = games.apply(fixture.root());
         Evaluator evaluator = new RolloutEvaluator(new ScoringEvaluator(ScoringSystem.SUM_OF_SQUARES),
-                new UniformActionGenerator(), games, 1, 1, seed);
+                new ScopedActionGenerator(new UniformActionGenerator(), SCOPE), games, 1, 1, seed);
         JointActionEvaluator trials = options.cacheEntries() == 0
                 ? JointActionEvaluator.uncached(game, evaluator, timings)
                 : JointActionEvaluator.deterministic(game, evaluator, options.cacheEntries(), timings);
         return new Context(game, evaluator, trials, movement);
     }
 
-    private static DiLPiKLSearch solver(Context context, long seed, int iterations) {
-        return new DiLPiKLSearch(context.evaluator(), 2, iterations,
-                LambdaDistribution.fixed(LAMBDA), LAMBDA, seed);
+    private static DiLPiKLSearch solver(Context context, long seed, Options options) {
+        return new DiLPiKLSearch(context.evaluator(), new ScopedActionGenerator(new PlausibleActionGenerator(), SCOPE),
+                2, options.iterations(), LambdaDistribution.fixed(LAMBDA), LAMBDA, seed, options.temperature());
     }
 
     /**
@@ -331,6 +352,7 @@ public final class CounterSearchApp {
             long seed;
             boolean plausible;
             MovementProcessor.Policy policy;
+            TemperatureSchedule temperature;
             try {
                 if (raw != null)
                     for (String field : raw.split("&")) {
@@ -344,18 +366,20 @@ public final class CounterSearchApp {
                     throw new IllegalArgumentException("Unknown proposal mode");
                 plausible = mode.equals("plausible");
                 policy = MovementProcessor.Policy.valueOf(query.getOrDefault("engine", "SZYKMAN_JUSTICE"));
+                temperature = TemperatureSchedule.valueOf(query.getOrDefault("temperature", "ADAPTIVE"));
             } catch (IllegalArgumentException exception) {
                 send(exchange, 400, page("Invalid request: use an integer seed and listed modes.", 7, false,
-                        MovementProcessor.Policy.SZYKMAN_JUSTICE));
+                        MovementProcessor.Policy.SZYKMAN_JUSTICE, TemperatureSchedule.ADAPTIVE));
                 return;
             }
             try {
                 send(exchange, 200, page(path.equals("/") ? "" : render(
-                        run(seed, plausible, Options.standard(policy)), seed, plausible), seed, plausible, policy));
+                                run(seed, plausible, Options.standard(policy, temperature)), seed, plausible),
+                        seed, plausible, policy, temperature));
             } catch (RuntimeException exception) {
                 exception.printStackTrace(System.err);
                 send(exchange, 500, page("<h2>Experiment failed</h2><pre>" + escape(exception.toString()) + "</pre>",
-                        seed, plausible, policy));
+                        seed, plausible, policy, temperature));
             }
         }
     }
@@ -367,11 +391,16 @@ public final class CounterSearchApp {
         exchange.getResponseBody().write(bytes);
     }
 
-    private static String page(String result, long seed, boolean plausible, MovementProcessor.Policy policy) {
+    private static String page(String result, long seed, boolean plausible,
+                               MovementProcessor.Policy policy, TemperatureSchedule temperature) {
         StringBuilder engines = new StringBuilder();
         for (MovementProcessor.Policy option : MovementProcessor.Policy.values())
             engines.append("<option value=\"").append(option).append("\"")
                     .append(option == policy ? " selected" : "").append(">").append(option).append("</option>");
+        StringBuilder temperatures = new StringBuilder();
+        for (TemperatureSchedule option : TemperatureSchedule.values())
+            temperatures.append("<option value=\"").append(option).append("\"")
+                    .append(option == temperature ? " selected" : "").append(">").append(option).append("</option>");
         return """
                 <!doctype html><html lang="en"><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -389,14 +418,19 @@ public final class CounterSearchApp {
                 <label>Proposals <select name="mode"><option value="controlled" %CONTROLLED%>Controlled two-plan menu</option>
                 <option value="plausible" %PLAUSIBLE%>PlausibleActionGenerator</option></select></label>
                 <label>Engine <select name="engine">%ENGINES%</select></label>
+                <label>Temperature <select name="temperature">%TEMPERATURES%</select></label>
                 <button type="submit">Run comparison</button></form>
                 <p><small>Actual adjudication and winter SoS rewards. Retreats are omitted.
+                Movement scope: %SCOPE%. Full-board ownership is unchanged.
+                Adaptive temperature uses kappa = 3 S / (10 sqrt(t)); ZERO preserves the earlier formula.
                 Controlled mode checks solver mechanics; generated mode checks a broader proposal pool.
                 This is a tactical experiment, not a full-game strength benchmark.</small></p>
                 """.replace("%SEED%", Long.toString(seed))
                 .replace("%CONTROLLED%", plausible ? "" : "selected")
                 .replace("%PLAUSIBLE%", plausible ? "selected" : "")
                 .replace("%ENGINES%", engines)
+                .replace("%TEMPERATURES%", temperatures)
+                .replace("%SCOPE%", escape(SCOPE.provinces().toString()))
                 + result + "</body></html>";
     }
 
@@ -404,6 +438,7 @@ public final class CounterSearchApp {
         StringBuilder html = new StringBuilder("<h2>Results</h2><p>Seed: ").append(seed)
                 .append("; proposals: ").append(plausible ? "PlausibleActionGenerator" : "controlled")
                 .append("; engine: ").append(report.options().policy())
+                .append("; temperature: ").append(report.options().temperature())
                 .append("; iterations: ").append(report.options().iterations())
                 .append("; expansion limit: ").append(report.options().expansionRounds())
                 .append("; stop: ").append(report.search().reason()).append("</p>")
@@ -420,10 +455,12 @@ public final class CounterSearchApp {
         html.append("</table><h3>Fresh final-policy diagnostics</h3><p>Within-pool gain compares the current ")
                 .append("mixture with its best retained action. ")
                 .append("Missing-probe gain is the additional advantage of a named probe over the best retained action. ")
-                .append("Residual measures disagreement with the regularized response at lambda=0.03. ")
+                .append("Residual measures disagreement with the regularized response at lambda=0.03, kappa=0. ")
+                .append("A finite search temperature can contribute to that disagreement. ")
                 .append("These diagnostics cover this small experiment only.</p>")
                 .append("<table><tr><th>Solve</th><th>Nation</th><th>Pool</th><th>Current payoff</th>")
-                .append("<th>Within-pool gain</th><th>Missing-probe gain</th><th>Response residual</th></tr>");
+                .append("<th>Within-pool gain</th><th>Missing-probe gain</th><th>Response residual</th>")
+                .append("<th>Final kappa</th></tr>");
         for (int index = 0; index < report.search().solves().size(); index++) {
             JointSearchResult solve = report.search().solves().get(index);
             for (Nation nation : List.of(Nation.FRANCE, Nation.GERMANY)) {
@@ -433,7 +470,9 @@ public final class CounterSearchApp {
                         .append("</td><td>").append(number(check.currentValue()))
                         .append("</td><td>").append(number(check.withinPoolGap()))
                         .append("</td><td>").append(number(check.missingProbeGap()))
-                        .append("</td><td>").append(number(check.responseResidual())).append("</td></tr>");
+                        .append("</td><td>").append(number(check.responseResidual()))
+                        .append("</td><td>").append(String.format(Locale.ROOT, "%.6g",
+                                solve.temperature(nation, LAMBDA))).append("</td></tr>");
             }
         }
         html.append("</table>");
