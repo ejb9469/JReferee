@@ -7,7 +7,7 @@ import java.util.*;
 import static io.json.JsonEscaper.appendString;
 
 /**
- * Selected source metadata for dataset inspection, outside model inputs.
+ * Selected source metadata for dataset inspection, outside model inputs. JSON-heavy.
  * Source scores and result flags are preserved without assigning value targets.
  */
 public final class SourceGameMetadata {
@@ -63,7 +63,8 @@ public final class SourceGameMetadata {
                 }
                 results.put(name, selected);
             }
-            if (!names.containsAll(nations.keySet()))
+            if (!names.containsAll(nations.keySet()))  // possible problem line:: "'Set<String>' may not contain objects of type 'capture of ?'"
+                                                            // has to do with this instanceof ugliness - this may be a good candidate for redesign, later (use specific types if/where possible)
                 warnings.add("$.ResultSummary: unrecognized nation keys");
         }
     }

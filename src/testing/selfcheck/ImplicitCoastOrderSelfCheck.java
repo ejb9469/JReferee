@@ -19,11 +19,11 @@ import java.util.*;
  * Coast handling across adjudication, action identity, encoding, and import.
  * Optional arguments are exported DiploBN files for games 14031, 16192, or 10667.
  */
-public final class CoastOrderSelfCheck {
+public final class ImplicitCoastOrderSelfCheck {
 
     private static int checks;
 
-    private CoastOrderSelfCheck() { }
+    private ImplicitCoastOrderSelfCheck() { }
 
     public static void main(String[] args) throws Exception {
         catalogAndIdentity();
@@ -32,7 +32,7 @@ public final class CoastOrderSelfCheck {
         export();
         for (String arg : args)
             sourceGame(Path.of(arg));
-        System.out.println("CoastOrderSelfCheck passed: " + checks + " checks");
+        System.out.println("ImplicitCoastOrderSelfCheck passed: " + checks + " checks");
     }
 
     private static void catalogAndIdentity() {

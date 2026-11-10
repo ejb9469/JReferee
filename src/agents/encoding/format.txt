@@ -48,11 +48,11 @@ Do not compare old option indices or reuse models trained on movement-v1 masks.
 Catalog export
 --------------
 Run _app.TrainingExportApp with the existing SQLite JDBC driver:
-  --database data/diplobn-catalog.sqlite --output data/training-movement-v3 --split-seed 7
+  --database data/diplobn-catalog.sqlite --output data/training-movement-v4 --split-seed 7
 The database opens read-only; the output directory must not already exist.
 Its parent directory must exist. No downloads or catalog updates are performed.
 
-Export schema: jreferee-diplobn-imitation-v3. Movement encoding is v2.
+Export schema: jreferee-diplobn-imitation-v4. Movement encoding remains v2.
 Outputs: train.jsonl, validation.jsonl, test.jsonl, rejected.jsonl, games.jsonl,
 and manifest.json. Use a new output directory; do not combine export versions.
 Each example identifies source, game key, phase, nation, and payload SHA-256.
@@ -71,6 +71,57 @@ filled in, and results never determine acceptance. Rejection counts include
 game-, phase-, and nation-level records; they are not rejected-game counts.
 An invalid nation's action does not remove other valid actions from that phase.
 
+Game selection
+--------------
+TrainingExportFilter holds splitSeed, communicationTypes, and
+includeUnknownCommunication. Its defaults retain every reported communication
+label and unknown labels, with split seed 7. Press games remain included.
+The existing DiploBNTrainingExporter(long) constructor keeps these selection
+defaults; callers can instead pass a TrainingExportFilter.
+
+A null communicationTypes set allows every reported label, including unfamiliar
+ones. An empty set allows no reported labels. Nonempty sets match literal,
+case-sensitive source labels. The record copies its set and rejects null or
+blank members. includeUnknownCommunication independently selects missing or
+malformed labels, which SourceGameMetadata represents as null. An unfamiliar
+but nonblank string is a reported label, not a missing value.
+
+Examples:
+  new TrainingExportFilter()
+      All labels and unknown, seed 7.
+  new TrainingExportFilter(7, Set.of("Full", "None"), true)
+      These two labels and unknown.
+  new TrainingExportFilter(7, Set.of("None"), false)
+      Only the literal None label.
+  new TrainingExportFilter(7, Set.of(), true)
+      Only unknown.
+
+CLI selections:
+  Omit --communication-types to allow all reported labels.
+  --communication-types Full,None selects those labels.
+  --communication-types "" selects no reported labels.
+  --include-unknown true|false independently controls unknown; default true.
+Comma-separated labels have surrounding whitespace stripped. Blank entries
+within a nonempty list are errors. Boolean values must be exactly true or false.
+An empty set with unknown disabled deliberately selects no games.
+
+The seed controls game-level train/validation/test assignment, not sampling or
+eligibility. Changing selections with the same seed does not move retained
+games between splits. Selections are applied to whole games.
+
+The source provider, payload hashes, and JSON root are checked before selection.
+Excluded games are not parsed into phases or checked for order legality.
+They remain in games.jsonl with selection=FILTERED_OUT, zero accepted examples,
+and zero rejection records. They do not appear in rejected.jsonl.
+INCLUDED means a game passed the filter; it can still have invalid source data
+or no accepted examples. NOT_EVALUATED means failure before metadata selection.
+
+The manifest records the filter and seed, plus game_selection counts for
+INCLUDED, FILTERED_OUT, and NOT_EVALUATED; these sum to games_read.
+communication_types still counts all catalog entries and now includes
+filtered_games per label. Rejection totals only count validation failures.
+No filtering decision uses historical resolution messages or result scores.
+
 DiploBN movement import supplies an omitted Fleet destination coast only when
 exactly one coast is reachable from its current location. Nwy-Stp becomes
 Nwy-StpNC; MAO-Spa remains ambiguous and fails catalog validation. Explicit
@@ -83,12 +134,13 @@ submitted orders.
 
 Source metadata
 ---------------
-games.jsonl contains one record per catalog entry, including rejected games.
+games.jsonl contains one record per catalog entry, including rejected and
+filtered-out games.
 Join it to examples/rejections by source and game_key within the export.
 Its payload_sha256 identifies the catalog payload used; accepted examples also
 carry that hash. Each game record includes its split and acceptance/rejection
-counts. writeDetailed() returns this record and per-reason counts; write()
-retains its original Counts return type.
+counts and selection status. writeDetailed() returns this record, selection,
+and per-reason counts; write() retains its original Counts return type.
 
 source_metadata preserves CommunicationType, ScoringSystem, LimitType,
 DeadlineType, Modality, DrawSize, GameYearsCompleted, and selected ResultSummary
@@ -111,8 +163,9 @@ records for each group. It also reports rejection-reason totals, unavailable
 metadata games, and games with metadata warnings. Games count once, not once per
 nation or phase. Missing labels and unavailable metadata share the null group.
 
-Communication and result metadata remain outside input. They do not yet
-condition a model or change filtering. All value_target fields remain null.
+Communication and result metadata remain outside input and do not condition
+a model. Only communication labels participate in the configurable game
+selection above. All value_target fields remain null.
 default_order_status remains UNKNOWN; resignation flags do not identify
 individual missed turns. Explicit holds might be defaults.
 Catalog legality does not verify replay, completion, human identity, or skill.

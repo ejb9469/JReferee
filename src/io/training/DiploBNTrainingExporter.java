@@ -21,24 +21,32 @@ import static io.json.JsonEscaper.appendString;
  */
 public final class DiploBNTrainingExporter {
 
-    public static final String SCHEMA = "jreferee-diplobn-imitation-v3";
+    public static final String SCHEMA = "jreferee-diplobn-imitation-v4";
     private static final JsonAccess JSON = new JsonAccess(ParseException::new);
 
     public enum Split { TRAIN, VALIDATION, TEST }
 
+    public enum Selection { INCLUDED, FILTERED_OUT, NOT_EVALUATED }
+
     public record Counts(long examples, long rejectionRecords) { }
 
     public record Report(Counts counts, String communicationType, boolean metadataAvailable,
-                         int metadataWarnings, Map<String, Long> rejectionReasons, String gameJson) {
+                         int metadataWarnings, Map<String, Long> rejectionReasons, String gameJson,
+                         Selection selection) {
         public Report {
             rejectionReasons = Collections.unmodifiableMap(new TreeMap<>(rejectionReasons));
+            Objects.requireNonNull(selection, "selection");
         }
     }
 
-    private final long splitSeed;
+    private final TrainingFilter filter;
 
     public DiploBNTrainingExporter(long splitSeed) {
-        this.splitSeed = splitSeed;
+        this(new TrainingFilter(splitSeed));
+    }
+
+    public DiploBNTrainingExporter(TrainingFilter filter) {
+        this.filter = Objects.requireNonNull(filter, "filter");
     }
 
     /**
@@ -47,7 +55,7 @@ public final class DiploBNTrainingExporter {
      */
     public Split split(String source, String externalKey) {
         requireIdentity(source, externalKey);
-        String hash = SourceFingerprints.sha256Hex(splitSeed + "\n" + source + "\n" + externalKey);
+        String hash = SourceFingerprints.sha256Hex(filter.splitSeed() + "\n" + source + "\n" + externalKey);
         int bucket = (int) Long.remainderUnsigned(Long.parseUnsignedLong(hash.substring(0, 16), 16), 100);
         return bucket < 80 ? Split.TRAIN : bucket < 90 ? Split.VALIDATION : Split.TEST;
     }
@@ -62,8 +70,9 @@ public final class DiploBNTrainingExporter {
     }
 
     /**
-     * Also returns one game-level metadata record and summary counts.
-     * Metadata and historical resolution messages never filter actions.
+     * Also returns one game-level metadata record, selection, and summary counts.
+     * The filter selects verified game metadata before phases are parsed.
+     * Historical resolution messages never determine selection or acceptance.
      */
     public Report writeDetailed(String source, String externalKey, String payload, String expectedHash,
                                 Appendable examples, Appendable rejected) throws IOException {
@@ -88,6 +97,8 @@ public final class DiploBNTrainingExporter {
         try {
             Map<String, Object> raw = JSON.object(JsonReader.read(payload), "$");
             metadata = new SourceGameMetadata(raw);
+            if (!filter.includes(metadata.communicationType()))
+                return report(source, externalKey, expectedHash, 0, reasons, metadata);
             game = new DiploBNParser().parse(payload);
             rawPhases = JSON.array(JSON.required(raw, "GamePhases", "$"), "$.GamePhases");
         } catch (IllegalArgumentException exception) {
@@ -170,18 +181,22 @@ public final class DiploBNTrainingExporter {
     private Report report(String source, String key, String hash, long examples,
                           Map<String, Long> reasons, SourceGameMetadata metadata) {
         long rejected = reasons.values().stream().mapToLong(Long::longValue).sum();
+        Selection selection = metadata == null ? Selection.NOT_EVALUATED
+                : filter.includes(metadata.communicationType()) ? Selection.INCLUDED : Selection.FILTERED_OUT;
         StringBuilder out = identity(source, key, null, null);
         out.append(",\"payload_sha256\":");
         appendString(out, hash);
         out.append(",\"split\":");
         appendString(out, split(source, key).name());
+        out.append(",\"selection\":");
+        appendString(out, selection.name());
         out.append(",\"accepted_examples\":").append(examples)
                 .append(",\"rejection_records\":").append(rejected)
                 .append(",\"metadata_available\":").append(metadata != null)
                 .append(",\"source_metadata\":").append(metadata == null ? "null" : metadata.toJson())
                 .append('}');
         return new Report(new Counts(examples, rejected), metadata == null ? null : metadata.communicationType(),
-                metadata != null, metadata == null ? 0 : metadata.warningCount(), reasons, out.toString());
+                metadata != null, metadata == null ? 0 : metadata.warningCount(), reasons, out.toString(), selection);
     }
 
     private static String errorsJson(List<ActionValidationError> errors, List<Order> orders,

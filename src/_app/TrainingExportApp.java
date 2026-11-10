@@ -2,6 +2,7 @@ package _app;
 
 import agents.encoding.MovementEncoding;
 import io.training.DiploBNTrainingExporter;
+import io.training.TrainingFilter;
 
 import java.io.BufferedWriter;
 import java.nio.charset.StandardCharsets;
@@ -20,8 +21,11 @@ public final class TrainingExportApp {
 
     public static void main(String[] args) throws Exception {
         Path database = Path.of("data", "diplobn-catalog.sqlite");
-        Path output = Path.of("data", "training-movement-v3");
-        long splitSeed = 7;
+        Path output = Path.of("data", "training-movement-v4");
+        TrainingFilter defaults = new TrainingFilter();
+        long splitSeed = defaults.splitSeed();
+        Set<String> communicationTypes = defaults.communicationTypes();
+        boolean includeUnknown = defaults.includeUnknownCommunication();
         Set<String> seen = new HashSet<>();
         for (int index = 0; index < args.length; index++) {
             if (args[index].equals("--help")) {
@@ -34,9 +38,23 @@ public final class TrainingExportApp {
                 case "--database" -> database = Path.of(args[++index]);
                 case "--output" -> output = Path.of(args[++index]);
                 case "--split-seed" -> splitSeed = Long.parseLong(args[++index]);
+                case "--communication-types" -> {
+                    String value = args[++index];
+                    communicationTypes = new TreeSet<>();
+                    if (!value.isEmpty())
+                        for (String type : value.split(",", -1))
+                            communicationTypes.add(type.strip());
+                }
+                case "--include-unknown" -> {
+                    String value = args[++index];
+                    if (!value.equals("true") && !value.equals("false"))
+                        throw new IllegalArgumentException("--include-unknown must be true or false");
+                    includeUnknown = Boolean.parseBoolean(value);
+                }
                 default -> throw new IllegalArgumentException(usage());
             }
         }
+        TrainingFilter filter = new TrainingFilter(splitSeed, communicationTypes, includeUnknown);
         database = database.toAbsolutePath().normalize();
         output = output.toAbsolutePath().normalize();
         if (!Files.isRegularFile(database))
@@ -45,11 +63,14 @@ public final class TrainingExportApp {
             throw new IllegalArgumentException("Output directory already exists: " + output);
         Class.forName("org.sqlite.JDBC");
 
-        DiploBNTrainingExporter exporter = new DiploBNTrainingExporter(splitSeed);
+        DiploBNTrainingExporter exporter = new DiploBNTrainingExporter(filter);
         long games = 0, rejections = 0, unavailable = 0, warnings = 0;
         long[] counts = new long[DiploBNTrainingExporter.Split.values().length];
         Map<String, long[]> communication = new TreeMap<>(Comparator.nullsFirst(Comparator.naturalOrder()));
         Map<String, Long> reasons = new TreeMap<>();
+        Map<String, Long> selections = new TreeMap<>();
+        for (var selection : DiploBNTrainingExporter.Selection.values())
+            selections.put(selection.name(), 0L);
         String url = "jdbc:sqlite:" + database.toUri().toASCIIString() + "?mode=ro";
         try (Connection connection = DriverManager.getConnection(url);
              Statement statement = connection.createStatement();
@@ -79,10 +100,12 @@ public final class TrainingExportApp {
                     metadata.write(report.gameJson() + "\n");
                     if (!report.metadataAvailable()) unavailable++;
                     if (report.metadataWarnings() > 0) warnings++;
-                    long[] mode = communication.computeIfAbsent(report.communicationType(), ignored -> new long[3]);
+                    selections.merge(report.selection().name(), 1L, Long::sum);
+                    long[] mode = communication.computeIfAbsent(report.communicationType(), ignored -> new long[4]);
                     mode[0]++;
                     mode[1] += result.examples();
                     mode[2] += result.rejectionRecords();
+                    if (report.selection() == DiploBNTrainingExporter.Selection.FILTERED_OUT) mode[3]++;
                     report.rejectionReasons().forEach((reason, count) -> reasons.merge(reason, count, Long::sum));
                     games++;
                 }
@@ -96,7 +119,9 @@ public final class TrainingExportApp {
                   "complete": true,
                   "split_seed": %d,
                   "split_percentages": [80, 10, 10],
+                  "filter": %s,
                   "games_read": %d,
+                  "game_selection": %s,
                   "train_examples": %d,
                   "validation_examples": %d,
                   "test_examples": %d,
@@ -110,14 +135,15 @@ public final class TrainingExportApp {
                   "value_targets": false
                 }
                 """.formatted(DiploBNTrainingExporter.SCHEMA, MovementEncoding.SCHEMA,
-                splitSeed, games, counts[0], counts[1], counts[2], rejections,
-                communicationJson(communication), reasonsJson(reasons), unavailable, warnings);
+                filter.splitSeed(), filter.toJson(), games, countsJson(selections),
+                counts[0], counts[1], counts[2], rejections,
+                communicationJson(communication), countsJson(reasons), unavailable, warnings);
         Files.writeString(output.resolve("manifest.json"), manifest,
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
         System.out.println("Output: " + output);
         System.out.print(manifest);
         System.out.println("Inspect rejected.jsonl before training. No replay or outcome verification was performed.");
-        System.out.println("Communication types are source labels, not a no-press filter. See games.jsonl for metadata.");
+        System.out.println("Game selection is recorded in games.jsonl. Filtered games are not invalid-data rejections.");
         System.out.println("Source results are not value targets; default-order status remains unknown.");
     }
 
@@ -132,15 +158,16 @@ public final class TrainingExportApp {
             else appendString(out, entry.getKey());
             long[] counts = entry.getValue();
             out.append(",\"games\":").append(counts[0]).append(",\"accepted_examples\":").append(counts[1])
-                    .append(",\"rejection_records\":").append(counts[2]).append('}');
+                    .append(",\"rejection_records\":").append(counts[2])
+                    .append(",\"filtered_games\":").append(counts[3]).append('}');
         }
         return out.append(']').toString();
     }
 
-    private static String reasonsJson(Map<String, Long> reasons) {
+    private static String countsJson(Map<String, Long> counts) {
         StringBuilder out = new StringBuilder("{");
         boolean first = true;
-        for (var entry : reasons.entrySet()) {
+        for (var entry : counts.entrySet()) {
             if (!first) out.append(',');
             first = false;
             appendString(out, entry.getKey());
@@ -155,6 +182,7 @@ public final class TrainingExportApp {
 
     private static String usage() {
         return "Usage: TrainingExportApp [--database <catalog.sqlite>] "
-                + "[--output <new-directory>] [--split-seed <long>]";
+                + "[--output <new-directory>] [--split-seed <long>] "
+                + "[--communication-types <label,...>] [--include-unknown <true|false>]";
     }
 }
