@@ -1,5 +1,7 @@
-package parsing.diplobn;
+package parsing;
 
+
+import parsing.diplobn.DiploBNParser;
 
 /**
  * Indicates malformed JSON or a value that does not conform to the DiploBN

@@ -4,6 +4,7 @@ import analysis.tactics.*;
 import domain.*;
 import game.*;
 import io.catalog.*;
+import io.json.JsonReader;
 import io.persistence.SQLiteCatalogStore;
 import parsing.diplobn.*;
 import phase.Order;

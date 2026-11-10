@@ -1,11 +1,12 @@
 package testing.selfcheck;
 
 import _app.TrainingExportApp;
+import agents.encoding.EncodingPurpose;
 import io.catalog.SourceFingerprints;
 import io.json.JsonAccess;
 import io.training.DiploBNTrainingExporter;
 import io.training.TrainingFilter;
-import parsing.diplobn.JsonReader;
+import io.json.JsonReader;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -236,7 +237,7 @@ public final class TrainingExportFilterSelfCheck {
         require(groupedGames == 9 && groupedFiltered == filtered && groupedExamples == examples
                 && groupedRejections == rejections, "Per-label totals");
         int actualExamples = 0;
-        for (var split : DiploBNTrainingExporter.Split.values()) {
+        for (var split : EncodingPurpose.values()) {
             String name = split.name().toLowerCase(Locale.ROOT);
             var rows = Files.readAllLines(output.resolve(name + ".jsonl"));
             require(number(manifest, name + "_examples") == rows.size(), "Split totals");

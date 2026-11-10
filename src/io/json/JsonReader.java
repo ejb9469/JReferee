@@ -1,9 +1,11 @@
-package parsing.diplobn;
+package io.json;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import parsing.ParseException;
 
 
 /**
@@ -93,8 +95,9 @@ public class JsonReader {
 
             Object value = readValue();
 
-            if (object.putIfAbsent(key, value) != null)
+            if (object.containsKey(key))
                 throw error("Duplicate object member: " + key);
+            object.put(key, value);
 
             skipWhitespace();
 

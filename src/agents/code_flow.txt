@@ -178,4 +178,30 @@ Pool, search, and rollout seeds are independent. Changing rollout settings can
 change the search's sampled opponent history. No game action is submitted.
 The visual demonstration explicitly selects JUDGE; SZYKMAN_JUSTICE is available
 as an argument. Existing engine defaults are unchanged.
-No learned anchor, proposal model, or value model is present yet.
+The launchers still use their existing anchors and proposals by default.
+
+
+SUPERVISED MOVEMENT BASELINE
+
+JsonlMovementDataset -> MovementDataset.Cursor -> immutable MovementInput/action
+MovementEncoding.input() -> the same typed input from a live movement catalog
+PolicyTraining.fit(dataset, settings, observer) -> validation-selected linear model
+PolicyEvaluation.evaluate(dataset, split, policy) -> held-out metrics and timings
+MovementPolicy.prepare(input) -> prefix-conditioned order log probabilities
+policy.bind(root) -> ActionPrior using full-catalog action probabilities
+
+LinearMovementPolicy is a small factorized masked-softmax model with hashed
+public board/order features. A mutable Learner produces immutable snapshots.
+Saved models have schema/feature versions and a checksum. The reader streams
+v4 examples, validates stored v2 masks, and bounds its parsed-option cache.
+Training bounds its shuffle window and never opens test examples.
+PolicyTrainingApp writes policy.bin and training.json to a new directory.
+PolicyEvaluationApp evaluates validation by default; test requires --split test.
+See agents/encoding/format.txt for arguments, metrics, and reader guarantees.
+
+The policy interface permits an autoregressive replacement. The current model
+does not coordinate support/convoy choices and is not the Diplodocus network.
+Its root-prior adapter is available explicitly; agent defaults are unchanged.
+Learned proposal generation, a value model, and self-play training remain
+separate steps. A frozen human anchor must stay separate from an improving
+proposal policy and from the policy returned by search.

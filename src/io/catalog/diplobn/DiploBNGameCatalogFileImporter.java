@@ -6,8 +6,8 @@ import io.json.JsonAccess;
 import parsing.diplobn.DiploBNDownloadedGame;
 import parsing.diplobn.DiploBNGame;
 import parsing.diplobn.DiploBNGameClient;
-import parsing.diplobn.JsonReader;
-import parsing.diplobn.ParseException;
+import io.json.JsonReader;
+import parsing.ParseException;
 
 import java.io.IOException;
 import java.nio.file.Files;

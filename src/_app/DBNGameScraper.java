@@ -8,7 +8,7 @@ import io.catalog.SourceFingerprints;
 import io.persistence.SQLiteCatalogStore;
 import parsing.diplobn.DiploBNDownloadedGame;
 import parsing.diplobn.DiploBNGameClient;
-import parsing.diplobn.ParseException;
+import parsing.ParseException;
 
 import java.io.IOException;
 import java.net.URI;

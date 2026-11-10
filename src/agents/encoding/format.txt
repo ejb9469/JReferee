@@ -1,6 +1,6 @@
 MOVEMENT ENCODING AND IMITATION EXPORT
 
-MovementEncoding is shared by offline examples and future live policy inference.
+MovementEncoding is shared by offline examples and live policy inference.
 Version: jreferee-movement-v2. Only Spring/Fall movement is represented.
 Changing labels, masks, or their ordering requires a schema version change.
 
@@ -73,11 +73,11 @@ An invalid nation's action does not remove other valid actions from that phase.
 
 Game selection
 --------------
-TrainingExportFilter holds splitSeed, communicationTypes, and
+TrainingFilter holds splitSeed, communicationTypes, and
 includeUnknownCommunication. Its defaults retain every reported communication
 label and unknown labels, with split seed 7. Press games remain included.
 The existing DiploBNTrainingExporter(long) constructor keeps these selection
-defaults; callers can instead pass a TrainingExportFilter.
+defaults; callers can instead pass a TrainingFilter.
 
 A null communicationTypes set allows every reported label, including unfamiliar
 ones. An empty set allows no reported labels. Nonempty sets match literal,
@@ -87,13 +87,13 @@ malformed labels, which SourceGameMetadata represents as null. An unfamiliar
 but nonblank string is a reported label, not a missing value.
 
 Examples:
-  new TrainingExportFilter()
+  new TrainingFilter()
       All labels and unknown, seed 7.
-  new TrainingExportFilter(7, Set.of("Full", "None"), true)
+  new TrainingFilter(7, Set.of("Full", "None"), true)
       These two labels and unknown.
-  new TrainingExportFilter(7, Set.of("None"), false)
+  new TrainingFilter(7, Set.of("None"), false)
       Only the literal None label.
-  new TrainingExportFilter(7, Set.of(), true)
+  new TrainingFilter(7, Set.of(), true)
       Only unknown.
 
 CLI selections:
@@ -192,3 +192,97 @@ coast-equivalent supports now match a single legal catalog option.
 The manifest is written after all data files close successfully. Without it,
 an interrupted export is incomplete and must not be used. A completed export
 can contain zero examples; inspect its counts and rejection records.
+
+Dataset reader
+--------------
+MovementDataset supplies split-specific cursors and immutable typed examples.
+JsonlMovementDataset reads completed v4 directories. MovementEncoding.input()
+creates the same MovementInput directly from a live catalog, without JSON.
+The reader checks manifest/index counts, game-level split assignment, selection,
+payload identity, communication labels, phase/power identity, mask ordering,
+option geometry, referenced units, and complete local-index actions.
+It uses the published masks without rebuilding catalogs or adjudicating.
+These checks do not prove that a stored mask contains every possible option.
+
+Each cursor owns a bounded LRU of parsed option labels (default 32768; 0 disables
+it), a 64 KiB character buffer, and per-game duplicate-decision tracking.
+Lines are limited to 4 Mi characters and UTF-8 decoding is strict. Blank records
+are errors. Examples for a game must be contiguous, as emitted by the exporter.
+Manifest/game metadata occupies O(games) memory; examples stream from disk.
+No global mutable option cache or complete-corpus example list is retained.
+
+Counts are verified at EOF. Closing early does not validate unread data.
+The index fingerprint covers the manifest and game-index digest; it does not
+hash the example files. Each exhausted cursor separately reports its file's
+SHA-256, and subsequent complete reads reject changed split bytes.
+Independent cursors can be used by separate callers; a cursor has one owner.
+
+Supervised policy baseline
+--------------------------
+MovementPolicy prepares a position and exposes next-slot log probabilities
+conditioned on a prefix. A future autoregressive implementation can use that
+prefix; LinearMovementPolicy is factorized and validates but ignores it.
+Sampling and greedy actions use local indices. bind(GameState) supplies an
+ActionPrior for movement roots, with full-catalog action log probabilities.
+It is never normalized over a candidate pool. Existing agent defaults are
+unchanged; no tactics classes are used.
+
+LinearMovementPolicy uses 12 hashed categorical features per option: label,
+power/label, season/label, order type, unit/order type, season/order type,
+destination-center status and ownership, destination occupancy and unit type,
+referenced-unit ownership, and a capped year bucket. Names and a versioned
+integer hash define the vocabulary. Default dimensions: 65536.
+Source/game identities, communication labels, orders from other slots, and
+outcomes are absent. Hash collisions are intentional. This small model lacks
+the paper's neural board representation and autoregressive coordination.
+
+Training starts from zero weights, giving uniform probability within each
+mask. Each observed order gets one sparse softmax-SGD update. Scores and all
+gradients for that order use the pre-update weights. Learning rate is the
+configured rate divided by sqrt(epoch). Work buffers are reused.
+Snapshots and prepared policies are immutable. Inference artifacts contain
+versioned schemas, dimensions, finite double weights, and a SHA-256 checksum.
+Loading rejects corrupt, truncated, or trailing data. Saving never overwrites.
+Saved artifacts do not contain optimizer state and cannot resume training.
+
+Run _app.PolicyTrainingApp:
+  --dataset data/training-movement-v4 --output data/movement-linear-v1 --epochs 3 --dimensions 65536 --learning-rate 0.05 --shuffle-buffer 256 --shuffle-seed 7 --token-cache 32768
+Use a new output directory with an existing parent. No SQLite driver is needed
+for training or evaluation. A Java heap of 512 MiB is a reasonable starting
+point for this baseline; measure the actual corpus before increasing buffers.
+The reader retains the export's selection, including press and unknown games.
+The shuffle seed is independent of the export's game-split seed.
+Bounded shuffling mixes a moving window, not a full-corpus random permutation.
+
+Training reads TRAIN only for updates and VALIDATION for model selection.
+Both splits must be nonempty. The lowest validation order NLL selects among
+trained epochs; an initial uniform evaluation is reported for comparison.
+Test examples are not opened. A warning is printed if training fails to beat
+uniform validation NLL. Outputs: policy.bin and training.json.
+
+Run _app.PolicyEvaluationApp for a saved model:
+  --dataset data/training-movement-v4 --model data/movement-linear-v1/policy.bin --split validation --output data/movement-linear-v1/validation.json
+After choosing settings on validation, evaluate test explicitly:
+  --dataset data/training-movement-v4 --model data/movement-linear-v1/policy.bin --split test --output data/movement-linear-v1/test.json
+Do not tune settings against repeated test evaluations.
+
+Reports include per-order NLL, perplexity (null on overflow), uniform-mask NLL,
+order top-1 accuracy, and exact greedy-action accuracy, overall and by power
+and literal communication label. Order NLL and top-1 use observed prefixes;
+exact action accuracy follows the policy's own greedy prefixes. These coincide
+for the factorized model but need not for an autoregressive replacement.
+Loss is weighted by orders, not equally by powers or games.
+Online training NLL uses changing weights; use validation NLL to compare epochs.
+
+Performance reports separate read/decode time from remaining compute time,
+with examples/options per second, cache counts and peak size, and split hashes.
+They include allocation and garbage collection in whichever interval incurs it.
+OS cache and JVM warmup affect timings. Compare repeated cached/uncached runs
+before adding a binary cache, more workers, or a different storage format.
+Model-file hashes and training settings identify the saved inference artifact.
+
+Send training.json and captured training console output first. After settings
+are settled, send the explicit test evaluation JSON. The full database and
+policy.bin are unnecessary for the initial review.
+Run testing.selfcheck.MovementPolicySelfCheck with the existing SQLite JDBC
+driver for reader, learning, saved-model, CLI, and root-prior checks.

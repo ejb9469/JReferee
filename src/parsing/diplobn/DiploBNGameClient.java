@@ -1,5 +1,8 @@
 package parsing.diplobn;
 
+import io.json.JsonReader;
+import parsing.ParseException;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;

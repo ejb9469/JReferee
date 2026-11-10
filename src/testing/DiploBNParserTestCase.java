@@ -7,7 +7,7 @@ import game.GamePhase;
 import parsing.diplobn.DiploBNGame;
 import parsing.diplobn.DiploBNOrder;
 import parsing.diplobn.DiploBNOrderResolution;
-import parsing.diplobn.ParseException;
+import parsing.ParseException;
 import parsing.diplobn.DiploBNParser;
 import parsing.diplobn.DiploBNPhase;
 import phase.Order;

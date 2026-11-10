@@ -1,5 +1,6 @@
 package _app;
 
+import agents.encoding.EncodingPurpose;
 import agents.encoding.MovementEncoding;
 import io.training.DiploBNTrainingExporter;
 import io.training.TrainingFilter;
@@ -65,7 +66,7 @@ public final class TrainingExportApp {
 
         DiploBNTrainingExporter exporter = new DiploBNTrainingExporter(filter);
         long games = 0, rejections = 0, unavailable = 0, warnings = 0;
-        long[] counts = new long[DiploBNTrainingExporter.Split.values().length];
+        long[] counts = new long[EncodingPurpose.values().length];
         Map<String, long[]> communication = new TreeMap<>(Comparator.nullsFirst(Comparator.naturalOrder()));
         Map<String, Long> reasons = new TreeMap<>();
         Map<String, Long> selections = new TreeMap<>();

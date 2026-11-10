@@ -10,7 +10,7 @@ import io.catalog.*;
 import io.persistence.SQLiteCatalogStore;
 import misc.scoring.ScoringSystem;
 import parsing.diplobn.DiploBNParser;
-import parsing.diplobn.JsonReader;
+import io.json.JsonReader;
 import phase.Order;
 import phase.UnitId;
 import phase.adjustments.*;

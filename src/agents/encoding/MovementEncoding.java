@@ -51,6 +51,23 @@ public final class MovementEncoding {
     }
 
     /**
+     * Supplies the same public inputs and masks directly to a live policy.
+     */
+    public MovementInput input() {
+        List<MovementInput.Unit> boardUnits = state.board().locations().entrySet().stream()
+                .sorted(Comparator.comparing(entry -> entry.getValue().name()))
+                .map(entry -> new MovementInput.Unit(entry.getKey().owner(),
+                        entry.getKey().unitType(), entry.getValue())).toList();
+        List<MovementInput.Slot> slots = new ArrayList<>();
+        for (int slot = 0; slot < units.size(); slot++) {
+            Province location = state.board().locationOf(units.get(slot));
+            slots.add(new MovementInput.Slot(location, options.get(slot).stream()
+                    .map(order -> MovementInput.Option.from(order, location)).toList()));
+        }
+        return new MovementInput(state.moment(), power, boardUnits, state.board().owners(), slots);
+    }
+
+    /**
      * Returns one local option index per unit. Submission order is immaterial.
      * Missing, duplicate, foreign, or unavailable orders are rejected.
      */

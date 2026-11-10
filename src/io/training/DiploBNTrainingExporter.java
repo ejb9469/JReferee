@@ -1,5 +1,6 @@
 package io.training;
 
+import agents.encoding.EncodingPurpose;
 import agents.encoding.MovementEncoding;
 import agents.generation.*;
 import domain.Nation;
@@ -7,6 +8,8 @@ import game.GameMoment;
 import game.GameState_Movement;
 import io.catalog.SourceFingerprints;
 import io.json.JsonAccess;
+import io.json.JsonReader;
+import parsing.ParseException;
 import parsing.diplobn.*;
 import phase.Order;
 
@@ -23,8 +26,6 @@ public final class DiploBNTrainingExporter {
 
     public static final String SCHEMA = "jreferee-diplobn-imitation-v4";
     private static final JsonAccess JSON = new JsonAccess(ParseException::new);
-
-    public enum Split { TRAIN, VALIDATION, TEST }
 
     public enum Selection { INCLUDED, FILTERED_OUT, NOT_EVALUATED }
 
@@ -53,11 +54,11 @@ public final class DiploBNTrainingExporter {
      * Assigns all positions from a provider's game to the same 80/10/10 split.
      * Refreshing the payload or changing the catalog UUID does not move it.
      */
-    public Split split(String source, String externalKey) {
+    public EncodingPurpose split(String source, String externalKey) {
         requireIdentity(source, externalKey);
         String hash = SourceFingerprints.sha256Hex(filter.splitSeed() + "\n" + source + "\n" + externalKey);
         int bucket = (int) Long.remainderUnsigned(Long.parseUnsignedLong(hash.substring(0, 16), 16), 100);
-        return bucket < 80 ? Split.TRAIN : bucket < 90 ? Split.VALIDATION : Split.TEST;
+        return bucket < 80 ? EncodingPurpose.TRAIN : bucket < 90 ? EncodingPurpose.VALIDATION : EncodingPurpose.TEST;
     }
 
     /**

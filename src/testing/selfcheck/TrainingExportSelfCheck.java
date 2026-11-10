@@ -1,6 +1,7 @@
 package testing.selfcheck;
 
 import _app.TrainingExportApp;
+import agents.encoding.EncodingPurpose;
 import agents.encoding.MovementEncoding;
 import contracts.OrderForm;
 import domain.*;
@@ -8,7 +9,7 @@ import game.*;
 import io.catalog.SourceFingerprints;
 import io.json.JsonAccess;
 import io.training.DiploBNTrainingExporter;
-import parsing.diplobn.JsonReader;
+import io.json.JsonReader;
 import phase.Order;
 import phase.UnitId;
 
@@ -178,12 +179,12 @@ public final class TrainingExportSelfCheck {
         failures.setLength(0);
         require(exporter.write("LOCAL_FILE", "42", payload, "wrong", new StringBuilder(), failures)
                 .examples() == 0 && failures.toString().contains("UNSUPPORTED_SOURCE"), "Report other sources");
-        Set<DiploBNTrainingExporter.Split> splits = new HashSet<>();
+        Set<EncodingPurpose> splits = new HashSet<>();
         for (int index = 0; index < 100; index++)
             splits.add(exporter.split("DIPLOBN", Integer.toString(index)));
         require(splits.size() == 3, "All split buckets exercised");
-        require(exporter.split("DIPLOBN", "42") == DiploBNTrainingExporter.Split.TEST
-                && exporter.split("DIPLOBN", "12345") == DiploBNTrainingExporter.Split.TRAIN, "Fixed split examples");
+        require(exporter.split("DIPLOBN", "42") == EncodingPurpose.TEST
+                && exporter.split("DIPLOBN", "12345") == EncodingPurpose.TRAIN, "Fixed split examples");
         expect(IllegalArgumentException.class, () -> exporter.split("DIPLOBN", ""));
         Appendable broken = new Writer() {
             @Override public void write(char[] chars, int offset, int length) throws IOException {
@@ -343,7 +344,7 @@ public final class TrainingExportSelfCheck {
             require(reports.size() == 40, "One metadata report per catalog entry");
             require(JSON.object(manifest.get("rejection_reasons"), "$.reasons").isEmpty(), "Empty reason totals");
             Set<String> allKeys = new HashSet<>();
-            for (var split : DiploBNTrainingExporter.Split.values()) {
+            for (var split : EncodingPurpose.values()) {
                 var rows = Files.readAllLines(output.resolve(split.name().toLowerCase(Locale.ROOT) + ".jsonl"));
                 require(!rows.isEmpty(), "Each output split populated");
                 Map<String, Integer> keys = new HashMap<>();
