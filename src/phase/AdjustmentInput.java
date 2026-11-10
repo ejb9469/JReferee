@@ -10,9 +10,11 @@ import java.util.Map;
 import java.util.Objects;
 
 import static phase.BoardRules.scOwners;
+import static domain.Constants.STARTING_YEAR;
 
 /**
  * Immutable input for one winter adjustment phase.
+ * The year distinguishes rebuilt units while keeping repeated resolutions identical.
  *
  * <p>The post-retreat board is supplied by `RetreatResult`. Supply-center
  * ownership is deliberately supplied separately: a center's controlling
@@ -23,17 +25,22 @@ import static phase.BoardRules.scOwners;
  * All stored ownership keys are canonical territories: split-coast variants
  * such as "Spain(nc)" normalize to "Spain".</p>
  */
-public record AdjustmentInput(RetreatResult retreatResult,
+public record AdjustmentInput(int year,
+                              RetreatResult retreatResult,
                               Map<Province, Nation> supplyCenterOwners,
                               List<AdjustmentOrder> submittedOrders)
         implements PhaseInput {
 
 
     public AdjustmentInput(
+            int year,
             RetreatResult retreatResult,
             Map<Province, Nation> supplyCenterOwners,
             List<AdjustmentOrder> submittedOrders
     ) {
+        if (year < STARTING_YEAR)
+            throw new IllegalArgumentException("Adjustment year must be at least " + STARTING_YEAR);
+        this.year = year;
         this.retreatResult = Objects.requireNonNull(
                 retreatResult, "retreatResult");
         this.supplyCenterOwners = scOwners(

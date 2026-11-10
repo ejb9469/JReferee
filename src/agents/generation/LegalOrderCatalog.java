@@ -57,7 +57,7 @@ public final class LegalOrderCatalog {
         this.power = Objects.requireNonNull(power, "power");
         this.adjustmentBalance = state instanceof GameState_Adjustments adjustments
                 ? new BalanceCalculator().calculate(new AdjustmentInput(
-                adjustments.fallRetreatResult(), adjustments.board().owners(), List.of())).get(power)
+                adjustments.moment().year(), adjustments.fallRetreatResult(), adjustments.board().owners(), List.of())).get(power)
                 : null;
 
         Map<UnitId, Province> locations = new LinkedHashMap<>();
@@ -228,7 +228,7 @@ public final class LegalOrderCatalog {
             throw new IllegalArgumentException("Build options require available winter builds");
 
         AdjustmentInput input = new AdjustmentInput(
-                adjustments.fallRetreatResult(), adjustments.board().owners(), List.of());
+                adjustments.moment().year(), adjustments.fallRetreatResult(), adjustments.board().owners(), List.of());
         Set<BuildOrder> seen = new HashSet<>();
         for (BuildOrder build : builds) {
             if (build.owner() != power || AdjustmentProcessor.validateBuildSite(

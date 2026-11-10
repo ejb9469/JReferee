@@ -37,6 +37,7 @@ import java.util.stream.Stream;
  * <p>Each file is divided into bracketed sections. Values within a section are
  * pipe-separated enum names, which keeps parsing deterministic and avoids
  * modifying the legacy DATC A-G parser.</p>
+ * <p>Calendar-free adjustment fixtures use the standard starting year.</p>
  */
 public final class DATCProcessorFileParser {
 
@@ -146,6 +147,7 @@ public final class DATCProcessorFileParser {
                 units.locations());
 
         AdjustmentInput input = new AdjustmentInput(
+                domain.Constants.STARTING_YEAR,
                 retreatResult,
                 parseOwners(section(sections, "OWNERS")),
                 parseAdjustmentOrders(

@@ -10,12 +10,12 @@ import phase.UnitId;
 import java.util.*;
 
 /**
- * Constructs complete movement actions from compatible tactical bundles.
+ * Constructs and ranks a bounded set of complete movement proposals.
  *
- * <p>Proposes supported attacks, supported defenses, possible support cuts,
- * vacancy chains, rotations, and self-bounces. Different tactical kinds and
- * target provinces receive separate places in the proposal sequence.
- * A small beam completes each bundle across the rest of the nation.</p>
+ * <p>A small beam completes independent orders and existing bundles for
+ * supported attacks, defenses, support cuts, vacancy chains, rotations, and
+ * self-bounces. Completed proposals compete for the directed places in the
+ * returned pool. Selection favors expansion and new unit destinations.</p>
  *
  * <p>Own support-to-move orders require a matching submitted move.
  * Own support-hold orders require a stationary unit, which may itself support.
@@ -35,14 +35,15 @@ import java.util.*;
  * <p>Movement returns at most 256 candidates. Beams retain 8 partial actions;
  * each kind retains at most 8 bundles per objective. Chain construction visits
  * at most 32 extensions per starting move and reaches at most 4 units.
- * At most 4 completion attempts per target candidate are made. Duplicate
- * proposals or these budgets may leave the returned pool below its limit.</p>
+ * At most 2 directed completions per target candidate supply the proposal set,
+ * followed by randomized completions within a total budget of 4 per candidate.
+ * Duplicates or these budgets may leave the returned pool below its limit.</p>
  *
- * <p>Small pools cannot cover every useful plan. Proposal ranking uses local
- * geometry and supply-center ownership, without adjudication or opponent
- * probabilities. Response-driven expansion, friendly convoy bundles, and a
- * learned anchor remain future work. Search and evaluation decide which of
- * these candidates are worth playing.</p>
+ * <p>Diplodocus (arXiv:2210.05492, Section 4.2) proposes up to 30 actions
+ * from a learned policy. This generator uses temporary geometric preferences
+ * instead: center access, possible opposition, and destination coverage.
+ * These preferences are not learned probabilities or paper hyperparameters.
+ * Small pools still cannot cover every useful plan.</p>
  */
 public class PlausibleActionGenerator implements ActionGenerator {
 
@@ -137,16 +138,39 @@ public class PlausibleActionGenerator implements ActionGenerator {
                 return List.copyOf(candidates.values());
 
             prepareBundles();
-            List<List<Order>> seeds = seedSequence();
+            List<List<Order>> seeds = new ArrayList<>();
+            seeds.add(List.of());
+            seeds.addAll(seedSequence());
             int directedTarget = target - (target >= 4 ? Math.max(1, target / 4) : 0);
             int attempts = 0;
-            int nextSeed = 0;
-
-            // Give different plans a turn before taking another result from one beam.
-            while (candidates.size() < directedTarget && nextSeed < seeds.size()
-                    && attempts < 2 * target) {
-                addFirst(complete(seeds.get(nextSeed++), false), ActionCandidate.Source.HEURISTIC);
+            Map<List<Order>, Plan> proposals = new LinkedHashMap<>();
+            while (attempts < seeds.size() && attempts < 2 * target) {
+                for (Plan plan : complete(seeds.get(attempts), false))
+                    proposals.putIfAbsent(ordered(plan.orders()), plan);
                 attempts++;
+            }
+
+            Set<Order> coveredMoves = new HashSet<>();
+            while (candidates.size() < directedTarget && !proposals.isEmpty()) {
+                Plan best = null;
+                double bestRank = Double.NEGATIVE_INFINITY;
+                for (Plan plan : proposals.values()) {
+                    double rank = plan.rank();
+                    for (Order order : plan.orders().values())
+                        if (order.orderType() == OrderType.MOVE && !coveredMoves.contains(order))
+                            rank += 1.0;
+                    if (rank > bestRank) {
+                        best = plan;
+                        bestRank = rank;
+                    }
+                }
+                if (best == null)
+                    throw new IllegalStateException("No ranked proposal in a nonempty set");
+                proposals.remove(ordered(best.orders()));
+                if (add(best.orders(), ActionCandidate.Source.HEURISTIC))
+                    for (Order order : best.orders().values())
+                        if (order.orderType() == OrderType.MOVE)
+                            coveredMoves.add(order);
             }
 
             // Randomized construction can reach plans outside the tactical seed list.
@@ -296,7 +320,7 @@ public class PlausibleActionGenerator implements ActionGenerator {
         private List<Plan> complete(List<Order> seed, boolean explore) {
             Map<UnitId, Order> initial = new LinkedHashMap<>();
             seed.forEach(order -> initial.put(order.unit(), order));
-            List<Plan> beam = List.of(new Plan(initial, seedRank(seed)));
+            List<Plan> beam = List.of(new Plan(initial, score(initial)));
             for (UnitId unit : units) {
                 if (initial.containsKey(unit))
                     continue;
@@ -395,10 +419,6 @@ public class PlausibleActionGenerator implements ActionGenerator {
                     Order other = assignments.get(occupant);
                     if (other != null && other.orderType() != OrderType.MOVE)
                         result -= 4.0;
-                } else if (order.orderType() == OrderType.SUPPORT
-                        && order.auxiliaryTarget() != null
-                        && assignments.containsKey(supportedUnit(order))) {
-                    result += 2.0;
                 }
             }
             return result;
@@ -414,21 +434,30 @@ public class PlausibleActionGenerator implements ActionGenerator {
             if (order.orderType() == OrderType.MOVE) {
                 Province destination = Province.canonical(order.target());
                 double score = 1.0;
-                if (destination.supplyCenter)
-                    score += request.state().board().ownerOf(destination) == request.power() ? 0.5 : 3.0;
+                if (destination.supplyCenter && request.state().board().ownerOf(destination) != request.power())
+                    score += 3.0;
+                for (Province center : Province.values())
+                    if (center.supplyCenter && center == Province.canonical(center)
+                            && request.state().board().ownerOf(center) != request.power()
+                            && OrderForms.canSupportTo(order.unitType(), order.target(), center))
+                        score += 0.25;
                 UnitId defender = occupant(destination);
                 return score + (defender != null && defender.owner() != request.power() ? 1.0 : 0.0);
             }
             UnitId recipient = supportedUnit(order);
             if (recipient == null || recipient.owner() != request.power())
                 return 0.05;
-            if (order.auxiliaryTarget() == null)
-                for (var entry : request.state().board().locations().entrySet())
-                    if (entry.getKey().owner() != request.power()
-                            && OrderForms.canSupportTo(entry.getKey().unitType(),
-                            entry.getValue(), location(recipient)))
-                        return 1.75;
-            return 0.75;
+            Province destination = order.auxiliaryTarget() == null ? order.target() : order.auxiliaryTarget();
+            return opposed(destination) ? order.auxiliaryTarget() == null ? 1.75 : 2.75 : 0.75;
+        }
+
+        private boolean opposed(Province destination) {
+            for (var entry : request.state().board().locations().entrySet())
+                if (entry.getKey().owner() != request.power()
+                        && (Province.equalsIgnoreCoast(entry.getValue(), destination)
+                        || OrderForms.canSupportTo(entry.getKey().unitType(), entry.getValue(), destination)))
+                    return true;
+            return false;
         }
 
         private double seedRank(List<Order> seed) {

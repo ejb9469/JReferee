@@ -37,7 +37,7 @@ public class LegalOrderGenerator {
 
         if (state instanceof GameState_Adjustments adjustments) {
             AdjustmentInput input = new AdjustmentInput(
-                    adjustments.fallRetreatResult(), adjustments.board().owners(), List.of());
+                    adjustments.moment().year(), adjustments.fallRetreatResult(), adjustments.board().owners(), List.of());
             Balance balance = new BalanceCalculator().calculate(input).get(power);
             Map<UnitId, List<DisbandOrder>> disbands = new LinkedHashMap<>();
             List<BuildOrder> builds = new ArrayList<>();

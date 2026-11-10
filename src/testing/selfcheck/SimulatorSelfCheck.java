@@ -310,8 +310,8 @@ public final class SimulatorSelfCheck {
         require(!next.board().locations().containsKey(removed), "The selected unit must be removed");
         require(next.board().owners().equals(board.owners()), "Winter must preserve center ownership");
         require(state.board().equals(board), "The source winter board must remain unchanged");
-        require(position(next).equals(position(advance(game, actions))),
-                "Repeated winter simulations agree on positions and types despite new UUIDs");
+        require(next.equals(advance(game, actions)),
+                "Repeated winter simulations must agree on positions, types, and identities");
 
         Map<Nation, ActionCandidate> missing = new EnumMap<>(actions);
         missing.put(Nation.GERMANY, action(Nation.GERMANY));

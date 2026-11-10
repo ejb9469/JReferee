@@ -87,15 +87,24 @@ public record UnitId(
     }
 
     /**
-     * Creates a distinct identity for a winter-built unit.
+     * Creates a repeatable identity for a unit built in the given winter `year`.
+     * Rebuilding at the same site in another year creates a different identity.
      */
     public static UnitId newlyBuilt(
+            int year,  // origin year
             Nation owner,
             UnitType unitType,
             Province buildLocation
     ) {
+        if (year < domain.Constants.STARTING_YEAR)  // validity check on `year` - may later be removed
+            throw new IllegalArgumentException("Build year must be at least " + domain.Constants.STARTING_YEAR);
+        Objects.requireNonNull(owner, "owner");
+        Objects.requireNonNull(unitType, "unitType");
+        Objects.requireNonNull(buildLocation, "buildLocation");
+        String key = "WINTER\u001F" + year + "\u001F" + owner.name()  // unique "hash"/token used to generate UUID
+                + "\u001F" + unitType.name() + "\u001F" + buildLocation.name();
         return new UnitId(
-                UUID.randomUUID(),
+                UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)),  // previously UUID.randomUUID() ; now it is deterministic
                 owner,
                 unitType,
                 buildLocation);

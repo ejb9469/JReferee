@@ -32,6 +32,22 @@ Use explicit pools for small checks or UniformActionGenerator as a temporary
 baseline. Older convenience constructors still use PlausibleActionGenerator.
 Both default movement generators exclude convoys.
 
+The paper's Section 2.3 selects top-k sampled policy proposals; Section 4.2
+uses up to 30 likely actions per nation from the RL proposal network.
+It supplies no tactical-category quotas or geometric proposal weights.
+PlausibleActionGenerator is a temporary heuristic while that model is absent.
+It completes an unseeded beam and bounded existing bundles, ranks the complete
+proposals, and favors previously uncovered unit/destination moves during selection.
+Center captures and direct access to other unowned or enemy centers guide ranking.
+Own move-support receives its larger weight only where opposition is possible.
+These preferences do not evaluate outcomes or change the uniform anchor.
+All-hold remains first; pools of at least four reserve roughly a quarter for
+randomized completion. At most 2 completions per target candidate supply the
+directed set, within a total budget of 4 completions per target candidate.
+Beams retain 8 results; movement pools remain capped at 256 candidates.
+Generation does not call analysis.tactics. Retreats and adjustments are unchanged.
+Seeded PLAUSIBLE output changes with this selection policy; UNIFORM is unchanged.
+
 ProvinceScope can restrict a tactical fixture. ScopedActionGenerator filters
 options before generation and restores full-state anchor values afterward.
 It preserves the board and scoring. Explicit pools need their own scope check.
@@ -66,8 +82,8 @@ FINAL uses the policy formed after T updates. AVERAGE uses the equal-weight
 average of the T policies used before those updates, including startup.
 Each nation and lambda has its own average; output-only types are also tracked.
 Q, temperatures, sampled actions, and evaluation work are identical in both modes.
-JointSearchResult retains the original lambda population, playing lambda, and
-temperature schedule in immutable Settings. Its policies are checked at construction.
+JointSearchResult retains the original lambda population, playing lambda,
+and temperature schedule in immutable Settings. Its policies are checked at construction.
 withOutput(choice) switches output without another solve; the same choice returns
 the same result. The profile-taking overload checks those settings exactly.
 
@@ -130,6 +146,105 @@ The factory receives each movement root; retreats and adjustments skip discovery
 BestResponseSearch and ResponseDiscovery share payoff measurement over frozen
 samples, while retaining their separate sampling and selection rules.
 
-Completing an iteration budget does not prove equilibrium. Next come full-game
-execution, a human-imitation anchor, learned proposals and values, and self-play
-training with the anchor held fixed.
+6. Recorded full-game baseline
+-----------------------------
+GameRunner runs each living nation's agent on a separate copy of the same root.
+AgentSettings selects prior sampling, BestResponseSearch, or fixed-pool DiL-piKL.
+Root proposals and rollout continuations have independent generator choices.
+UNIFORM retains the original baseline. PLAUSIBLE uses the existing coordinated
+movement generator and retains uniform retreats and adjustments. Both choices
+use the convoy-free uniform anchor; neither is a learned policy. Search
+methods evaluate through the next year-end boundary. The paper profile is
+selected again for every decision, including the transition out of Spring 1901.
+
+Collect all actions -> Simulator.advance(archive, actions, moment)
+    -> validate the complete joint submission
+    -> GameRecordBuilder resolves and records the phase exactly once
+    -> stop on a solo or after the configured final year's Fall retreats
+
+The year limit is a scored cutoff, not an agreed draw. Solo rewards and cutoff
+rewards use the configured ScoringSystem. GameRunner.Result retains settings,
+the initial and final states, the game record, and the termination reason.
+Game, simulation, and rollout factories use matching adjudication settings.
+Search, rollout, and action-selection seeds are derived per phase and nation.
+Winter build identities include the year; repeated builds in the same position
+have the same identity, while rebuilding in another year has a different one.
+AdjustmentInput now requires its winter year as the first constructor argument.
+Archived timestamps are deterministic logical phase markers.
+
+Run _app.AgentGameApp from the repository root, then open its printed URL:
+--seed 7 --last-year 1903 --port 8080 --movement-policy JUDGE --candidates 4 --iterations 8
+Arguments are named, as in GameBrowserApp. --assets accepts the UI directory
+when running elsewhere. The default port is 0 (an available loopback port);
+the other defaults match the example. Positional arguments are no longer used.
+Pass --movement-policy SZYKMAN_JUSTICE for the reference policy and its normal
+trial budget. The engine's existing defaults are unchanged.
+
+Both game applications also accept --root-generator uniform|plausible,
+--rollout-generator uniform|plausible, --rollouts, --rollout-candidates, and
+--output final|average. Defaults remain uniform/uniform, one rollout, and
+averaged output. If omitted, --rollout-candidates follows --candidates.
+The six-argument AgentSettings constructor and paper(...) retain those defaults.
+Configuration text and game IDs now include the two generator choices.
+
+GameBrowserServer serves the completed game with the same map, country filter,
+order overlays, snapshot selector, and detective panel used for catalog browsing.
+The agent game is automatically selected at its final position. Previous/next,
+arrow keys, Home, and End navigate the record. Each resolved phase shows its
+starting board alongside its submissions and archived results. The final board
+has no invented orders or outcomes. Dislodged units are shown separately during
+retreats, including those with no submitted retreat order.
+
+Agent records remain in memory; this path neither opens nor writes a database
+and does not require the SQLite driver. Movement detectives inspect recorded
+submissions without running another adjudicator. Catalog games retain their
+source-snapshot labels and optional independent local analysis.
+Restart after changing browser assets. Ctrl+C stops the server.
+
+AgentGameConsoleApp runs the same game and exits after printing its results.
+It accepts the game options above, without --port or --assets. --trace all
+is the default: print each seat's actual root pools, original anchor values,
+own search means, returned selection probabilities, and sampled candidate.
+--trace self omits modeled opponent pools; --trace none prints phases only.
+Candidate IDs are local to one decision. Each seat generates separate pools.
+anchor_full is exp(log_prior); anchor_pool conditions that anchor on the pool.
+Neither is an opponent's evolving DiL-piKL population policy.
+Q is the deciding seat's raw payoff mean over its search samples, not a fresh
+evaluation of its returned policy. PRIOR has no Q or payoff observations.
+The decision callback receives an immutable AgentDecision before resolution.
+It retains the original SearchResult and root pools, without generating them
+again or changing the random streams. Rollout pools are not retained.
+Callbacks may retain decisions separately; GameRecord and GameRunner.Result
+still contain only the match configuration and actual game history.
+
+7. Fixed-position experiments
+-----------------------------
+AgentExperimentConsoleApp compares rollout budgets without playing a match.
+--position opening uses the standard Spring 1901 board. --position winter
+uses the original seed-7 board entering Winter 1901, with France able to build.
+That board is fixed independently of the selected generators and seeds.
+It is a position fixture; its adjustment context is constructed by holding
+the fixed Fall board, not by replaying the earlier game's decisions.
+
+Root pools are generated once using --root-generator, --candidates, and
+--pool-seed. Every entry in --rollouts 1,4,16 starts a fresh solve with those
+same pools and --search-seed. Rollout generation uses --rollout-generator,
+--rollout-candidates, and --rollout-seed. Hold the rollout candidate limit
+explicitly when comparing different root candidate counts.
+
+Each solve prints Q, FINAL, and AVERAGE for --power (default FRANCE).
+Both outputs come from one JointSearchResult; switching output does no further
+sampling or evaluation. Root pools for all nations are printed once.
+The three seed streams default to 7 and are separate from GameRunner's derived
+seat seeds. These comparisons do not recreate a game decision from its seed alone.
+Changing rollout settings can change subsequent search opponents, even with
+the same search seed. Q across solves is not a controlled fresh-policy value
+comparison. Larger budgets and coherent proposals do not establish strength.
+Default budgets are 4 root candidates, 8 iterations, and rollouts 1,4.
+This launcher always prints both outputs and therefore has no --output flag.
+
+The first application uses DiL-piKL at all seven seats. Different AgentSettings
+may be assigned to each nation in GameRunner.Options. Seat-rotation tournaments,
+draw voting, and learned policies are not implemented by this runner.
+Completing an iteration budget still does not prove equilibrium or playing
+strength. Learned anchors, proposals, values, and self-play remain later steps.

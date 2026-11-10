@@ -114,6 +114,10 @@ OPTIONS AND REAL PLAY
 
 UniformActionGenerator: baseline proposals; default movement excludes convoys.
 PlausibleActionGenerator: existing heuristic option and older constructor default.
+Ranks completed proposals before selection, with expansion and move coverage
+preferences. All-hold and bounded exploration remain; anchor priors are unchanged.
+This is a temporary substitute for the learned proposals in paper Section 4.2,
+not the paper's proposal policy. No analysis.tactics dependency is introduced.
 FriendlyConvoyUniformActionGenerator: optional friendly convoy plans.
 ProvinceScope / ScopedActionGenerator: fixture boundaries, not paper settings.
 AdaptiveDiLPiKLSearch: optional response discovery and fresh solves of larger pools.
@@ -127,6 +131,42 @@ Reference agreement and closeness to the known 50/50 answer are reported separat
 Two-player convergence results do not guarantee seven-player performance.
 CounterSearchApp / CounterSearchConsoleApp retain the older expansion experiments.
 
-Caller -> sample own playing policy -> submit orders -> receive next state -> repeat.
-Game ending and the full-match loop belong to the caller.
+GameRunner -> fresh game per living nation -> configured policy or prior
+    -> sample each nation's action with a separate phase/nation seed
+    -> Simulator.advance(GameRecordBuilder, joint, resolvedAt)
+    -> one actual adjudication and one archived phase
+    -> repeat until solo or the final year's complete Fall turn
+
+GameRunner.Result retains the immutable configuration, positions, GameRecord,
+and stopping reason. ScoringSystem supplies fixed-scale terminal/cutoff rewards.
+The year limit is labelled separately from a solo; draw voting is not supplied.
+Winter unit identities are repeatable and include their build year.
+AdjustmentInput's first constructor argument is now the winter year.
+AgentGameApp -> short seven-agent game -> GameBrowserServer -> recorded map history.
+Run from the repository root; the application's printed URL opens the replay.
+Named options include --seed, --last-year, --port, --assets,
+--movement-policy, --candidates, and --iterations. The default port is 0.
+The same browser assets serve catalog games and completed agent games.
+Agent records are held in memory; no catalog database or JDBC driver is required.
+Resolved snapshots show pre-resolution boards, submissions, and archived outcomes.
+The final snapshot shows the result board without inventing another phase.
+Structural investigations use the submitted movement orders without re-adjudication.
+AgentGameConsoleApp -> same runner -> decisions, recorded phases, final scores.
+--trace all prints actual self/opponent root pools; self omits opponent pools;
+none keeps phase output only. Priors, own Q, policy, and sampled action stay
+aligned by candidate index. Prior sampling reports Q as unavailable.
+GameRunner's additional observer receives immutable AgentDecision diagnostics
+before real resolution. No extra generation, search, or sampling is performed.
+These diagnostics are separate from GameRecord and are not retained by Result.
+AgentSettings selects UNIFORM or PLAUSIBLE root and rollout generators separately.
+Both preserve the convoy-free uniform anchor. Legacy constructors remain uniform.
+Both game launchers accept --root-generator, --rollout-generator, --rollouts,
+--rollout-candidates, and --output. Defaults retain the previous experiment.
+AgentExperimentConsoleApp -> fixed opening/winter board -> generate pools once
+    -> one fresh solve per rollout budget with the same pools and search seed
+    -> print FINAL and AVERAGE from that same JointSearchResult
+Pool, search, and rollout seeds are independent. Changing rollout settings can
+change the search's sampled opponent history. No game action is submitted.
+The visual demonstration explicitly selects JUDGE; SZYKMAN_JUSTICE is available
+as an argument. Existing engine defaults are unchanged.
 No learned anchor, proposal model, or value model is present yet.

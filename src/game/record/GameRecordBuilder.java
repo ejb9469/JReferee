@@ -4,6 +4,7 @@ import game.BoardState;
 import game.Game;
 import game.GameMoment;
 import game.GamePhase;
+import game.GameState;
 import game.Moment;
 import phase.Order;
 import phase.adjustments.AdjustmentOrder;
@@ -64,6 +65,13 @@ public final class GameRecordBuilder {
 
     }
 
+
+    /**
+     * Returns the current immutable position of the recorded game.
+     */
+    public GameState snapshot() {
+        return game.snapshot();
+    }
 
     /**
      * Resolves the current movement phase and archives its typed result.

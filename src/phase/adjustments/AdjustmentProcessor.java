@@ -108,7 +108,9 @@ public final class AdjustmentProcessor
         if (locationStatus != null)
             return locationStatus;
 
-        UnitId builtUnit = UnitId.newlyBuilt(nation, order.unitType(), order.location());
+        UnitId builtUnit = UnitId.newlyBuilt(input.year(), nation, order.unitType(), order.location());
+        if (finalLocations.containsKey(builtUnit))
+            throw new IllegalStateException("Build identity already exists: " + builtUnit);
 
         finalLocations.put(builtUnit, order.location());
         builtUnits.add(builtUnit);

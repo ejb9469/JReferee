@@ -172,11 +172,13 @@ async function start() {
                     "input, select, textarea, button, summary, [contenteditable]"))
             return;
 
-        if (!game || !["ArrowLeft", "ArrowRight"].includes(event.key))
+        if (!game || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
             return;
 
         event.preventDefault();
-        showPhase(phaseIndex + (event.key === "ArrowLeft" ? -1 : 1));
+        showPhase(event.key === "Home" ? 0
+            : event.key === "End" ? game.phases.length - 1
+            : phaseIndex + (event.key === "ArrowLeft" ? -1 : 1));
 
     });
 
@@ -258,7 +260,7 @@ async function json(url, signal) {
 }
 
 
-// Database listing \\
+// Game listing \\
 
 async function loadGames(requestedOffset) {
 
@@ -266,7 +268,7 @@ async function loadGames(requestedOffset) {
     listRequest?.abort();
     listRequest = new AbortController();
 
-    $("#summary").textContent = "Searching database…";
+    $("#summary").textContent = "Searching games…";
     $("#page-previous").disabled = true;
     $("#page-next").disabled = true;
 
@@ -292,7 +294,7 @@ async function loadGames(requestedOffset) {
         pageSize = result.limit;
 
         $("#summary").textContent =
-            `${result.total} matching database game(s). Read-only browser.`;
+            `${result.total} matching game(s). Read-only browser.`;
 
         $("#page-position").textContent = result.total === 0
             ? "0 / 0"
@@ -318,9 +320,10 @@ async function loadGames(requestedOffset) {
             const description = document.createElement("span");
             description.className = "game-description";
             description.textContent =
-                `${entry.competition || "No competition"} · `
+                `${entry.source === "JREFEREE" ? "Recorded agent game"
+                    : entry.competition || "No competition"} · `
                 + `${entry.source}/${entry.externalKey} · `
-                + `${entry.phaseCount} stored phase(s)`;
+                + `${entry.phaseCount} snapshot(s)`;
 
             button.append(title, description);
             button.addEventListener("click", () => selectGame(entry));
@@ -332,6 +335,12 @@ async function loadGames(requestedOffset) {
             const empty = document.createElement("p");
             empty.textContent = "No matching games.";
             $("#game-list").append(empty);
+        }
+
+        if (selectedId === null && result.autoSelect) {
+            const entry = result.games.find(item => item.id === result.autoSelect);
+            if (entry)
+                await selectGame(entry);
         }
 
     } catch (error) {
@@ -360,7 +369,7 @@ async function selectGame(entry) {
     resetGame();
 
     $("#game-title").textContent = entry.title || `Game ${entry.externalKey}`;
-    $("#game-status").textContent = "Loading stored game and investigations…";
+    $("#game-status").textContent = "Loading game and investigations…";
     DetectivePanel.reset("Loading snapshot investigations…");
 
     markSelectedGame();
@@ -380,8 +389,7 @@ async function selectGame(entry) {
         game = result;
 
         $("#game-title").textContent = game.title || `Game ${game.externalKey}`;
-        $("#game-details").textContent =
-            `${game.competition || "No competition"} · DBN ${game.externalKey}`;
+        describeGame();
 
         $("#nation").replaceChildren(new Option("All countries", ""));
 
@@ -401,12 +409,13 @@ async function selectGame(entry) {
         });
 
         $("#phase").disabled = game.phases.length === 0;
-        $("#game-status").textContent =
-            "Snapshot order is preserved exactly as stored in the source.";
+        $("#game-status").textContent = recordedGame()
+            ? "Recorded phases are followed by the final position. Browsing does not rerun adjudication."
+            : "Snapshot order is preserved exactly as stored in the source.";
 
         if (game.phases.length > 0) {
 
-            showPhase(0);
+            showPhase(recordedGame() ? game.phases.length - 1 : 0);
 
         } else {
 
@@ -425,6 +434,42 @@ async function selectGame(entry) {
         DetectivePanel.reset("No report: game loading failed.");
 
     }
+
+}
+
+function recordedGame() {
+    return game?.source === "JREFEREE";
+}
+
+function describeGame() {
+
+    const recorded = recordedGame();
+    $("#game-details").textContent = recorded
+        ? game.summary
+        : `${game.competition || "No competition"} · DBN ${game.externalKey}`;
+    $("#game-scores").textContent = recorded
+        ? `${game.scoring}: ` + Object.entries(game.scores)
+            .map(([nation, score]) => `${nation} ${score.toFixed(6)}`).join(" · ")
+        : "";
+    $("#snapshot-label").textContent = recorded ? "Recorded position" : "Source snapshot";
+    $("#position-note").textContent = recorded
+        ? "Each resolved phase shows its starting board and submitted orders. "
+            + "The last snapshot is the final board. Overlays show submissions; recorded results show outcomes."
+        : "Positions and ownership are source snapshots, not a local replay. "
+            + "Overlays show submissions, not confirmed outcomes. Missing orders are not converted to holds.";
+    $("#map-note").textContent =
+        "Supply centers use their recorded owner's map color. "
+        + (recorded ? "Small offset units are dislodged and awaiting retreat resolution. "
+            : "Combined source snapshots can show movement and retreat submissions together. ")
+        + "Hover over a unit for its submitted order.";
+    $("#orders-note").textContent = recorded
+        ? "Only submitted orders are listed. Omitted retreats and automatic disbands appear in recorded results."
+        : "Retreat arrows show submissions, not hypothetical options. "
+            + "Explicit retreat disbands omitted by the parser are not invented.";
+    $("#annotations-title").textContent = recorded ? "Recorded results" : "DBN result annotations";
+    $("#annotations-note").textContent = recorded
+        ? "Actual JReferee outcomes under the recorded ruleset. Structural detectives use only the starting board and orders."
+        : "Source annotations, not JReferee verdicts. These annotations are not detective assessment evidence.";
 
 }
 
@@ -449,6 +494,9 @@ function resetGame() {
     $("#phase-previous").disabled = true;
     $("#phase-next").disabled = true;
     $("#game-details").textContent = "";
+    $("#game-scores").textContent = "";
+    for (const id of ["position-note", "map-note", "orders-note", "annotations-note"])
+        $("#" + id).textContent = "";
     $("#phase-details").textContent = "";
     $("#province-details").textContent = "Select a province to inspect it.";
     $("#map-warning").textContent = "";
@@ -491,6 +539,13 @@ function currentPhase() {
     return game && phaseIndex >= 0 ? game.phases[phaseIndex] : null;
 }
 
+function displayedUnits(phase) {
+    return [
+        ...phase.board.units,
+        ...(phase.dislodged || []).map(unit => ({ ...unit, dislodged: true }))
+    ];
+}
+
 
 // Phase rendering \\
 
@@ -511,8 +566,9 @@ function renderPhase() {
 
     $("#phase-details").textContent =
         `Snapshot ${phaseIndex + 1}/${game.phases.length} · `
-        + `source code ${phase.sourcePhase} · ${phase.status} · `
-        + `${phase.board.units.length} units · `
+        + (recordedGame() ? "" : `source code ${phase.sourcePhase} · `)
+        + `${phase.status} · ${phase.board.units.length} active units · `
+        + (recordedGame() ? `${phase.dislodged.length} dislodged · ` : "")
         + `${orders.length}/${phase.orders.length} displayed orders · `
         + `${retreatCount} displayed retreat(s)`;
 
@@ -530,7 +586,7 @@ function renderPhase() {
 
     const warnings = [];
 
-    renderUnits(phase.board.units, nation, phase.orders, warnings);
+    renderUnits(displayedUnits(phase), nation, phase.orders, warnings);
     renderOrders(orders, warnings);
 
     $("#map-warning").textContent = warnings.length
@@ -541,18 +597,20 @@ function renderPhase() {
         $("#orders"),
         orders,
         order => order.text,
-        "No parsed orders for this selection.");
+        recordedGame() ? "No submitted orders for this selection."
+            : "No parsed orders for this selection.");
 
     fillList(
         $("#annotations"),
         annotations,
         annotation =>
             `${annotation.retreatOrder ? "RETREAT" : "MAIN ORDERS"} · `
-            + `${annotation.nation} ${annotation.origin}: `
+            + `${annotation.nation}${annotation.origin ? " " + annotation.origin : ""}: `
             + (annotation.successful === null ? "UNKNOWN"
                 : annotation.successful ? "SUCCESS" : "FAILURE")
             + (annotation.reason ? ` — ${annotation.reason}` : ""),
-        "No source result annotations for this selection.");
+        recordedGame() ? "No recorded results for this position and country."
+            : "No source result annotations for this selection.");
 
     for (const path of svgRoot.querySelectorAll(".province.selected"))
         path.classList.remove("selected");
@@ -641,7 +699,7 @@ function paintNonCenterTerritories(phase) {
 
     const active = new Set();
 
-    for (const unit of board.units)
+    for (const unit of displayedUnits(phase))
         active.add(unit.nation);
 
     for (const owner of Object.values(board.supplyCenterOwners)) {
@@ -750,12 +808,15 @@ function ordersForUnit(unit, orders) {
 function unitTooltip(unit, orders) {
 
     const matching = ordersForUnit(unit, orders);
+    const prefix = unit.dislodged ? "Dislodged: " : "";
 
     if (matching.length === 0)
-        return `${unit.nation} ${unit.type} ${unit.province}\n`
-            + "Order unknown / not supplied in this snapshot";
+        return `${prefix}${unit.nation} ${unit.type} ${unit.province}\n`
+            + (recordedGame()
+                ? (unit.dislodged ? "No retreat order submitted" : "No order in this position")
+                : "Order unknown / not supplied in this snapshot");
 
-    return matching.map(order => order.text).join("\n");
+    return prefix + matching.map(order => order.text).join("\n");
 
 }
 
@@ -772,10 +833,12 @@ function renderUnits(units, selectedNation, orders, warnings) {
 
             const position = anchor(unit.province);
             const tooltip = unitTooltip(unit, orders);
+            const displacement = unit.dislodged ? 2.6 : 0;
 
             const group = svgElement("g", {
-                class: "unit-token",
-                transform: `translate(${position.x} ${position.y})`,
+                class: unit.dislodged ? "unit-token dislodged" : "unit-token",
+                transform: `translate(${position.x + displacement} ${position.y - displacement})`
+                    + ` scale(${unit.dislodged ? RETREAT_SCALE : 1})`,
                 opacity:
                     !selectedNation || unit.nation === selectedNation ? 1 : 0.25,
                 tabindex: 0,
@@ -1288,7 +1351,7 @@ function inspectProvince(province) {
     const owner = Object.entries(phase.board.supplyCenterOwners)
         .find(([location]) => territoryKey(location) === key)?.[1];
 
-    const units = phase.board.units.filter(
+    const units = displayedUnits(phase).filter(
         unit => territoryKey(unit.province) === key);
 
     const orders = phase.orders.filter(order =>
@@ -1299,7 +1362,8 @@ function inspectProvince(province) {
     $("#province-details").textContent = [
         key.toUpperCase(),
         owner ? `Owner: ${owner}` : "No recorded supply-center owner",
-        ...units.map(unit => `${unit.nation} ${unit.type} ${unit.province}`),
+        ...units.map(unit => `${unit.nation} ${unit.type} ${unit.province}`
+            + (unit.dislodged ? " (dislodged)" : "")),
         ...orders.map(order => order.text),
         "Inspector includes all countries."
     ].join(" · ");

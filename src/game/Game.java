@@ -454,6 +454,7 @@ public class Game
         AdjustmentResult result = adjustmentProcessor
                 .process(
                         new AdjustmentInput(
+                                year,
                                 latestFallRetreat,
                                 board.owners(),
                                 immutableList(submittedOrders, "submittedOrders"))

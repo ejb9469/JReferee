@@ -1,7 +1,9 @@
 package ui;
 
 import analysis.tactics.*;
+import game.BoardState;
 import game.GameMoment;
+import game.record.MovementPhaseRecord;
 import parsing.diplobn.DiploBNPhase;
 import phase.Order;
 import phase.UnitId;
@@ -49,6 +51,28 @@ public final class GameInvestigationJsonWriter {
                     "Movement investigators do not inspect retreat "
                             + "or adjustment snapshots.");
 
+        return investigate(CONTEXT_ID,
+                new GameMoment(phase.sourcePhase() / 10, phase.gamePhase()),
+                phase.board(), phase.movementOrders(), true);
+
+    }
+
+    /**
+     * Inspects recorded movement submissions without adjudicating them again.
+     * Archived outcomes are displayed separately by the game browser.
+     */
+    public static String toJson(MovementPhaseRecord phase, String rulesetId) {
+        Objects.requireNonNull(phase, "phase");
+        Objects.requireNonNull(rulesetId, "rulesetId");
+        return investigate(rulesetId, phase.gameMoment(), phase.boardBefore(),
+                phase.submittedOrders(), false);
+    }
+
+    private static String investigate(
+            String rulesetId, GameMoment moment, BoardState board,
+            List<Order> submitted, boolean localResolution
+    ) {
+
         TacticalContext context;
 
         try {
@@ -56,7 +80,7 @@ public final class GameInvestigationJsonWriter {
             Map<UnitId, Order> orders =
                     new LinkedHashMap<>();
 
-            for (Order order : phase.movementOrders()) {
+            for (Order order : submitted) {
 
                 if (orders.putIfAbsent(order.unit(), order) != null)
                     throw new IllegalArgumentException(
@@ -64,13 +88,7 @@ public final class GameInvestigationJsonWriter {
 
             }
 
-            context = new TacticalContext(
-                    CONTEXT_ID,
-                    new GameMoment(
-                            phase.sourcePhase() / 10,
-                            phase.gamePhase()),
-                    phase.board(),
-                    orders);
+            context = new TacticalContext(rulesetId, moment, board, orders);
 
         } catch (IllegalArgumentException exception) {
 
@@ -97,7 +115,12 @@ public final class GameInvestigationJsonWriter {
         }
 
         BrowserResolvedAnalysis.Sections resolved =
-                BrowserResolvedAnalysis.analyze(structural);
+                localResolution ? BrowserResolvedAnalysis.analyze(structural)
+                        : new BrowserResolvedAnalysis.Sections(
+                        OutcomeReportJsonWriter.unavailable("DISABLED",
+                                "Archived outcomes appear under recorded results. No local resolution was run."),
+                        BrowserSupportAssessments.unavailable(structural, "DISABLED",
+                                "No alternative adjudication or support assessment was run."));
 
         return reportJson(structural, resolved);
 
@@ -219,7 +242,7 @@ public final class GameInvestigationJsonWriter {
 
     // No completed structural investigation \\
 
-    private static String unavailable(String status, String message) {
+    static String unavailable(String status, String message) {
 
         StringBuilder out = new StringBuilder("{");
 

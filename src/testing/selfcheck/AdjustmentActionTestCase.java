@@ -294,7 +294,7 @@ public final class AdjustmentActionTestCase implements TestCase {
             orders.add(order);
         }
         return new AdjustmentProcessor().process(new AdjustmentInput(
-                state.fallRetreatResult(), state.board().owners(), orders));
+                state.moment().year(), state.fallRetreatResult(), state.board().owners(), orders));
     }
 
     private static GameState_Adjustments winter(Map<UnitId, Province> locations, Map<Province, Nation> owners) {

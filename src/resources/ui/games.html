@@ -16,17 +16,17 @@
 <header class="toolbar">
     <h1>JReferee Games</h1>
     <label class="search">
-        Search database
+        Search games
         <input id="search" type="search" maxlength="200"
                placeholder="Title, competition, game ID…" disabled>
     </label>
     <button id="refresh" type="button" disabled>Refresh list</button>
 </header>
 
-<p id="summary" class="summary" role="status">Loading database games…</p>
+<p id="summary" class="summary" role="status">Loading games…</p>
 
 <main class="browser-layout">
-    <aside class="opening-panel" aria-label="Database games">
+    <aside class="opening-panel" aria-label="Available games">
         <h2>Games</h2>
         <nav class="navigation" aria-label="Game-list pages">
             <button id="page-previous" type="button" disabled>Previous page</button>
@@ -39,6 +39,7 @@
     <section class="map-panel" aria-label="Selected game">
         <h2 id="game-title">Select a game</h2>
         <p id="game-details" class="muted"></p>
+        <p id="game-scores" class="muted"></p>
         <p id="game-status" role="status"></p>
 
         <div class="phase-controls">
@@ -46,7 +47,7 @@
                 Previous snapshot
             </button>
             <label>
-                Source snapshot
+                <span id="snapshot-label">Snapshot</span>
                 <select id="phase" disabled></select>
             </label>
             <button id="phase-next" type="button" disabled>Next snapshot</button>
@@ -59,11 +60,7 @@
         </div>
 
         <p id="phase-details" class="muted"></p>
-        <p class="muted">
-            Positions and ownership are source snapshots, not a local replay.
-            Overlays show submissions, not confirmed outcomes.
-            Missing orders are not converted to holds.
-        </p>
+        <p id="position-note" class="muted"></p>
 
         <div id="map-host"></div>
 
@@ -72,11 +69,7 @@
             Dashed: support · Dotted line: convoy ·
             Dotted A/F circle: proposed build · Red X: proposed disband
         </p>
-        <p class="muted">
-            Supply centers use their recorded owner's map color.
-            Combined source snapshots can show movement and retreat submissions together.
-            Hover over a unit for its submitted order.
-        </p>
+        <p id="map-note" class="muted"></p>
 
         <p id="map-warning" role="status"></p>
         <p id="province-details" aria-live="polite">
@@ -148,18 +141,12 @@
         <div class="game-records">
             <section>
                 <h3>Submitted orders</h3>
-                <p class="muted">
-                    Retreat arrows show submissions, not hypothetical options.
-                    Explicit retreat disbands omitted by the parser are not invented.
-                </p>
+                <p id="orders-note" class="muted"></p>
                 <ul id="orders"></ul>
             </section>
             <section>
-                <h3>DBN result annotations</h3>
-                <p class="muted">
-                    Source annotations, not JReferee verdicts.
-                    These annotations are not detective assessment evidence.
-                </p>
+                <h3 id="annotations-title">Result annotations</h3>
+                <p id="annotations-note" class="muted"></p>
                 <ul id="annotations"></ul>
             </section>
         </div>

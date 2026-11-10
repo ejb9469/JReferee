@@ -8,6 +8,8 @@ import contracts.OrderForm;
 import domain.Nation;
 import game.Game;
 import game.GameState;
+import game.Moment;
+import game.record.GameRecordBuilder;
 import phase.Order;
 import phase.adjustments.AdjustmentOrder;
 import phase.retreats.RetreatOrder;
@@ -97,6 +99,27 @@ public class Simulator {
         return resolveValidated(game, submitted);
     }
 
+    /**
+     * Validates a joint submission, advances the recorded game once, and
+     * archives its typed phase result. Speculative trials use the Game overload.
+     * The supplied resolution moment must describe the current phase.
+     */
+    public GameState advance(GameRecordBuilder archive, Map<Nation, ActionCandidate> actions,
+                             Moment resolvedAt) {
+        Objects.requireNonNull(archive, "archive");
+        Objects.requireNonNull(resolvedAt, "resolvedAt");
+        Map<Nation, ActionCandidate> submitted = Map.copyOf(Objects.requireNonNull(actions, "actions"));
+        GameState root = archive.snapshot();
+        validate(root, submitted);
+        Orders orders = orders(submitted);
+        switch (root.moment().gamePhase()) {
+            case SPRING_MOVEMENT, FALL_MOVEMENT -> archive.resolveMovement(orders.movement(), resolvedAt);
+            case SPRING_RETREAT, FALL_RETREAT -> archive.resolveRetreats(orders.retreats(), resolvedAt);
+            case WINTER_ADJUSTMENT -> archive.resolveAdjustments(orders.adjustments(), resolvedAt);
+        }
+        return archive.snapshot();
+    }
+
     private static void validate(GameState state, Map<Nation, ActionCandidate> submitted) {
         Set<Nation> missing = EnumSet.noneOf(Nation.class);
         missing.addAll(state.aliveNations());
@@ -119,6 +142,19 @@ public class Simulator {
     }
 
     private static GameState resolveValidated(Game game, Map<Nation, ActionCandidate> submitted) {
+        Orders orders = orders(submitted);
+        switch (game.phase()) {
+            case SPRING_MOVEMENT, FALL_MOVEMENT -> game.resolveMovement(orders.movement());
+            case SPRING_RETREAT, FALL_RETREAT -> game.resolveRetreats(orders.retreats());
+            case WINTER_ADJUSTMENT -> game.resolveAdjustments(orders.adjustments());
+        }
+        return game.snapshot();
+    }
+
+    private record Orders(List<Order> movement, List<RetreatOrder> retreats,
+                          List<AdjustmentOrder> adjustments) { }
+
+    private static Orders orders(Map<Nation, ActionCandidate> submitted) {
         List<Order>             movementOrders = new ArrayList<>();
         List<RetreatOrder>      retreatOrders = new ArrayList<>();
         List<AdjustmentOrder>   adjustmentOrders = new ArrayList<>();
@@ -137,12 +173,7 @@ public class Simulator {
             }
         }
 
-        switch (game.phase()) {
-            case SPRING_MOVEMENT, FALL_MOVEMENT -> game.resolveMovement(movementOrders);
-            case SPRING_RETREAT, FALL_RETREAT   -> game.resolveRetreats(retreatOrders);
-            case WINTER_ADJUSTMENT              -> game.resolveAdjustments(adjustmentOrders);
-        }
-        return game.snapshot();
+        return new Orders(movementOrders, retreatOrders, adjustmentOrders);
 
     }
 

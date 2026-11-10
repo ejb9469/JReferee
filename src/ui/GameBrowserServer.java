@@ -1,18 +1,23 @@
 package ui;
 
+import agents.execution.GameRunner;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import contracts.OrderForm;
 import domain.Constants;
 import domain.Nation;
 import domain.Province;
+import game.GameState_Retreats;
+import game.record.*;
 import parsing.diplobn.DiploBNGame;
 import parsing.diplobn.DiploBNOrderResolution;
 import parsing.diplobn.DiploBNParser;
 import parsing.diplobn.DiploBNPhase;
 import phase.Order;
+import phase.UnitId;
 import phase.adjustments.AdjustmentOrder;
 import phase.adjustments.DisbandOrder;
+import phase.movement.MovementResult;
 import phase.retreats.RetreatOrder;
 
 import java.io.IOException;
@@ -31,10 +36,12 @@ import static io.json.JsonEscaper.appendString;
 
 
 /**
- * Read-only browser for cataloged game snapshots and tactical investigations.
+ * Read-only browser for cataloged snapshots or a completed agent game.
  *
  * <p>Stored snapshots are not replayed or adjudicated. Movement snapshots
- * are independently passed to the currently registered detectives.</p>
+ * are independently passed to the currently registered detectives.
+ * Recorded games retain their actual orders and outcomes; browsing them
+ * performs no additional adjudication and requires no database.</p>
  */
 public final class GameBrowserServer implements AutoCloseable {
 
@@ -62,6 +69,8 @@ public final class GameBrowserServer implements AutoCloseable {
     // Core state \\
 
     private final String databaseUrl;
+    private final GameRunner.Result recordedGame;
+    private final String recordedPayload;
     private final HttpServer server;
     private final ExecutorService executor;
     private final Map<String, Asset> assets;
@@ -77,13 +86,22 @@ public final class GameBrowserServer implements AutoCloseable {
             Path assetRoot
     ) throws IOException, SQLException, ClassNotFoundException {
 
+        this(databaseUrl(database), null, port, assetRoot);
+
+    }
+
+    public GameBrowserServer(
+            GameRunner.Result result,
+            int port,
+            Path assetRoot
+    ) throws IOException {
+        this(null, Objects.requireNonNull(result, "result"), port, assetRoot);
+    }
+
+    private static String databaseUrl(Path database)
+            throws SQLException, ClassNotFoundException {
+
         Objects.requireNonNull(database, "database");
-        Objects.requireNonNull(assetRoot, "assetRoot");
-
-        if (port < 0 || port > 65535)
-            throw new IllegalArgumentException(
-                    "Port must be between 0 and 65535");
-
         Path databasePath = database.toAbsolutePath().normalize();
 
         if (!Files.isRegularFile(databasePath))
@@ -92,16 +110,31 @@ public final class GameBrowserServer implements AutoCloseable {
 
         Class.forName("org.sqlite.JDBC");
 
-        this.databaseUrl =
+        String url =
                 "jdbc:sqlite:" + databasePath.toUri().toASCIIString() + "?mode=ro";
 
-        try (Connection connection = connect();
+        try (Connection connection = DriverManager.getConnection(url);
              Statement statement = connection.createStatement();
              ResultSet ignored = statement.executeQuery(
                      "SELECT " + GAME_COLUMNS
                              + ", source_payload FROM catalog_game LIMIT 0")) {
             // Verify the existing schema without initializing or changing it.
         }
+
+        return url;
+
+    }
+
+    private GameBrowserServer(
+            String databaseUrl, GameRunner.Result recordedGame, int port, Path assetRoot
+    ) throws IOException {
+
+        Objects.requireNonNull(assetRoot, "assetRoot");
+        if (port < 0 || port > 65535)
+            throw new IllegalArgumentException("Port must be between 0 and 65535");
+
+        this.databaseUrl = databaseUrl;
+        this.recordedGame = recordedGame;
 
         this.assets = Map.of(
                 "/", asset(assetRoot.resolve("games.html"), "text/html"),
@@ -117,6 +150,8 @@ public final class GameBrowserServer implements AutoCloseable {
                         assetRoot.resolve("openings.css"), "text/css"),
                 "/ui/maps/standard.svg", asset(
                         assetRoot.resolve("maps/standard.svg"), "image/svg+xml"));
+
+        this.recordedPayload = recordedGame == null ? null : recordedGameJson();
 
         this.server = HttpServer.create(
                 new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port),
@@ -262,7 +297,6 @@ public final class GameBrowserServer implements AutoCloseable {
     ) {
 
         String raw = exchange.getRequestURI().getRawQuery();
-
         if (raw == null || raw.isEmpty())
             return Map.of();
 
@@ -309,6 +343,9 @@ public final class GameBrowserServer implements AutoCloseable {
     }
 
     private String gamesJson(String search, int offset) throws SQLException {
+
+        if (recordedGame != null)
+            return recordedGamesJson(search, offset);
 
         String pattern = "%" + search.toLowerCase(Locale.ROOT)
                 .replace("\\", "\\\\")
@@ -401,6 +438,12 @@ public final class GameBrowserServer implements AutoCloseable {
 
     private String gameJson(String id) throws SQLException {
 
+        if (recordedGame != null) {
+            if (!recordedGame.record().id().toString().equals(id))
+                throw new RequestFailure(404, "Recorded game not found");
+            return recordedPayload;
+        }
+
         String payload;
         String title;
         String competition;
@@ -456,7 +499,26 @@ public final class GameBrowserServer implements AutoCloseable {
                 competition == null ? game.competition() : competition);
         out.append(',');
         field(out, "externalKey", externalKey);
+        out.append(',');
+        field(out, "source", source);
 
+        appendColors(out);
+        out.append(",\"phases\":[");
+
+        for (int index = 0; index < game.phases().size(); index++) {
+
+            if (index > 0)
+                out.append(',');
+
+            appendPhase(out, game.phases().get(index), index);
+
+        }
+
+        return out.append("]}").toString();
+
+    }
+
+    private static void appendColors(StringBuilder out) {
         out.append(",\"colors\":{");
         boolean first = true;
 
@@ -470,19 +532,7 @@ public final class GameBrowserServer implements AutoCloseable {
 
         }
 
-        out.append("},\"phases\":[");
-
-        for (int index = 0; index < game.phases().size(); index++) {
-
-            if (index > 0)
-                out.append(',');
-
-            appendPhase(out, game.phases().get(index), index);
-
-        }
-
-        return out.append("]}").toString();
-
+        out.append('}');
     }
 
 
@@ -533,23 +583,221 @@ public final class GameBrowserServer implements AutoCloseable {
             orders.add(new DisplayedOrder(
                     order, phase.board().locationOf(order.unit())));
 
-        out.append(",\"orders\":[");
+        appendOrders(out, orders);
 
-        for (int orderIndex = 0; orderIndex < orders.size(); orderIndex++) {
+        List<DiploBNOrderResolution> annotations = new ArrayList<>();
+        annotations.addAll(phase.resolutions());
+        annotations.addAll(phase.retreatResolutions());
 
-            if (orderIndex > 0)
+        out.append(",\"annotations\":[");
+
+        for (int indexOfAnnotation = 0; indexOfAnnotation < annotations.size(); indexOfAnnotation++) {
+
+            if (indexOfAnnotation > 0)
                 out.append(',');
 
-            DisplayedOrder displayed = orders.get(orderIndex);
-            OrderForm order = displayed.order();
+            DiploBNOrderResolution annotation = annotations.get(indexOfAnnotation);
+            appendAnnotation(out, annotation.nation(), annotation.issuingProvince(),
+                    annotation.retreatOrder(), annotation.successful(), annotation.reason());
+        }
 
+        out.append("],\"dislodged\":[],\"investigation\":")
+                .append(GameInvestigationJsonWriter.toJson(phase));
+
+        out.append('}');
+
+    }
+
+
+    // Recorded agent games \\
+
+    private String recordedTitle() {
+        return "Agent game - seed " + recordedGame.options().seed();
+    }
+
+    private String recordedGamesJson(String search, int offset) {
+        String id = recordedGame.record().id().toString();
+        boolean matches = (recordedTitle() + " " + id).toLowerCase(Locale.ROOT)
+                .contains(search.toLowerCase(Locale.ROOT));
+        StringBuilder out = new StringBuilder("{\"total\":").append(matches ? 1 : 0);
+        out.append(",\"offset\":").append(offset);
+        out.append(",\"limit\":").append(PAGE_SIZE).append(',');
+        field(out, "autoSelect", id);
+        out.append(",\"games\":[");
+        if (matches && offset == 0) {
+            out.append('{');
+            field(out, "id", id);
+            out.append(',');
+            field(out, "title", recordedTitle());
+            out.append(",\"competition\":null,");
+            field(out, "source", "JREFEREE");
+            out.append(',');
+            field(out, "externalKey", id);
+            out.append(",\"phaseCount\":").append(recordedGame.record().resolvedPhases().size() + 1);
+            out.append('}');
+        }
+        return out.append("]}").toString();
+    }
+
+    private String recordedGameJson() {
+        GameRecord record = recordedGame.record();
+        StringBuilder out = new StringBuilder("{");
+        field(out, "id", record.id().toString());
+        out.append(',');
+        field(out, "title", recordedTitle());
+        out.append(",\"competition\":null,");
+        field(out, "externalKey", record.id().toString());
+        out.append(',');
+        field(out, "source", "JREFEREE");
+        out.append(',');
+        field(out, "summary", recordedGame.reason() + " at " + recordedGame.state().moment()
+                + "; " + record.rulesetId()
+                + recordedGame.winner().map(nation -> "; winner: " + nation).orElse(""));
+        out.append(',');
+        field(out, "scoring", recordedGame.options().scoring().name());
+        out.append(",\"scores\":{");
+        boolean first = true;
+        for (var entry : recordedGame.scores().entrySet()) {
+            if (!first)
+                out.append(',');
+            appendString(out, entry.getKey().name());
+            out.append(':').append(entry.getValue());
+            first = false;
+        }
+        out.append('}');
+        appendColors(out);
+        out.append(",\"phases\":[");
+        for (int index = 0; index < record.resolvedPhases().size(); index++) {
+            if (index > 0)
+                out.append(',');
+            appendRecordedPhase(out, record.resolvedPhases().get(index), index, record.rulesetId());
+        }
+        if (!record.resolvedPhases().isEmpty())
+            out.append(',');
+        appendPosition(out, record.resolvedPhases().size(),
+                BoardSnapshotMapper.from(recordedGame.state().moment(), recordedGame.state().board()),
+                "FINAL - " + recordedGame.reason());
+        out.append(",\"orders\":[],\"annotations\":[]");
+        appendDislodged(out, recordedGame.state() instanceof GameState_Retreats retreats
+                ? retreats.movementResult().dislodgements().values() : List.of());
+        out.append(",\"investigation\":").append(GameInvestigationJsonWriter.unavailable(
+                "NOT_APPLICABLE", "Final position; no further orders were submitted."));
+        return out.append("}]}").toString();
+    }
+
+    private static void appendPosition(StringBuilder out, int index, BoardSnapshot board, String status) {
+        out.append("{\"sourceIndex\":").append(index).append(",\"sourcePhase\":null,");
+        field(out, "status", status);
+        out.append(",\"board\":").append(BoardSnapshotJsonWriter.toJson(board));
+    }
+
+    private static void appendRecordedPhase(StringBuilder out, ResolvedPhaseRecord phase,
+                                            int index, String rulesetId) {
+        appendPosition(out, index,
+                BoardSnapshotMapper.from(phase.gameMoment(), phase.boardBefore()), "RESOLVED");
+        List<DisplayedOrder> orders = new ArrayList<>();
+        switch (phase) {
+            case MovementPhaseRecord movement -> movement.submittedOrders().forEach(order ->
+                    orders.add(new DisplayedOrder(order, phase.boardBefore().locationOf(order.unit()))));
+            case RetreatPhaseRecord retreat -> retreat.submittedOrders().forEach(order ->
+                    orders.add(new DisplayedOrder(order,
+                            retreat.result().movementResult().dislodgementOf(order.unit()).displacedFrom())));
+            case AdjustmentPhaseRecord adjustment -> adjustment.submittedOrders().forEach(order ->
+                    orders.add(new DisplayedOrder(order, order instanceof DisbandOrder disband
+                            ? phase.boardBefore().locationOf(disband.unit()) : order.origin())));
+        }
+        appendOrders(out, orders);
+        StringJoiner annotations = new StringJoiner(",");
+        switch (phase) {
+            case MovementPhaseRecord movement -> movement.result().outcomes().forEach((unit, outcome) ->
+                    annotations.add(annotation(unit.owner(), phase.boardBefore().locationOf(unit), false,
+                            outcome.succeeded(), outcome.effectiveType().name()
+                                    + (outcome.submitted() ? "" : " (default order)")
+                                    + (outcome.rewrittenBySzykman() ? "; Szykman rewrite" : "")
+                                    + (movement.result().dislodgements().containsKey(unit) ? "; DISLODGED" : ""))));
+            case RetreatPhaseRecord retreat -> retreat.result().outcomes().forEach((unit, outcome) ->
+                    annotations.add(annotation(unit.owner(),
+                            retreat.result().movementResult().dislodgementOf(unit).displacedFrom(),
+                            true, outcome.succeeded(), outcome.status().name())));
+            case AdjustmentPhaseRecord adjustment -> {
+                for (var outcome : adjustment.result().outcomes()) {
+                    AdjustmentOrder order = outcome.order();
+                    Province origin = order instanceof DisbandOrder disband
+                            ? phase.boardBefore().locationOf(disband.unit()) : order.origin();
+                    annotations.add(annotation(order.owner(), origin, false, outcome.accepted(),
+                            order.orderType() + ": " + outcome.status()));
+                }
+                Set<UnitId> submittedDisbands = new HashSet<>();
+                for (AdjustmentOrder order : adjustment.submittedOrders())
+                    if (order instanceof DisbandOrder disband)
+                        submittedDisbands.add(disband.unit());
+                for (UnitId unit : adjustment.result().disbandedUnits())
+                    if (!submittedDisbands.contains(unit))
+                        annotations.add(annotation(unit.owner(), phase.boardBefore().locationOf(unit),
+                                false, true, "AUTOMATIC_DISBAND"));
+            }
+        }
+        out.append(",\"annotations\":[").append(annotations).append(']');
+        appendDislodged(out, phase instanceof RetreatPhaseRecord retreat
+                ? retreat.result().movementResult().dislodgements().values() : List.of());
+        out.append(",\"investigation\":").append(phase instanceof MovementPhaseRecord movement
+                ? GameInvestigationJsonWriter.toJson(movement, rulesetId)
+                : GameInvestigationJsonWriter.unavailable("NOT_APPLICABLE",
+                "Movement investigators do not inspect retreat or adjustment snapshots."));
+        out.append('}');
+    }
+
+    private static void appendDislodged(StringBuilder out, Collection<MovementResult.Dislodgement> units) {
+        out.append(",\"dislodged\":[");
+        boolean first = true;
+        for (var unit : units) {
+            if (!first)
+                out.append(',');
+            out.append('{');
+            field(out, "nation", unit.unit().owner().name());
+            out.append(',');
+            field(out, "type", unit.unit().unitType().name());
+            out.append(',');
+            field(out, "province", unit.displacedFrom().name());
+            out.append('}');
+            first = false;
+        }
+        out.append(']');
+    }
+
+    private static String annotation(Nation nation, Province origin, boolean retreat,
+                                     Boolean succeeded, String reason) {
+        StringBuilder out = new StringBuilder();
+        appendAnnotation(out, nation, origin, retreat, succeeded, reason);
+        return out.toString();
+    }
+
+    private static void appendAnnotation(StringBuilder out, Nation nation, Province origin,
+                                         boolean retreat, Boolean succeeded, String reason) {
+        out.append('{');
+        field(out, "nation", nation.name());
+        out.append(',');
+        field(out, "origin", name(origin));
+        out.append(",\"retreatOrder\":").append(retreat);
+        out.append(",\"successful\":").append(succeeded);
+        out.append(',');
+        field(out, "reason", reason);
+        out.append('}');
+    }
+
+    private static void appendOrders(StringBuilder out, List<DisplayedOrder> orders) {
+        out.append(",\"orders\":[");
+        for (int index = 0; index < orders.size(); index++) {
+            if (index > 0)
+                out.append(',');
+            DisplayedOrder displayed = orders.get(index);
+            OrderForm order = displayed.order();
             out.append('{');
             field(out, "nation", order.owner().name());
             out.append(',');
             field(out, "type", order.orderType().name());
             out.append(',');
-            field(out, "unitType",
-                    order.unitType() == null ? null : order.unitType().name());
+            field(out, "unitType", order.unitType() == null ? null : order.unitType().name());
             out.append(',');
             field(out, "origin", name(displayed.origin()));
             out.append(',');
@@ -559,43 +807,8 @@ public final class GameBrowserServer implements AutoCloseable {
             out.append(',');
             field(out, "text", OrderForm.format(order, displayed.origin()));
             out.append('}');
-
         }
-
-        List<DiploBNOrderResolution> annotations = new ArrayList<>();
-        annotations.addAll(phase.resolutions());
-        annotations.addAll(phase.retreatResolutions());
-
-        out.append("],\"annotations\":[");
-
-        for (int annotationIndex = 0;
-             annotationIndex < annotations.size();
-             annotationIndex++) {
-
-            if (annotationIndex > 0)
-                out.append(',');
-
-            DiploBNOrderResolution annotation = annotations.get(annotationIndex);
-
-            out.append('{');
-            field(out, "nation", annotation.nation().name());
-            out.append(',');
-            field(out, "origin", annotation.issuingProvince().name());
-            out.append(",\"retreatOrder\":").append(annotation.retreatOrder());
-            out.append(",\"successful\":").append(
-                    annotation.successful() == null
-                            ? "null" : annotation.successful().toString());
-            out.append(',');
-            field(out, "reason", annotation.reason());
-            out.append('}');
-
-        }
-
-        out.append("],\"investigation\":")
-                .append(GameInvestigationJsonWriter.toJson(phase));
-
-        out.append('}');
-
+        out.append(']');
     }
 
 
