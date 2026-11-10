@@ -1,6 +1,7 @@
 package adjudication;
 
 import adjudication.util.Dependencies;
+import contracts.OrderForms;
 import domain.*;
 import adjudication.util.Convoys;
 import adjudication.util.Orders;
@@ -1028,8 +1029,7 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                 if (!Orders.orderIsValid(order2))
                     continue;
 
-                if (order2.pos1 == order.pos0
-                        && order2.pos2 == order.pos1) {
+                if (OrderForms.supportMatches(order2, order, order.pos0)) {
                     if (resolve(order2, optimistic, context))
                         supports++;
                 }
@@ -1044,8 +1044,7 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                     continue;
                 }
 
-                if (order2.pos1 == order.pos0
-                        && order2.pos2 == null) {
+                if (OrderForms.supportMatches(order2, order, order.pos0)) {
                     if (resolve(order2, optimistic, context))
                         supports++;
                 }
@@ -1103,8 +1102,7 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                 if (!Orders.orderIsValid(order2))
                     continue;
 
-                if (order2.pos1 == order.pos0
-                        && order2.pos2 == order.pos1) {
+                if (OrderForms.supportMatches(order2, order, order.pos0)) {
                     if (resolve(order2, optimistic, context))
                         supports++;
                 }
@@ -1120,8 +1118,7 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                     continue;
                 }
 
-                if (order2.pos1 == order.pos0
-                        && order2.pos2 == null) {
+                if (OrderForms.supportMatches(order2, order, order.pos0)) {
                     if (resolve(order2, optimistic, context))
                         supports++;
                 }

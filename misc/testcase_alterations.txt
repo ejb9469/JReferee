@@ -5,19 +5,20 @@
 6.B.02. MOVING WITH UNSPECIFIED COAST WHEN COAST IS NOT NECESSARY ::
     ~ The DATC indicates this as a matter of preference, and this adjudicator works better by ruling the other way; simply pretending squares like...
         ... Spa, Bul, and Stp are inland provinces, with 2+ coast tentacles attached. It's spaghetti... but sometimes you shouldn't question the pasta
+    ~ DiploBN import supplies an omitted Fleet destination coast when only one is reachable.
+        ... Direct adjudication still requires a precise Fleet destination; ambiguous import orders remain unchanged.
 
 
 6.B.07. SUPPORTING OWN UNIT WITH UNSPECIFIED COAST ::
-    ~ The DATC indicates this as a matter of preference, and this adjudicator works better by ruling the other way: ...
-        ... "F Por S (F) MAO - Spa" will immediately fail (-> false) b/c it does not have a corresponding order.
-        ... What "should" be the corresponding order specifies "Spa/nc", which is a mismatch
-    ~ It should be noted that if the French moves are changed to *both* specify "Spa" (no coast), the support will not fail, ...
-        ... but the Move will, (presumably) because it (a fleet) is attempting to navigate to an "inland" province (Spa).
-
-
+        +(and)+
 6.B.08. SUPPORTING WITH UNSPECIFIED COAST WHEN ONLY ONE COAST IS POSSIBLE ::
-    ~ The DATC indicates the French support should be followed despite its ambiguity, because it is a "poorly written order".
-    ~ The DATC has elsewhere indicated matters of order writing judgement are a matter of preference. I will rule the other way.
+        +(and)+
+6.B.09. SUPPORTING WITH WRONG COAST ::
+    ~ Support references are now matched by province, replacing the former exact-coast policy.
+    ~ A support for MAO-Spa applies to either legal Fleet move into Spain. An explicitly written
+        ... coast in the support does not restrict that support to the named coast.
+    ~ In these three cases both supports succeed, and the equally supported moves bounce.
+    ~ Fleet locations and move destinations still require their correct coasts.
 
 
 6.B.11. COAST CANNOT BE ORDERED TO CHANGE ::
@@ -25,14 +26,13 @@
 
 
 6.B.15. SUPPORTING FOREIGN UNIT WITH UNSPECIFIED COAST ::
-    ~ The 'foreign' fact is irrelevant to the fail case here: `JReferee` requires complete factual correctness on all coast-related mismatches.
-    ~ In fact, the 1st support-move ("F Por S MAO - Spa") fails since 'Spa' is technically an inland province.
-
-
+        +(and)+
 6.B.16. HOLD SUPPORT WITH WRONG COAST ::
         +(and)+
 6.B.17. MOVE SUPPORT WITH WRONG COAST FOR DEPARTURE PROVINCE ::
-    ~ Idem.
+    ~ Support references identify provinces for both the supported unit and its destination.
+    ~ The same matching rule applies to own and foreign units, including hold support.
+    ~ The supporting Fleet's own coast still determines which provinces it can support.
 
 
 6.D.28. IMPOSSIBLE MOVE AND SUPPORT ::

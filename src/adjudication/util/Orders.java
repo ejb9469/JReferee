@@ -109,24 +109,18 @@ public abstract class Orders {
                     "`locateCorresponding()` called on non-Support-or-Convoy Order: %s",
                     supportOrConvoyOrder));
 
-        if (supportOrConvoyOrder.pos2 == null) {
+        for (Order order : orders) {
+            if (order.equals(supportOrConvoyOrder))
+                continue;
 
-            for (Order order : orders) {
-                if (order.equals(supportOrConvoyOrder) || order.orderType == OrderType.MOVE)
-                    continue;
-                if (order.pos0 == supportOrConvoyOrder.pos1)
+            if (supportOrConvoyOrder.orderType == OrderType.SUPPORT) {
+                if (OrderForms.supportMatches(supportOrConvoyOrder, order, order.pos0))
                     return order;
+            } else if (order.orderType == OrderType.MOVE
+                    && order.pos0 == supportOrConvoyOrder.pos1
+                    && order.pos1 == supportOrConvoyOrder.pos2) {
+                return order;
             }
-
-        } else {
-
-            for (Order order : orders) {
-                if (order.equals(supportOrConvoyOrder) || order.orderType != OrderType.MOVE)
-                    continue;
-                if (order.pos0 == supportOrConvoyOrder.pos1 && order.pos1 == supportOrConvoyOrder.pos2)
-                    return order;
-            }
-
         }
 
         return null;
@@ -158,12 +152,11 @@ public abstract class Orders {
                     && order.orderType != OrderType.SUPPORT))
                 continue;
 
-            if ((moveOrHoldOrder.pos1 == null
+            if (order.orderType == OrderType.SUPPORT
+                    ? OrderForms.supportMatches(order, moveOrHoldOrder, moveOrHoldOrder.pos0)
+                    : moveOrHoldOrder.orderType == OrderType.MOVE
                     && order.pos1 == moveOrHoldOrder.pos0
-                    && order.pos2 == null)
-                    || (moveOrHoldOrder.pos1 != null
-                    && order.pos1 == moveOrHoldOrder.pos0
-                    && order.pos2 == moveOrHoldOrder.pos1))
+                    && order.pos2 == moveOrHoldOrder.pos1)
                 corresponding.add(order);
 
         }

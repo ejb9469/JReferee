@@ -1,6 +1,6 @@
 package parsing.diplobn;
 
-import adjudication.util.Orders;
+import contracts.OrderForms;
 import contracts.OrderTranslator;
 import domain.OrderType;
 import domain.Province;
@@ -39,47 +39,13 @@ public final class DiploBNAdjudicationOrderTranslator
 
         adjudication.Order translated = new adjudication.Order(source, currentLocation);
 
-        if (inferUniqueFleetDestinationCoast)
-            inferDestinationCoast(translated);
+        if (inferUniqueFleetDestinationCoast
+                && translated.orderType() == OrderType.MOVE
+                && translated.unitType() == UnitType.FLEET)
+            translated.pos1 = OrderForms.inferUniqueFleetDestinationCoast(
+                    currentLocation, translated.target());
 
         return translated;
-
-    }
-
-    private static void inferDestinationCoast(adjudication.Order order) {
-
-        if (order.orderType() != OrderType.MOVE
-                || order.unitType() != UnitType.FLEET
-                || order.target() == null
-                || order.target().parent != null)
-            return;
-
-        Province destination = order.target();
-        Province uniqueCoast = null;
-
-        for (Province coast : Province.values()) {
-
-            if (coast.parent != destination)
-                continue;
-
-            adjudication.Order candidate = new adjudication.Order(order);
-            candidate.pos1 = coast;
-
-            if (!Orders.orderIsValid(candidate)
-                    || !candidate.origin().isAdjacentTo(coast)
-                    || !Province.adjacentBySea(candidate.origin(), coast))
-                continue;
-
-            // Multiple reachable coasts: do not guess.
-            if (uniqueCoast != null)
-                return;
-
-            uniqueCoast = coast;
-
-        }
-
-        if (uniqueCoast != null)
-            order.pos1 = uniqueCoast;
 
     }
 

@@ -14,6 +14,9 @@ import java.util.Objects;
  * <p>The issuing {@link UnitId} is persistent across turns. Its current
  * location is supplied separately by MovementInput, rather than being encoded
  * in this order or inferred from UnitId.origin().</p>
+ *
+ * <p>Support identity ignores coasts in its references. The stored fields
+ * retain the submitted spelling; Fleet move destinations remain exact.</p>
  */
 public class Order
         implements OrderForm {
@@ -208,18 +211,17 @@ public class Order
             return false;
         return ( unit.equals(that.unit)
                 && type == that.type
-                && target == that.target
-                && auxiliaryTarget == that.auxiliaryTarget );
+                && (type == OrderType.SUPPORT
+                ? Province.equalsIgnoreCoast(target, that.target)
+                && Province.equalsIgnoreCoast(auxiliaryTarget, that.auxiliaryTarget)
+                : target == that.target && auxiliaryTarget == that.auxiliaryTarget) );
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(
-                unit,
-                type,
-                target,
-                auxiliaryTarget
-        );
+        return Objects.hash(unit, type,
+                type == OrderType.SUPPORT ? Province.canonical(target) : target,
+                type == OrderType.SUPPORT ? Province.canonical(auxiliaryTarget) : auxiliaryTarget);
     }
 
     @Override

@@ -1,6 +1,8 @@
 package parsing.diplobn;
 
 import contracts.OrderTranslator;
+import contracts.OrderForms;
+import domain.UnitType;
 import game.BoardState;
 import phase.Order;
 
@@ -14,6 +16,15 @@ import java.util.Objects;
 public final class DiploBNOrderTranslator
         implements OrderTranslator<DiploBNOrder, Order> {
 
+    private final boolean inferUniqueFleetDestinationCoast;
+
+    public DiploBNOrderTranslator() {
+        this(true);
+    }
+
+    public DiploBNOrderTranslator(boolean inferUniqueFleetDestinationCoast) {
+        this.inferUniqueFleetDestinationCoast = inferUniqueFleetDestinationCoast;
+    }
 
     @Override
     public Order translate(
@@ -30,7 +41,10 @@ public final class DiploBNOrderTranslator
             case HOLD -> Order.hold(source.unit());
             case MOVE -> Order.move(
                     source.unit(),
-                    source.target());
+                    inferUniqueFleetDestinationCoast && source.unitType() == UnitType.FLEET
+                            ? OrderForms.inferUniqueFleetDestinationCoast(
+                            board.locationOf(source.unit()), source.target())
+                            : source.target());
             case SUPPORT -> translateSupport(source);
             case CONVOY -> new Order(
                     // Preserve illegal historical submissions for adjudication.

@@ -1,0 +1,141 @@
+MOVEMENT ENCODING AND IMITATION EXPORT
+
+MovementEncoding is shared by offline examples and future live policy inference.
+Version: jreferee-movement-v2. Only Spring/Fall movement is represented.
+Changing labels, masks, or their ordering requires a schema version change.
+
+Inputs
+------
+The standard-map position contains year, phase, deciding power, all units,
+owned supply centers, and the deciding power's per-unit legal options.
+No orders from the decision, outcomes, source metadata, or history are inputs.
+This first encoding is history-free; it is not the paper's neural input tensor.
+
+Unit rows: [nation name, unit-type name, current location name].
+Center rows: [canonical province name, owner name]. Absent centers are unowned.
+Rows and issuing-unit slots sort lexicographically by current location name.
+Use exact enum names, including StpSC, SpaNC, etc.; never enum ordinals.
+Persistent UnitId origin and build identity are not model features.
+
+Option labels contain five space-separated fields:
+  unit-type current-location order-type target auxiliary-target
+Absent targets use "-". Each slot's labels sort lexicographically.
+An action contains one zero-based LOCAL option index per slot.
+Indices have meaning only alongside that input's slots, not across positions.
+encode() rejects incomplete/invalid actions; decode() binds back to live UnitIds.
+Both methods return immutable lists and preserve current-location ordering.
+
+Support references use canonical provinces, including the supported unit's
+location. Support to Spa, SpaNC, and SpaSC has one catalog option and one action
+identity. Imported forms retain their fields, but equality, encoding, and
+adjudication compare support references by province. Issuing Fleet locations
+and Fleet move destinations keep their exact coasts. A Fleet in MAO still has
+separate moves to SpaNC and SpaSC.
+This replaces the earlier exact-coast support policy. See
+misc/testcase_alterations.txt and the updated 6.B.07-6.B.09 expectations.
+
+The masks come from LegalOrderGenerator, not a heuristic candidate generator.
+Convoy orders and potential convoy moves are included. Matching support orders,
+available convoy paths, and successful outcomes are not requirements for labels.
+An autoregressive policy may condition each slot on earlier selected orders;
+it must use this same slot/mask order when sampling and scoring an action.
+Its full-action log-probability is the sum of conditional order log-probabilities.
+The eventual frozen human anchor and changing proposal policy remain separate.
+No neural model or inference dependency is added here. Canonical support choices
+change catalog sizes and therefore uniform priors and seeded action sampling.
+Do not compare old option indices or reuse models trained on movement-v1 masks.
+
+Catalog export
+--------------
+Run _app.TrainingExportApp with the existing SQLite JDBC driver:
+  --database data/diplobn-catalog.sqlite --output data/training-movement-v3 --split-seed 7
+The database opens read-only; the output directory must not already exist.
+Its parent directory must exist. No downloads or catalog updates are performed.
+
+Export schema: jreferee-diplobn-imitation-v3. Movement encoding is v2.
+Outputs: train.jsonl, validation.jsonl, test.jsonl, rejected.jsonl, games.jsonl,
+and manifest.json. Use a new output directory; do not combine export versions.
+Each example identifies source, game key, phase, nation, and payload SHA-256.
+The nested input contains only model inputs; action is its observed submission.
+All game positions share a deterministic split based on seed/source/game key.
+SHA-256 of "seed\nsource\nkey", first 16 hex digits interpreted unsigned,
+modulo 100: 0-79 TRAIN, 80-89 VALIDATION, 90-99 TEST.
+These are hash buckets, not guaranteed percentages in a small catalog.
+Do not change the seed after establishing held-out games. Alternate provider
+identities for the same real game still require cross-source deduplication.
+
+Only DIPLOBN is supported. Hash mismatches, malformed games, duplicate phases,
+unsupported phases, missing snapshot fields, invalid/incomplete actions, and
+positions with no choices are reported explicitly. Missing orders are never
+filled in, and results never determine acceptance. Rejection counts include
+game-, phase-, and nation-level records; they are not rejected-game counts.
+An invalid nation's action does not remove other valid actions from that phase.
+
+DiploBN movement import supplies an omitted Fleet destination coast only when
+exactly one coast is reachable from its current location. Nwy-Stp becomes
+Nwy-StpNC; MAO-Spa remains ambiguous and fails catalog validation. Explicit
+coasts, including invalid ones, are never replaced. DiploBNPhase retains the
+decoded sourceMovementOrders separately from translated movementOrders.
+DiploBNOrderTranslator(false) disables inference for callers needing strict
+source forms. The adjudication adapter uses the same inference helper.
+No inference uses resolution messages, following boards, or another unit's
+submitted orders.
+
+Source metadata
+---------------
+games.jsonl contains one record per catalog entry, including rejected games.
+Join it to examples/rejections by source and game_key within the export.
+Its payload_sha256 identifies the catalog payload used; accepted examples also
+carry that hash. Each game record includes its split and acceptance/rejection
+counts. writeDetailed() returns this record and per-reason counts; write()
+retains its original Counts return type.
+
+source_metadata preserves CommunicationType, ScoringSystem, LimitType,
+DeadlineType, Modality, DrawSize, GameYearsCompleted, and selected ResultSummary
+fields: CenterCount, InGameAtEnd, YearOfElimination, Score, Rank,
+UnexcusedResignation, RankScore, TopShare. Result scalars keep their source types,
+including string booleans. These fields are observations, not validated rewards.
+Player names/IDs, free-text notes, messages, and other metadata are omitted.
+
+Absent metadata fields are null. Malformed optional metadata becomes null or
+is omitted with a path-specific warning in source_metadata.warnings; it does not
+reject an otherwise usable action. metadata_available means the source object
+was read, not that its metadata or game history is complete. Unreadable JSON,
+unsupported sources, and hash mismatches have source_metadata=null.
+
+Example communication_type is the literal source CommunicationType, or null.
+There is no guessing of aliases or no-press status. This replaces v1's constant
+press_mode=UNKNOWN. The manifest groups exact labels, including unfamiliar
+ones, and null separately, counting games, accepted examples, and rejection
+records for each group. It also reports rejection-reason totals, unavailable
+metadata games, and games with metadata warnings. Games count once, not once per
+nation or phase. Missing labels and unavailable metadata share the null group.
+
+Communication and result metadata remain outside input. They do not yet
+condition a model or change filtering. All value_target fields remain null.
+default_order_status remains UNKNOWN; resignation flags do not identify
+individual missed turns. Explicit holds might be defaults.
+Catalog legality does not verify replay, completion, human identity, or skill.
+Do not treat source tournament scores as sum-of-squares targets or infer an
+agreed draw from a time-limited finish. Terminal frames retain existing handling.
+Retreats, adjustments, verified outcomes, source-quality filters, and replay
+verification need separate source adapters before a production training run.
+
+Rejection diagnostics
+--------------------
+rejected.jsonl retains reason/detail and adds an errors array. INVALID_ACTION
+entries include each validation code, the zero-based index in that nation's
+source submission (not the encoded slot index), current location, normalized
+order token, and source_result {successful, reason}. A missing order has index
+-1 and order=null. Missing result annotations use source_result=null.
+Duplicate submissions are matched by index, so their result annotations remain
+separate. Other rejection reasons use errors=[].
+
+Historical result messages never filter actions. A source "Invalid Order"
+message can describe mismatched support, and a convoy may fail without making
+its candidate structurally illegal. Complete-action validation remains required;
+coast-equivalent supports now match a single legal catalog option.
+
+The manifest is written after all data files close successfully. Without it,
+an interrupted export is incomplete and must not be used. A completed export
+can contain zero examples; inspect its counts and rejection records.

@@ -63,7 +63,7 @@ public abstract class OrderForms {
      */
     public static <T extends OrderForm> List<T> pruneForOrderType(
             @Nullable   OrderType orderType,  // may be null in the case of `phase.UnitId`
-                        Collection<? extends T> orderForms
+            Collection<? extends T> orderForms
     ) {
 
         // we cannot omit null order types b/c `pruneForOrderType(null,mixed) may occur, ...
@@ -147,6 +147,54 @@ public abstract class OrderForms {
                 && (origin.geography != Geography.COASTAL
                 || destination.geography != Geography.COASTAL
                 || Province.adjacentBySea(origin, destination));
+    }
+
+    /**
+     * Supplies an omitted Fleet destination coast when exactly one is reachable.
+     * Explicit, unreachable, and ambiguous destinations are left unchanged.
+     */
+    public static Province inferUniqueFleetDestinationCoast(
+            Province origin,
+            Province destination
+    ) {
+        if (destination == null || destination.parent != null)
+            return destination;
+
+        Province uniqueCoast = null;
+        for (Province coast : Province.values()) {
+            if (coast.parent != destination
+                    || !isPotentialMove(UnitType.FLEET, origin, coast))
+                continue;
+
+            if (uniqueCoast != null)
+                return destination;
+
+            uniqueCoast = coast;
+        }
+
+        return uniqueCoast == null ? destination : uniqueCoast;
+    }
+
+    /**
+     * Matches support to a submitted order by province. Geometry and support
+     * cutting are checked separately; supportedLocation is the current location.
+     */
+    public static boolean supportMatches(
+            OrderForm support,
+            OrderForm supported,
+            Province supportedLocation
+    ) {
+        if (support == null || supported == null
+                || support.orderType() != OrderType.SUPPORT
+                || support.target() == null
+                || !Province.equalsIgnoreCoast(support.target(), supportedLocation))
+            return false;
+
+        return support.auxiliaryTarget() == null
+                ? supported.orderType() != OrderType.MOVE
+                : supported.orderType() == OrderType.MOVE
+                && Province.equalsIgnoreCoast(
+                support.auxiliaryTarget(), supported.target());
     }
 
     /**

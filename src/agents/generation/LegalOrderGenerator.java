@@ -18,9 +18,11 @@ import phase.retreats.RetreatProcessor;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Creates movement, retreat, or adjustment order options from a game state.
@@ -124,6 +126,7 @@ public class LegalOrderGenerator {
             Province supportingLocation,
             Map<UnitId, Province> locations
     ) {
+        Set<Order> supports = new LinkedHashSet<>();
         for (Map.Entry<UnitId, Province> entry : locations.entrySet()) {
             UnitId supportedUnit = entry.getKey();
             Province supportedLocation = entry.getValue();
@@ -135,7 +138,7 @@ public class LegalOrderGenerator {
                     issuer.unitType(),
                     supportingLocation,
                     supportedLocation))
-                orders.add(Order.supportHold(issuer, supportedLocation));
+                supports.add(Order.supportHold(issuer, Province.canonical(supportedLocation)));
 
             for (Province destination : Province.values()) {
                 if (!OrderForms.isPotentialMove(
@@ -148,12 +151,13 @@ public class LegalOrderGenerator {
                         issuer.unitType(),
                         supportingLocation,
                         destination))
-                    orders.add(Order.supportMove(
+                    supports.add(Order.supportMove(
                             issuer,
-                            supportedLocation,
-                            destination));
+                            Province.canonical(supportedLocation),
+                            Province.canonical(destination)));
             }
         }
+        orders.addAll(supports);
     }
 
     private static void addConvoyOrders(
