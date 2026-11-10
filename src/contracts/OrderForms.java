@@ -153,7 +153,7 @@ public abstract class OrderForms {
      * Supplies an omitted Fleet destination coast when exactly one is reachable.
      * Explicit, unreachable, and ambiguous destinations are left unchanged.
      */
-    public static Province inferUniqueFleetDestinationCoast(
+    public static Province inferDestinationCoast(
             Province origin,
             Province destination
     ) {

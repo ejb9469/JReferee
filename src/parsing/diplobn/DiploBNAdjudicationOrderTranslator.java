@@ -42,7 +42,7 @@ public final class DiploBNAdjudicationOrderTranslator
         if (inferUniqueFleetDestinationCoast
                 && translated.orderType() == OrderType.MOVE
                 && translated.unitType() == UnitType.FLEET)
-            translated.pos1 = OrderForms.inferUniqueFleetDestinationCoast(
+            translated.pos1 = OrderForms.inferDestinationCoast(
                     currentLocation, translated.target());
 
         return translated;

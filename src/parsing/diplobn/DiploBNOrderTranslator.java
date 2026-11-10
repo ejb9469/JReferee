@@ -42,7 +42,7 @@ public final class DiploBNOrderTranslator
             case MOVE -> Order.move(
                     source.unit(),
                     inferUniqueFleetDestinationCoast && source.unitType() == UnitType.FLEET
-                            ? OrderForms.inferUniqueFleetDestinationCoast(
+                            ? OrderForms.inferDestinationCoast(
                             board.locationOf(source.unit()), source.target())
                             : source.target());
             case SUPPORT -> translateSupport(source);
