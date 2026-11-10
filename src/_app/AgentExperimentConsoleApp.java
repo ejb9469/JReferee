@@ -24,7 +24,9 @@ import java.util.*;
  *
  * <p>Root pools are generated once. Each rollout budget starts a fresh solve
  * with the same pools and search seed. FINAL and AVERAGE come from that same
- * solve. No match is played and no chosen action is submitted.</p>
+ * solve. Sampled receipts then evaluate each output against its frozen
+ * population policies, using fresh opponent draws and the same payoff
+ * function. No match is played and no chosen action is submitted.</p>
  *
  * <p>OPENING is Spring 1901. WINTER uses the board entering Winter 1901 in
  * the original seed-7 demonstration, independently of experiment settings.
@@ -34,11 +36,12 @@ import java.util.*;
 public final class AgentExperimentConsoleApp {
 
     private static final String USAGE = "Usage: AgentExperimentConsoleApp "
-            + "[--position <opening|winter>] [--power <nation>] "
+            + "[--position <opening|winter>] [--power <all|nation>] "
             + "[--root-generator <uniform|plausible>] [--rollout-generator <uniform|plausible>] "
             + "[--candidates <count>] [--iterations <count>] "
             + "[--rollouts <count[,count...]>] [--rollout-candidates <count>] "
             + "[--pool-seed <long>] [--search-seed <long>] [--rollout-seed <long>] "
+            + "[--receipt-samples <count>] [--receipt-seed <long>] "
             + "[--movement-policy <policy>]";
 
     private enum Position { OPENING, WINTER }  // only 2 possible for this particular experiment
@@ -48,19 +51,21 @@ public final class AgentExperimentConsoleApp {
     public static void main(String[] args) {
         if (args.length == 1 && (args[0].equals("--help") || args[0].equals("-h"))) {
             System.out.println(USAGE);
-            System.out.println("Defaults: opening, FRANCE, uniform/uniform, 4 candidates, 8 iterations, "
-                    + "rollouts 1,4, all seeds 7, JUDGE.");
+            System.out.println("Defaults: opening, all nations, uniform/uniform, 4 candidates, 8 iterations, "
+                    + "rollouts 1,4, pool/search/rollout seeds 7, JUDGE.");
             System.out.println("--rollout-candidates defaults to --candidates. Both outputs are always printed.");
+            System.out.println("Receipts: 32 opponent samples per output, seed 17; 0 samples disables them.");
+            System.out.println("--power filters result tables only; search and receipts still cover all living nations.");
             return;
         }
         Position position = Position.OPENING;
-        Nation power = Nation.FRANCE;
+        Set<Nation> reported = EnumSet.allOf(Nation.class);
         AgentSettings.Generator rootGenerator = AgentSettings.Generator.UNIFORM;
         AgentSettings.Generator rolloutGenerator = AgentSettings.Generator.UNIFORM;
-        int candidates = 4, iterations = 8;
+        int candidates = 4, iterations = 8, receiptSamples = 32;
         Integer rolloutCandidates = null;
         List<Integer> budgets = List.of(1, 4);
-        long poolSeed = 7, searchSeed = 7, rolloutSeed = 7;
+        long poolSeed = 7, searchSeed = 7, rolloutSeed = 7, receiptSeed = 17;
         MovementProcessor.Policy movementPolicy = MovementProcessor.Policy.JUDGE;
 
         for (int index = 0; index < args.length; index++) {
@@ -68,7 +73,11 @@ public final class AgentExperimentConsoleApp {
                 throw new IllegalArgumentException(USAGE);
             switch (args[index]) {
                 case "--position" -> position = Position.valueOf(args[++index].toUpperCase(Locale.ROOT));
-                case "--power" -> power = Nation.valueOf(args[++index].toUpperCase(Locale.ROOT));
+                case "--power" -> {
+                    String value = args[++index];
+                    reported = value.equalsIgnoreCase("all") ? EnumSet.allOf(Nation.class)
+                            : EnumSet.of(Nation.valueOf(value.toUpperCase(Locale.ROOT)));
+                }
                 case "--root-generator" -> rootGenerator = AgentSettings.Generator.valueOf(
                         args[++index].toUpperCase(Locale.ROOT));
                 case "--rollout-generator" -> rolloutGenerator = AgentSettings.Generator.valueOf(
@@ -81,6 +90,8 @@ public final class AgentExperimentConsoleApp {
                 case "--pool-seed" -> poolSeed = Long.parseLong(args[++index]);
                 case "--search-seed" -> searchSeed = Long.parseLong(args[++index]);
                 case "--rollout-seed" -> rolloutSeed = Long.parseLong(args[++index]);
+                case "--receipt-samples" -> receiptSamples = Integer.parseInt(args[++index]);
+                case "--receipt-seed" -> receiptSeed = Long.parseLong(args[++index]);
                 case "--movement-policy" -> movementPolicy = MovementProcessor.Policy.valueOf(
                         args[++index].toUpperCase(Locale.ROOT));
                 default -> throw new IllegalArgumentException(USAGE);
@@ -88,6 +99,8 @@ public final class AgentExperimentConsoleApp {
         }
         if (budgets.stream().anyMatch(count -> count < 1) || new HashSet<>(budgets).size() != budgets.size())
             throw new IllegalArgumentException("Rollout budgets must be positive and distinct");
+        if (receiptSamples < 0 || receiptSamples == 1)
+            throw new IllegalArgumentException("Receipt samples must be zero or at least two");
         int continuationLimit = rolloutCandidates == null ? candidates : rolloutCandidates;
         AgentSettings first = new AgentSettings(AgentSettings.Method.DIL_PIKL, candidates, iterations,
                 budgets.getFirst(), continuationLimit, PolicyOutput.AVERAGE, rootGenerator, rolloutGenerator);
@@ -98,17 +111,24 @@ public final class AgentExperimentConsoleApp {
         PaperSearchProfile profile = PaperSearchProfile.forState(root);
 
         System.out.println("BEGIN FIXED-POSITION EXPERIMENT");
-        System.out.println("Position: " + position + " at " + root.moment() + "; reported nation: " + power);
+        System.out.println("Position: " + position + " at " + root.moment() + "; reported nations: " + reported);
         System.out.println("Rules: " + configuration.rulesetId() + "; scoring=" + configuration.scoring());
         System.out.println("Root generator: " + rootGenerator + "; candidates=" + candidates);
         System.out.println("Rollout generator: " + rolloutGenerator + "; candidates=" + continuationLimit);
         System.out.println("Iterations: " + iterations + "; rollout budgets=" + budgets);
         System.out.printf(Locale.ROOT, "Seeds: pools=%d search=%d rollout=%d%n", poolSeed, searchSeed, rolloutSeed);
+        System.out.printf(Locale.ROOT, "Receipts: samples=%d per candidate per output; seed=%d%n",
+                receiptSamples, receiptSeed);
         System.out.println("Profile: " + profile + "; population=" + profile.population()
                 + "; playing_lambda=" + profile.agentLambda() + "; temperature=" + profile.temperature());
         System.out.println("Q describes sampled search opponents, not a fresh policy evaluation.");
         System.out.println("Changing rollout settings can change the subsequent sampled opponent history.");
         System.out.println("The root pools below remain fixed across every rollout budget.");
+        System.out.println("p_FINAL/p_AVERAGE are playing policies; population columns mix the configured lambda types.");
+        System.out.println("Fresh values use frozen opponent populations in the named output mode.");
+        System.out.println("Receipt draws use a separate RNG; rollout settings and the payoff function stay unchanged.");
+        System.out.println("Standard errors cover opponent sampling, not rollout uncertainty or response measures.");
+        System.out.println("--power filters tables only; search and receipt work still cover all living nations.");
         printPools(root, pools);
 
         for (int count : budgets) {
@@ -122,20 +142,64 @@ public final class AgentExperimentConsoleApp {
             long started = System.nanoTime();
             JointSearchResult solved = profile.solver(evaluator, rootGenerator.create(),
                     candidates, iterations, searchSeed, PolicyOutput.AVERAGE).solve(game, pools, trials);
-            JointSearchResult last = solved.withOutput(PolicyOutput.FINAL);
             double elapsed = (System.nanoTime() - started) / 1e9;
-            SearchResult average = solved.results().get(power), finale = last.results().get(power);
-            System.out.printf(Locale.ROOT, "%nROLLOUTS %d; samples_per_candidate=%d; final_kappa=%.10g%n",
-                    count, average.samplesPerCandidate(), solved.temperature(power, profile.agentLambda()));
-            System.out.println("candidate Q p_FINAL p_AVERAGE");
-            for (int index = 0; index < pools.get(power).size(); index++)
-                System.out.printf(Locale.ROOT, "%s-P%d %.10f %.10f %.10f%n", power, index,
-                        average.meanValues().get(index), finale.distribution().probabilities().get(index),
-                        average.distribution().probabilities().get(index));
+            System.out.printf(Locale.ROOT, "%nROLLOUTS %d; samples_per_candidate=%d%n", count, iterations);
+            printSearch(solved, reported);
             System.out.println("Root work: " + trials.counts());
             System.out.printf(Locale.ROOT, "Solve elapsed: %.3f seconds%n", elapsed);
+            if (receiptSamples == 0) {
+                System.out.println("Fresh policy evaluation disabled.");
+                continue;
+            }
+            for (PolicyOutput output : List.of(PolicyOutput.FINAL, PolicyOutput.AVERAGE)) {
+                JointSearchResult selected = solved.withOutput(output);
+                JointActionEvaluator receiptTrials = JointActionEvaluator.uncached(rules.createGame(root), evaluator);
+                System.out.printf(Locale.ROOT, "%nFRESH %s; opponent_samples=%d; receipt_seed=%d%n",
+                        output, receiptSamples, receiptSeed);
+                started = System.nanoTime();
+                List<TypeReceipt> receipts = TypeReceipt.sampled(selected, receiptTrials, receiptSamples, receiptSeed);
+                elapsed = (System.nanoTime() - started) / 1e9;
+                for (TypeReceipt receipt : receipts)
+                    if (receipt.playing() && reported.contains(receipt.power()))
+                        printReceipt(receipt);
+                System.out.println("Receipt root work: " + receiptTrials.counts());
+                System.out.printf(Locale.ROOT, "Receipt elapsed: %.3f seconds%n", elapsed);
+            }
         }
         System.out.println("END FIXED-POSITION EXPERIMENT");
+    }
+
+    private static void printSearch(JointSearchResult solved, Set<Nation> reported) {
+        JointSearchResult last = solved.withOutput(PolicyOutput.FINAL);
+        JointSearchResult average = solved.withOutput(PolicyOutput.AVERAGE);
+        for (Nation power : solved.results().keySet()) {
+            if (!reported.contains(power))
+                continue;
+            SearchResult result = solved.results().get(power);
+            System.out.printf(Locale.ROOT, "SEARCH %s; playing_lambda=%.10g; final_kappa=%.10g%n",
+                    power, solved.settings().agentLambda(), solved.temperature(power, solved.settings().agentLambda()));
+            System.out.println("candidate Q p_FINAL p_AVERAGE population_FINAL population_AVERAGE");
+            for (int index = 0; index < result.meanValues().size(); index++)
+                System.out.printf(Locale.ROOT, "%s-P%d %.10f %.10f %.10f %.10f %.10f%n", power, index,
+                        result.meanValues().get(index),
+                        last.results().get(power).distribution().probabilities().get(index),
+                        average.results().get(power).distribution().probabilities().get(index),
+                        last.populationPolicies().get(power).probabilities().get(index),
+                        average.populationPolicies().get(power).probabilities().get(index));
+        }
+    }
+
+    private static void printReceipt(TypeReceipt receipt) {
+        System.out.printf(Locale.ROOT, "NATION %s; playing_lambda=%.10g%n", receipt.power(), receipt.lambda());
+        System.out.println("candidate fresh_value standard_error");
+        for (int index = 0; index < receipt.freshValues().size(); index++)
+            System.out.printf(Locale.ROOT, "%s-P%d %.10f %.10f%n", receipt.power(), index,
+                    receipt.freshValues().get(index), receipt.standardErrors().get(index));
+        System.out.printf(Locale.ROOT,
+                "Playing policy: expected_score=%.10f response_difference=%.10f "
+                        + "regularized_gain=%.10f temperature_difference=%.10f%n",
+                receipt.expectedScore(), receipt.responseResidual(),
+                receipt.regularizedGain(), receipt.temperatureResidual());
     }
 
     private static GameRunner.Options options(AgentSettings settings, MovementProcessor.Policy policy) {
@@ -148,7 +212,8 @@ public final class AgentExperimentConsoleApp {
     }
 
     private static Map<Nation, List<ActionCandidate>> pools(GameState root,
-                                                            AgentSettings.Generator choice, int limit, long seed) {
+                                                            AgentSettings.Generator choice,
+                                                            int limit, long seed) {
         ActionGenerator generator = choice.create();
         LegalOrderGenerator legal = new LegalOrderGenerator();
         Map<Nation, List<ActionCandidate>> pools = new EnumMap<>(Nation.class);

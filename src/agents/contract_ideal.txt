@@ -164,7 +164,16 @@ Both game launchers accept --root-generator, --rollout-generator, --rollouts,
 --rollout-candidates, and --output. Defaults retain the previous experiment.
 AgentExperimentConsoleApp -> fixed opening/winter board -> generate pools once
     -> one fresh solve per rollout budget with the same pools and search seed
-    -> print FINAL and AVERAGE from that same JointSearchResult
+    -> print all nations' FINAL/AVERAGE playing and population policies
+    -> sample fresh receipts against each output's frozen population mixtures
+Both outputs come from the same JointSearchResult. --power all is the default;
+a named nation filters tables only. --receipt-samples defaults to 32 per
+candidate per output; 0 disables receipts, otherwise at least 2 are required.
+--receipt-seed defaults to 17 and drives opponent draws independently of search.
+Receipts preserve the solve's payoff function and rollout settings, including
+the restarted rollout seed. Standard errors measure opponent sampling only.
+Only playing-type receipts are printed; candidate values and IDs stay aligned.
+Search and each receipt mode report separate root-work counts and timing.
 Pool, search, and rollout seeds are independent. Changing rollout settings can
 change the search's sampled opponent history. No game action is submitted.
 The visual demonstration explicitly selects JUDGE; SZYKMAN_JUSTICE is available

@@ -40,6 +40,7 @@ public final class AgentDecisionSelfCheck {
         phaseFormatting();
         consoleOptions();
         experimentOptions();
+        experimentReceipts();
         System.out.println("AgentDecisionSelfCheck passed: " + checks + " checks");
     }
 
@@ -252,13 +253,18 @@ public final class AgentDecisionSelfCheck {
                 "Experiment seed options missing");
         for (String[] invalid : List.of(new String[]{"--rollouts", "0"}, new String[]{"--rollouts", "1,1"},
                 new String[]{"--rollouts", "1,"}, new String[]{"--position", "invalid"},
-                new String[]{"--iterations", "0"}, new String[]{"--rollout-candidates", "0"}))
+                new String[]{"--iterations", "0"}, new String[]{"--rollout-candidates", "0"},
+                new String[]{"--receipt-samples", "-1"}, new String[]{"--receipt-samples", "1"},
+                new String[]{"--receipt-samples", "bad"}, new String[]{"--receipt-seed"},
+                new String[]{"--receipt-seed", "bad"}, new String[]{"--power", "invalid"}))
             expect(IllegalArgumentException.class, () -> AgentExperimentConsoleApp.main(invalid));
         String first = capture(() -> AgentExperimentConsoleApp.main(new String[]{
-                "--candidates", "2", "--iterations", "1", "--rollouts", "1,2", "--rollout-candidates", "1"}));
+                "--candidates", "2", "--iterations", "1", "--rollouts", "1,2", "--rollout-candidates", "1",
+                "--receipt-samples", "2"}));
         String second = capture(() -> AgentExperimentConsoleApp.main(new String[]{
                 "--candidates", "2", "--iterations", "2", "--rollouts", "1", "--rollout-candidates", "2",
-                "--search-seed", "31", "--rollout-seed", "17", "--rollout-generator", "plausible"}));
+                "--search-seed", "31", "--rollout-seed", "17", "--rollout-generator", "plausible",
+                "--receipt-samples", "2"}));
         require(first.substring(first.indexOf("POOL "), first.indexOf("\nROLLOUTS "))
                         .equals(second.substring(second.indexOf("POOL "), second.indexOf("\nROLLOUTS "))),
                 "Search or rollout settings changed the root pools");
@@ -266,6 +272,8 @@ public final class AgentDecisionSelfCheck {
                 && first.contains("ROLLOUTS 1;") && first.contains("ROLLOUTS 2;")
                 && first.contains("candidate Q p_FINAL p_AVERAGE"), "Budgets did not reuse one printed pool");
         require(first.contains("END FIXED-POSITION EXPERIMENT"), "Experiment did not complete");
+        require(first.split("FRESH FINAL;", -1).length == 3
+                && first.split("FRESH AVERAGE;", -1).length == 3, "Missing receipts for a rollout budget");
 
         Map<Nation, AgentSettings> agents = new EnumMap<>(Nation.class);
         for (Nation nation : Nation.values())
@@ -280,9 +288,110 @@ public final class AgentDecisionSelfCheck {
                 "Winter fixture differs from the original seed-7 board");
         String winter = capture(() -> AgentExperimentConsoleApp.main(new String[]{
                 "--position", "winter", "--root-generator", "plausible", "--rollout-generator", "plausible",
-                "--candidates", "2", "--iterations", "1", "--rollouts", "1", "--rollout-candidates", "1"}));
+                "--candidates", "2", "--iterations", "1", "--rollouts", "1", "--rollout-candidates", "1",
+                "--receipt-samples", "2"}));
         require(winter.contains("gamePhase=WINTER_ADJUSTMENT") && winter.contains(" BUILD")
-                && winter.contains("Profile: STANDARD"), "Winter experiment lacks build alternatives");
+                        && winter.contains("Profile: STANDARD") && winter.contains("FRESH AVERAGE;"),
+                "Winter experiment lacks build alternatives or receipts");
+    }
+
+    private static void experimentReceipts() throws Exception {
+        String defaults = capture(() -> AgentExperimentConsoleApp.main(new String[]{
+                "--candidates", "1", "--iterations", "1", "--rollouts", "1", "--rollout-candidates", "1"}));
+        require(defaults.contains("Receipts: samples=32 per candidate per output; seed=17")
+                        && defaults.split("Receipt root work: Counts\\[requests=32,", -1).length == 3,
+                "Default receipt settings or work changed");
+        String text = experiment("--receipt-samples", "3", "--receipt-seed", "13");
+        String disabled = experiment("--receipt-samples", "0");
+        String changed = experiment("--receipt-samples", "2", "--receipt-seed", "31");
+        String filtered = experiment("--receipt-samples", "3", "--receipt-seed", "13", "--power", "england");
+        String repeated = experiment("--receipt-samples", "3", "--receipt-seed", "13", "--power", "ALL");
+        require(searchTables(text).equals(searchTables(disabled))
+                && searchTables(text).equals(searchTables(changed)), "Receipts changed the solve");
+        require(text.replaceAll("elapsed: [^\\n]+", "elapsed: TIMING")
+                        .equals(repeated.replaceAll("elapsed: [^\\n]+", "elapsed: TIMING")),
+                "Receipt output must replay exactly");
+        require(!disabled.contains("\nFRESH ") && disabled.contains("Fresh policy evaluation disabled."),
+                "Zero samples did not disable receipts");
+        require(filtered.contains("SEARCH ENGLAND;") && !filtered.contains("SEARCH FRANCE;")
+                        && filtered.contains("NATION ENGLAND;") && !filtered.contains("NATION FRANCE;"),
+                "Nation filter did not apply to both reports");
+        require(text.contains("samples=3 per candidate per output; seed=13"),
+                "Receipt metadata differs from requested settings");
+        require(!text.substring(text.indexOf("\nFRESH "))
+                        .equals(changed.substring(changed.indexOf("\nFRESH "))),
+                "Changed receipt settings were ignored");
+
+        GameState root = StandardGameFactory.create1901().snapshot();
+        Map<Nation, List<ActionCandidate>> pools = new EnumMap<>(Nation.class);
+        Random random = new Random(7);
+        for (Nation nation : root.aliveNations())
+            pools.put(nation, new UniformActionGenerator().generate(
+                    new ActionGenerationRequest(root, nation, 2, random.nextLong()),
+                    new LegalOrderGenerator().generate(root, nation)));
+        GameRunner.Options rules = options(1902, 2, 3);
+        var evaluator = new RolloutEvaluator(new ScoringEvaluator(rules.scoring()),
+                new UniformActionGenerator(), rules::createGame, 1, 2, 5);
+        Game game = rules.createGame(root);
+        JointActionEvaluator trials = JointActionEvaluator.uncached(game, evaluator);
+        JointSearchResult solved = PaperSearchProfile.forState(root).solver(evaluator,
+                new UniformActionGenerator(), 2, 3, 11, PolicyOutput.AVERAGE).solve(game, pools, trials);
+        long workPerSample = 1 + pools.values().stream().mapToLong(pool -> pool.size() - 1).sum();
+        require(trials.counts().requests() == 3 * workPerSample
+                && text.contains("Root work: " + trials.counts())
+                && disabled.contains("Root work: " + trials.counts()), "Search work includes receipt evaluations");
+        JointSearchResult last = solved.withOutput(PolicyOutput.FINAL);
+        for (Nation nation : root.aliveNations()) {
+            require(text.contains("SEARCH " + nation + ";"), "Missing nation in search report");
+            for (int index = 0; index < pools.get(nation).size(); index++) {
+                String row = String.format(Locale.ROOT, "%s-P%d %.10f %.10f %.10f %.10f %.10f",
+                        nation, index, solved.results().get(nation).meanValues().get(index),
+                        last.results().get(nation).distribution().probabilities().get(index),
+                        solved.results().get(nation).distribution().probabilities().get(index),
+                        last.populationPolicies().get(nation).probabilities().get(index),
+                        solved.populationPolicies().get(nation).probabilities().get(index));
+                require(text.contains(row), "Search values or population columns are misaligned");
+                if (nation == Nation.ENGLAND)
+                    require(filtered.contains(row), "Filtering changed England's search results");
+            }
+        }
+        for (PolicyOutput output : List.of(PolicyOutput.FINAL, PolicyOutput.AVERAGE)) {
+            JointActionEvaluator fresh = JointActionEvaluator.uncached(rules.createGame(root), evaluator);
+            List<TypeReceipt> receipts = TypeReceipt.sampled(solved.withOutput(output), fresh, 3, 13);
+            String section = text.substring(text.indexOf("\nFRESH " + output + ";"));
+            section = section.substring(0, section.indexOf("\nReceipt root work:"));
+            for (TypeReceipt receipt : receipts) {
+                if (!receipt.playing())
+                    continue;
+                require(section.contains("NATION " + receipt.power() + ";"), "Missing playing-type receipt");
+                for (int index = 0; index < receipt.freshValues().size(); index++) {
+                    String row = String.format(Locale.ROOT, "%s-P%d %.10f %.10f", receipt.power(), index,
+                            receipt.freshValues().get(index), receipt.standardErrors().get(index));
+                    require(section.contains(row), "Fresh values used another population, seed, or payoff function");
+                }
+                require(section.contains(String.format(Locale.ROOT,
+                                "expected_score=%.10f response_difference=%.10f "
+                                        + "regularized_gain=%.10f temperature_difference=%.10f",
+                                receipt.expectedScore(), receipt.responseResidual(),
+                                receipt.regularizedGain(), receipt.temperatureResidual())),
+                        "Receipt summary differs from the playing-type receipt");
+            }
+            require(fresh.counts().requests() == 3 * workPerSample
+                            && text.contains("Receipt root work: " + fresh.counts())
+                            && filtered.contains("Receipt root work: " + fresh.counts()),
+                    "Receipt work was duplicated per nation, type, or filter");
+        }
+    }
+
+    private static String experiment(String... extra) throws Exception {
+        List<String> args = new ArrayList<>(List.of("--candidates", "2", "--iterations", "3",
+                "--rollouts", "1", "--rollout-candidates", "2", "--search-seed", "11", "--rollout-seed", "5"));
+        args.addAll(List.of(extra));
+        return capture(() -> AgentExperimentConsoleApp.main(args.toArray(String[]::new)));
+    }
+
+    private static String searchTables(String text) {
+        return text.substring(text.indexOf("\nROLLOUTS "), text.indexOf("\nRoot work:"));
     }
 
     private static List<? extends OrderForm> orders(ResolvedPhaseRecord phase) {
