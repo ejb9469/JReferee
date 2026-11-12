@@ -209,8 +209,7 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                     componentJudge.getParadoxCycles()) {
 
                 boolean alreadyKnown = false;
-                for (ParadoxCycle existingCycle :
-                        this.detectedParadoxCycles) {
+                for (ParadoxCycle existingCycle : this.detectedParadoxCycles) {
                     if (existingCycle.key().equals(detectedCycle.key())) {
                         alreadyKnown = true;
                         break;
@@ -461,6 +460,10 @@ public class Judge implements Adjudicator, ParadoxTransparent {
                         orders,
                         context
                 );
+
+                // A zero-strength attack cannot succeed or depend on the occupant leaving.
+                if (attackStrength == 0)
+                    return false;
 
                 // Calculate destination's HOLD STRENGTH
                 int destHoldStrength = calculateHoldStrength(
