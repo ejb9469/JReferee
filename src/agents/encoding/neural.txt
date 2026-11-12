@@ -1,0 +1,168 @@
+NEURAL MOVEMENT INPUTS
+
+NeuralMovementSpec defines jreferee-neural-movement-v1.
+NeuralMovementEncoding converts MovementInput directly, without JSON or label
+parsing. The same adapter accepts stored examples and live movement catalogs.
+Existing movement-v2 labels, local indices and masks remain unchanged.
+No neural model, optimizer or inference runtime is introduced in this step.
+
+Vocabulary and map
+------------------
+specification.json contains ordered vocabularies. Their list positions are IDs.
+They are explicitly named in source; Java enum ordinals are never serialized.
+Changing IDs, fields, transforms or map semantics requires a new neural schema.
+The exact specification SHA-256 must accompany each future model as well.
+
+Location 0 is NONE. IDs 1..81 cover the standard map including six exact coasts.
+There are 75 board rows, in specification.board_locations order. Coast children
+share their parent's board row. Swi is excluded; encountering it is an error.
+canonical_locations maps location IDs to canonical location IDs.
+location_board_rows maps location IDs to zero-based board rows; NONE maps to -1.
+Never use a location ID directly as a board-row index.
+
+Power IDs: NONE=0, AUSTRIA=1, ENGLAND=2, FRANCE=3, GERMANY=4, ITALY=5,
+RUSSIA=6, TURKEY=7. Unit types: NONE=0, ARMY=1, FLEET=2.
+Order types: NONE=0, HOLD=1, MOVE=2, SUPPORT=3, CONVOY=4.
+Phases: NONE=0, SPRING_MOVEMENT=1, FALL_MOVEMENT=2.
+No actual issuing slot or option uses a NONE unit type or order type.
+
+Static terrain uses INLAND=0, COASTAL=1, SEA=2. Split-coast parents are coastal
+even where the Province enum's base geography says INLAND. Supply-center flags
+and home owners describe canonical board rows. They are stored once in the spec.
+army_direct/fleet_direct are directed pairs of exact location IDs.
+potential_convoy gives possible Army endpoints, without checking a fleet route.
+army_support/fleet_support give issuing-location to canonical-destination pairs.
+These tables come from existing geometry helpers. They do not replace catalogs.
+Potential convoys must not be treated as ordinary direct-movement edges.
+
+Input tensors
+-------------
+board: unsigned bytes [75,4], fields:
+  unit_type, unit_owner, unit_location, center_owner
+unit_location is the exact occupied location ID, including a Fleet's coast.
+Empty occupancy has zeros in its first three fields. A nonzero center owner
+does not imply occupation. An unowned center and a non-center both have owner
+zero; distinguish them using the static supply-center flag.
+
+context: power ID, phase ID, positive raw year.
+The neural year feature is float32(year - 1901) / float32(20), without clipping.
+Power/phase are categorical IDs. They are not continuous scalar features.
+
+slot_locations: unsigned bytes [U], exact issuing locations in movement-v2 order.
+option_offsets: [U+1], starting at zero, ending at C, strictly increasing for
+nonempty slots. U is the acting power's unit count; C is its total option count.
+options: unsigned bytes [C,5], fields:
+  unit_type, origin, order_type, target, auxiliary
+Targets use location IDs; missing target/auxiliary is zero. HOLD has both zero.
+SUPPORT references are canonical. Issuing locations and Fleet MOVE targets
+retain exact coasts. These fields have the same meanings as movement-v2 tokens.
+Options retain their original per-slot lexicographic label order.
+
+Buffers returned by NeuralMovementEncoding are read-only views with independent
+positions. They retain their backing storage for the encoding's lifetime.
+Options are packed once per example. No global mutable prepared-state cache is
+retained. A zero-unit live action has no options and the single offset zero.
+MovementDataset.Example continues to require at least one training unit.
+
+Targets and decoder
+-------------------
+Observed targets remain separate from NeuralMovementEncoding. Each is a local
+option index, not a global order ID or an embedding category.
+Embed the selected option's structured fields when updating the GRU.
+At step t, only selected orders before t are decoder inputs. Teacher forcing
+uses observed earlier orders; sampling uses its own earlier choices.
+No future order, current resolution or result metadata may enter that prefix.
+
+All supplied legal options remain available, including unmatched supports and
+potential convoys. Coherence checks must not silently change masks or labels.
+Use a masked softmax for each current slot and sum its conditional log
+probabilities for a complete action. Do not normalize anchors over a pool.
+
+NUMERIC CACHE
+
+NeuralMovementCache writes jreferee-neural-cache-v1 from MovementDataset.
+Byte-backed cursors must supply a verified split SHA-256 after EOF. The caller
+supplies the original TrainingFilter; examples are never reselected or shuffled.
+The app uses JsonlMovementDataset and its existing filter and game-level splits.
+Press and unknown labels remain included when the original export includes them.
+
+The cache is derived data. Keep the JSONL export and frozen linear model.
+All TRAIN, VALIDATION and TEST rows are converted, including test bytes, but
+conversion does not fit a model or compute policy/coordination metrics on test.
+The later trainer must open only TRAIN and VALIDATION for model selection.
+No new source-game export is needed.
+
+Layout
+------
+The output directory must not exist; its parent must already exist.
+specification.json is UTF-8 JSON with a trailing LF.
+manifest.json records schema, byte order, source index fingerprint, filter,
+settings, specification bytes/hash, and ordered split/shard/file descriptions.
+Each split records its source JSONL SHA-256, example/slot/option counts,
+maximum unit and per-slot option counts, bytes and read/total timings.
+
+Each shard is a directory such as train-00000. Files have no binary headers.
+All arrays use C order. Multibyte numbers are LITTLE_ENDIAN.
+E, S and C below are the shard's example, slot and option counts.
+
+  board.u8            uint8    [E,75,4]  E*300 bytes
+  context.i32         int32 LE [E,3]     E*12 bytes: power, phase, raw year
+  example_offsets.u64 uint64 LE[E+1]     (E+1)*8 bytes; boundaries into slots
+  slot_locations.u8   uint8    [S]       S bytes
+  option_offsets.u64  uint64 LE[S+1]     (S+1)*8 bytes; boundaries into options
+  options.u8          uint8    [C,5]     C*5 bytes
+  targets.i32         int32 LE [S]       S*4 bytes; LOCAL observed indices
+  metadata.jsonl      UTF-8    E rows; source, game_key, communication_type
+
+Offsets restart at zero for each shard. Terminal example/option offsets equal
+S/C respectively. For example e:
+  start = example_offsets[e]; end = example_offsets[e+1]
+  its slots = [start,end)
+  its options = [option_offsets[start],option_offsets[end])
+Subtract option_offsets[start] when constructing example-local option offsets.
+For shard slot s, the selected order is:
+  options[option_offsets[s] + targets[s]]
+The target must be >=0 and < option_offsets[s+1]-option_offsets[s].
+
+Metadata rows align with board/context rows. They are for identification and
+subgroup reporting, never model inputs. Source-game and split fingerprints
+refer back to the original export; source result metadata is not copied.
+
+No dictionary or padding is required in this version: each option occupies five
+bytes regardless of its printed label length. This bounds working memory without
+a corpus-sized vocabulary scan. A later reader can memory-map arrays and pad
+only similarly sized examples within a batch. Padding receives no probability
+or loss; do not evaluate a softmax over an all-padding slot.
+
+Bounds and failures
+-------------------
+Defaults: at most 4096 examples and 1000000 options per shard. A record is never
+split. An example exceeding the configured option bound fails explicitly.
+The writer retains one encoded example, one shard's buffered streams and
+O(shards) small report entries, in addition to the source reader's own cache/index.
+Each file's size and SHA-256 are recorded. Payloads are streamed, not reread to
+compute hashes. Empty source splits have zero shards and a verified source hash.
+
+manifest.pending is renamed atomically to manifest.json after every file is
+closed and every source split reaches verified EOF. A failure leaves partial
+files but no completed manifest. Do not load or merge an incomplete directory.
+Existing outputs are never overwritten, resumed or silently removed.
+
+Future readers must check schemas/specification hash, dtype/shapes, file hashes,
+monotone offsets, terminal counts, ID ranges and target bounds before training.
+Model artifacts must bind to the exact input specification. Python/Java golden
+fixtures must agree on encoded arrays and conditional probabilities.
+
+Running
+-------
+Main class: _app.NeuralCacheApp
+Working directory: repository root
+VM option: -Xmx512m
+Program arguments:
+  --dataset data/training-movement-v4 --output data/movement-neural-cache-v1 --shard-examples 4096 --shard-options 1000000 --token-cache 32768
+
+No JDBC driver, PyTorch or neural inference dependency is required.
+Run testing.selfcheck.NeuralMovementSelfCheck with no arguments.
+Send its completion line, the complete cache console output, manifest.json and
+specification.json. Keep the numeric shards locally; do not upload the dataset.
+Next implementation: a strict Python cache reader/batcher and the supervised GRU.
