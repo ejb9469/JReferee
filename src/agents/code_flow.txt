@@ -155,9 +155,6 @@ AgentGameConsoleApp -> same runner -> decisions, recorded phases, final scores.
 --trace all prints actual self/opponent root pools; self omits opponent pools;
 none keeps phase output only. Priors, own Q, policy, and sampled action stay
 aligned by candidate index. Prior sampling reports Q as unavailable.
-GameRunner's additional observer receives immutable AgentDecision diagnostics
-before real resolution. No extra generation, search, or sampling is performed.
-These diagnostics are separate from GameRecord and are not retained by Result.
 AgentSettings selects UNIFORM or PLAUSIBLE root and rollout generators separately.
 Both preserve the convoy-free uniform anchor. Legacy constructors remain uniform.
 Both game launchers accept --root-generator, --rollout-generator, --rollouts,
@@ -202,6 +199,131 @@ See agents/encoding/format.txt for arguments, metrics, and reader guarantees.
 The policy interface permits an autoregressive replacement. The current model
 does not coordinate support/convoy choices and is not the Diplodocus network.
 Its root-prior adapter is available explicitly; agent defaults are unchanged.
-Learned proposal generation, a value model, and self-play training remain
-separate steps. A frozen human anchor must stay separate from an improving
-proposal policy and from the policy returned by search.
+PolicyActionGenerator now supplies learned proposals explicitly. A value model
+and self-play training remain separate steps. A frozen human anchor must stay
+separate from an improving proposal policy and the policy returned by search.
+
+
+LEARNED PROPOSALS AND COMPARISON
+
+new PolicyActionGenerator(proposalPolicy, anchorPolicy) -> ActionGenerator
+generator.generate(request, catalog) -> immutable complete action candidates
+generator.propose(request, catalog) -> candidates plus proposal probabilities
+generator.propose(request, fullEncoding) -> reuse an existing movement catalog
+
+Movement proposals use at most 256 distinct actions and 32 draws per target
+candidate. The target is capped by the supplied mask's joint action count.
+No all-hold or greedy action is inserted. First occurrences retain sample order.
+Duplicate-heavy policies can return short pools; Result reports draws and
+duplicates. Its logProposal values describe action probabilities before
+deduplication, not inclusion probabilities or pool-normalized weights.
+Retreats and adjustments delegate to UniformActionGenerator by default.
+An explicit constructor accepts another fallback and a positive draw multiplier.
+
+Proposal and anchor are independent immutable MovementPolicy instances.
+Changing only the anchor cannot change sampled orders. The same instance is
+prepared once when both use the full mask. All work is local to the invocation;
+no root or unbounded prepared-state cache is retained.
+Catalog restrictions change the proposal's input masks, so its probability is
+defined for that input. The anchor always receives the full root encoding.
+candidate.logPrior remains the full-action anchor log probability even as
+candidate limits or scopes change. It is never renormalized over the pool.
+Zero anchor support remains negative infinity; a wholly zero-prior pool cannot
+be searched. Invalid model distributions or generated actions fail explicitly.
+No matching-support or complete-convoy constraint is imposed beyond catalog
+legality. The current factorized model can generate uncoordinated orders.
+For adaptive search pass generator and anchorPolicy::bind together. A scoped
+wrapper likewise needs new ScopedActionGenerator(generator, scope,
+anchorPolicy::bind); its older default anchor is convoy-free uniform.
+
+new HybridActionGenerator(proposalPolicy, anchorPolicy) -> ActionGenerator
+hybrid.propose(request, catalog or fullEncoding) -> candidates and selection counts
+
+The hybrid caps its target at 256 and the supplied mask's joint action count.
+Each child constructs up to that target once, using the request's unchanged
+seed. Half the retained places are reserved for each child; an odd extra place
+goes to learned proposals. It takes learned reservations first, then distinct
+heuristic reservations. Remaining places use unused learned candidates, then
+unused heuristic candidates. A one-place pool only calls the heuristic when
+the learned child returns no action. No retries or uniform padding are added.
+Child duplicates are errors; cross-child duplicates retain the first selected
+action and source. Exact Fleet destinations remain distinct during deduplication.
+Result reports child availability, cross-child overlap, quotas and retained
+counts. Counts describe selection, not probabilities. The hybrid can return
+a short pool when the distinct union is too small. Each retained action is
+rescored under the full-root anchor; no orders are repaired or filtered.
+Its explicit constructor accepts two ActionGenerator children, a MovementPolicy
+anchor and a nonmovement fallback. The default fallback is unchanged uniform.
+Adaptive and scoped use requires the same anchorPolicy::bind as learned proposals.
+
+MovementCoordination.inspect(root, candidate) counts own-support and own-convoy
+orders with mismatched referenced orders. It requires a complete movement action;
+CatalogActionValidator remains responsible for legality. Support matching uses
+OrderForms.supportMatches and current locations, including canonical coasts.
+Convoys require the referenced own Army to move to the convoy's destination.
+Foreign coordination, convoy paths, support cutting, bounces and final outcomes
+are outside this check. Matching orders do not guarantee successful moves.
+
+PolicyProposalExperimentApp compares UNIFORM, PLAUSIBLE, FULL_UNIFORM, LEARNED,
+and HYBRID. The hybrid is an engineering comparison, not the Diplodocus network.
+The first two retain their convoy-free proposals and inserted all-hold action.
+FULL_UNIFORM uses zero-weight LinearMovementPolicy over the full legal catalog,
+with the same sampler as LEARNED. This controls for the larger convoy-capable
+action space when assessing the learned proposal. HYBRID uses learned and
+plausible children with the same individual budgets and seeds as those controls.
+It may construct twice as many candidates before selecting its retained pool.
+Its generation work is larger even when search and fresh-evaluation work match.
+Every pool is rescored under the same supplied anchor, including the legacy
+methods. This is a proposal comparison, not a replay of old agent defaults.
+The loaded proposal model scores every printed action for likelihood comparison;
+that column does not describe how a heuristic constructed its candidate.
+
+Each method gets the same pool/search seeds, candidate limit and iteration
+budget. DiL-piKL returns AVERAGE under the existing PaperSearchProfile.
+The continuation policy stays convoy-free uniform with fixed count/seed,
+using SUM_OF_SQUARES at the first winter boundary. All processors use JUDGE,
+one trial and seed zero. No real move is submitted or stored.
+
+Independent full-anchor opponent samples are drawn once and reused across
+all methods and alternatives. They are not drawn from truncated candidate
+pools or either solve's learned opponent mixture. Fresh search-policy scores
+and paired differences from UNIFORM include opponent-sampling standard errors.
+PLAUSIBLE and subsequent methods also report differences from PLAUSIBLE;
+HYBRID additionally reports its difference from LEARNED. Each paired error is
+computed from per-sample differences, not by subtracting separate errors.
+Mixture errors are computed per shared sample, preserving action covariance.
+These estimates depend on the fixed pools, search, weak continuations and
+rollout seed; they are not win rates or equilibrium certificates. best_in_pool
+is selected on those same samples and is optimistic. Raw Q is not a comparable
+fresh score across solves. The experiment does not tune against test data.
+
+OPENING is the standard Spring 1901 board. CONTACT is a constructed Fall 1902
+board with armies in contact and fleets at sea; it is not a historical replay.
+Both are independent of the training dataset. --power filters tables only;
+all powers are searched and evaluated. Actual pool sizes, proposal draws,
+duplicates, root evaluation counts, model hashes and timings are printed.
+Hybrid child availability and selection counts accompany each power's pool.
+Each candidate has own-support and own-convoy mismatch counts. Pool summaries
+count actions with each kind, their union, and search mass assigned to that union.
+Short pools use fewer evaluations, and budgets are not wall-time matched.
+Generation timing excludes loading and shared reference-policy preparation.
+
+Run _app.PolicyProposalExperimentApp from the repository root after compiling.
+VM option: -Xmx2G -Xms1G. No JDBC driver or training JSONL files are needed.
+Opening program arguments:
+  --proposal-model data/movement-linear-v1/policy.bin --position opening --candidates 8 --iterations 16 --rollouts 1 --rollout-candidates 8 --opponent-samples 16 --pool-seed 7 --search-seed 7 --rollout-seed 7 --opponent-seed 17
+Repeat with --position contact, keeping the other settings fixed.
+--anchor-model defaults to the proposal path; specify it separately when
+comparing an improving proposal with a frozen human model.
+Use --power france for shorter tables without changing the experiment's work.
+Do not compare a proposal model's likelihood with another anchor's likelihood
+as though they measured the same policy.
+
+Send both complete console outputs as hybrid-opening.txt and
+hybrid-contact.txt, from BEGIN through END. Keep the frozen policy.bin,
+training.json and test.json unchanged. No further training or test evaluation
+is required for this experiment. Current game launchers keep their old defaults.
+Run testing.selfcheck.PolicyActionGeneratorSelfCheck for generator, probability,
+scope, phase-fallback, budget and repeatable experiment checks.
+Run testing.selfcheck.HybridActionGeneratorSelfCheck for reservations, overlaps,
+short pools, full-anchor scores, scoped coasts and own-order coordination checks.
