@@ -10,8 +10,9 @@ The Java cache specification is described in `src/agents/encoding/neural.txt`.
 py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r neural\requirements.txt
 .venv\Scripts\python -m neural.test_neural --spec data/movement-neural-cache-v1/specification.json
-.venv\Scripts\python -m neural.train --cache data/movement-neural-cache-v1 --verify-only
-.venv\Scripts\python -m neural.train --cache data/movement-neural-cache-v1 --output data/movement-gru-v1 --epochs 3 --hidden 128 --batch-size 32 --max-options 16384 --bucket-window 256 --learning-rate 0.001 --seed 7 --validation-samples 4 --threads 4
+.venv\Scripts\python -m neural.test_verbose --spec data/movement-neural-cache-v1/specification.json
+.venv\Scripts\python -m neural.train --cache data/movement-neural-cache-v1 --verify-only -v
+.venv\Scripts\python -m neural.train --cache data/movement-neural-cache-v1 --output data/movement-gru-v1 --epochs 3 --hidden 128 --batch-size 32 --max-options 16384 --bucket-window 256 --learning-rate 0.001 --seed 7 --validation-samples 4 --threads 4 -v
 ```
 
 On Linux/macOS, create the environment with `python3.12 -m venv .venv`
@@ -32,6 +33,31 @@ The self-check creates small temporary caches using your specification. It
 does not read your game shards. It covers malformed caches, coast options,
 batch coverage, causal decoding, joint-order learning, checkpoint selection,
 and training with deliberately damaged TEST files.
+
+## Verbose console
+
+Add `-v` or `--verbose` to training or `--verify-only`. It prints stage starts,
+progress about every two seconds at example/batch boundaries, and completion
+lines. Cache verification, initial validation, each training epoch and each
+validation pass have separate counters. Percentages, elapsed time, throughput
+and approximate ETA describe the current pass, not the whole job.
+
+Verbose training also reports the running online NLL, model/batch settings,
+sampling diagnostics, timing breakdowns and checkpoint decisions. It does not
+change random seeds, model settings, data selection or checkpoint selection.
+Without `-v`, the original brief output remains.
+
+Color is enabled for supported interactive terminals, including Windows consoles
+with virtual-terminal processing. Redirected output is plain text, with one
+update per line and no cursor animation. Unsupported consoles also use plain
+text. Set `NO_COLOR` to disable color while keeping verbose output; in PowerShell:
+
+```powershell
+$env:NO_COLOR = "1"
+```
+
+The verbose self-check covers progress throttling, color selection and identical
+quiet/verbose model weights and validation metrics.
 
 ## Data path
 

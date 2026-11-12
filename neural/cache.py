@@ -10,6 +10,8 @@ import time
 
 import numpy as np
 
+from .progress import Progress
+
 
 SPEC_HASH = "94994ea85911c4f7f8e5b904558e9ed345d639dc4f4d9fb93edb76189fa91ba7"
 SPLITS = ("TRAIN", "VALIDATION", "TEST")
@@ -102,8 +104,10 @@ class _Mapped:
 class Cache:
     """Verify selected splits once; copy examples out of at most two open shards."""
 
-    def __init__(self, root, splits=("TRAIN", "VALIDATION")):
+    def __init__(self, root, splits=("TRAIN", "VALIDATION"), progress=None):
         start = time.perf_counter()
+        progress = Progress() if progress is None else progress
+        progress.message("CACHE", "Reading the manifest and frozen input specification.")
         self.root = Path(root).resolve()
         self.maps = OrderedDict()
         self.signatures = {}
@@ -175,7 +179,9 @@ class Cache:
         identities = set()
         for split in self.selected:
             records = []
+            verified_shards = 0
             max_units = max_options = 0
+            progress.start("CACHE", f"Verify {split}", self.split_info[split]["examples"])
             for shard_id, (name, shard) in enumerate(self.shards):
                 if name != split:
                     continue
@@ -201,11 +207,14 @@ class Cache:
                         records.append((shard_id, row, units, options))
                         max_units = max(max_units, units)
                         max_options = max(max_options, int(example.counts.max()))
+                        progress.update(len(records), shard["directory"])
                 finally:
                     mapped.close()
+                verified_shards += 1
             require(max_units == self.split_info[split]["max_units"]
                     and max_options == self.split_info[split]["max_options_per_slot"], f"Incorrect maxima: {split}")
             self.indices[split] = np.asarray(records, dtype=np.int64).reshape(-1, 4)
+            progress.finish(f'{verified_shards} shards; {self.split_info[split]["options"]:,} legal options')
         self.verification_seconds = time.perf_counter() - start
 
     def _geometry(self):

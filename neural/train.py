@@ -15,6 +15,7 @@ import torch
 
 from .cache import Cache, SPEC_HASH, digest, integer, require
 from .model import Batch, MODEL_SCHEMA, MovementGRU, coordination, sampled_actions, segment_argmax
+from .progress import Progress, duration
 
 
 @dataclass(frozen=True)
@@ -112,9 +113,12 @@ def summarize(rows):
 
 
 @torch.no_grad()
-def evaluate(model, cache, settings):
+def evaluate(model, cache, settings, progress=None, label="Validation"):
+    progress = Progress() if progress is None else progress
     model.eval()
     start = time.perf_counter()
+    progress.start("VALID", f"{label} ({settings.validation_samples} samples/example)",
+                   cache.split_info["VALIDATION"]["examples"])
     generator = torch.Generator(device=settings.device).manual_seed(settings.seed + 10000)
     all_rows, powers, communications = [], {}, {}
     for examples in cache.batches("VALIDATION", settings.batch_size, settings.max_options, window=settings.bucket_window):
@@ -152,7 +156,9 @@ def evaluate(model, cache, settings):
             power = cache.spec["powers"][int(example.context[0])]
             powers.setdefault(power, []).append(row)
             communications.setdefault(example.metadata["communication_type"], []).append(row)
+        progress.update(len(all_rows))
     require(len(all_rows) == cache.split_info["VALIDATION"]["examples"] and all_rows, "Incomplete validation pass")
+    progress.finish()
     return {
         "split": "VALIDATION", "samples_per_example": settings.validation_samples,
         "overall": summarize(all_rows), "by_power": {key: summarize(rows) for key, rows in powers.items()},
@@ -162,7 +168,8 @@ def evaluate(model, cache, settings):
     }
 
 
-def fit(cache, output, settings):
+def fit(cache, output, settings, progress=None):
+    progress = Progress() if progress is None else progress
     require(cache.selected == ("TRAIN", "VALIDATION"), "Training requires only TRAIN and VALIDATION")
     require(settings.device != "cuda" or torch.cuda.is_available(), "CUDA was requested but is unavailable")
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -176,8 +183,16 @@ def fit(cache, output, settings):
     output = Path(output)
     output.mkdir()
     model = MovementGRU(cache.spec, settings.hidden).to(settings.device)
+    progress.message("INFO", f'Model: {sum(p.numel() for p in model.parameters()):,} parameters | '
+                     f'{settings.device} | {settings.threads} CPU threads | seed {settings.seed}')
+    progress.message("INFO", f'TRAIN: {cache.split_info["TRAIN"]["examples"]:,} examples | '
+                     f'VALIDATION: {cache.split_info["VALIDATION"]["examples"]:,} examples')
+    progress.message("INFO", f'Batch bounds: {settings.batch_size} examples / {settings.max_options:,} options | '
+                     f'learning rate {settings.learning_rate:g}')
     optimizer = torch.optim.AdamW(model.parameters(), lr=settings.learning_rate, weight_decay=settings.weight_decay)
-    initial = evaluate(model, cache, settings)
+    initial = evaluate(model, cache, settings, progress, "Initial validation")
+    progress.message("VALID", f'Untrained baseline: NLL {initial["overall"]["order_nll"]:.6f}; '
+                     f'order accuracy {initial["overall"]["teacher_forced_order_accuracy"]:.2%}')
     report = {
         "schema": "jreferee-gru-training-v1", "complete": False, "test_evaluated": False,
         "model_schema": MODEL_SCHEMA, "specification_sha256": SPEC_HASH,
@@ -193,6 +208,7 @@ def fit(cache, output, settings):
     best_loss = float("inf")
     for epoch in range(1, settings.epochs + 1):
         model.train()
+        progress.start("TRAIN", f"Epoch {epoch}/{settings.epochs}", cache.split_info["TRAIN"]["examples"])
         start, nll, examples_seen, orders_seen = time.perf_counter(), 0.0, 0, 0
         ready, read_seconds, batch_seconds = start, 0.0, 0.0
         for examples in cache.batches("TRAIN", settings.batch_size, settings.max_options,
@@ -212,11 +228,15 @@ def fit(cache, output, settings):
             nll += loss_sum.detach().item()
             examples_seen += len(examples)
             orders_seen += orders
+            progress.update(examples_seen, f"online NLL {nll / orders_seen:.4f}")
             ready = time.perf_counter()
         elapsed = time.perf_counter() - start
         require(examples_seen == cache.split_info["TRAIN"]["examples"]
                 and orders_seen == cache.split_info["TRAIN"]["slots"], "Incomplete training epoch")
-        validation = evaluate(model, cache, settings)
+        progress.finish(f"online NLL {nll / orders_seen:.4f}")
+        progress.message("INFO", f'Epoch time: reading {duration(read_seconds)} | '
+                         f'batching {duration(batch_seconds)} | compute {duration(elapsed - read_seconds - batch_seconds)}')
+        validation = evaluate(model, cache, settings, progress, f"Epoch {epoch} validation")
         loss = validation["overall"]["order_nll"]
         report["epochs"].append({"epoch": epoch, "online_order_nll": nll / orders_seen,
                                  "examples": examples_seen, "orders": orders_seen,
@@ -225,23 +245,32 @@ def fit(cache, output, settings):
                                  "compute_seconds": elapsed - read_seconds - batch_seconds,
                                  "validation": validation})
         if loss < best_loss:
+            progress.message("SAVE", f"New best validation NLL {loss:.6f}; saving epoch {epoch}.")
             best_loss = loss
             save_policy(output / "policy.pt", model, cache, epoch)
             report["best_epoch"] = epoch
+        else:
+            progress.message("SAVE", f'Keeping epoch {report["best_epoch"]}; best validation NLL {best_loss:.6f}.')
         atomic_json(output / "training.json", report)
         metrics = validation["overall"]
-        print(f'Epoch {epoch}: online NLL {nll / orders_seen:.6f}; validation NLL {loss:.6f}; '
-              f'order accuracy {metrics["teacher_forced_order_accuracy"]:.4f}; '
-              f'sampled mismatch {metrics["sampled_mismatch_rate"]:.4f}', flush=True)
+        progress.summary("EPOCH", f'Epoch {epoch}: online NLL {nll / orders_seen:.6f}; validation NLL {loss:.6f}; '
+                         f'order accuracy {metrics["teacher_forced_order_accuracy"]:.4f}; '
+                         f'sampled mismatch {metrics["sampled_mismatch_rate"]:.4f}')
+        progress.message("VALID", f'Observed-action coverage@{settings.validation_samples}: '
+                         f'{metrics["observed_action_coverage_at_k"]:.2%} | '
+                         f'distinct samples/example {metrics["mean_distinct_samples"]:.2f} | '
+                         f'own support mismatches {metrics["bad_supports"]}/{metrics["own_supports"]} | '
+                         f'own convoy mismatches {metrics["bad_convoys"]}/{metrics["own_convoys"]}')
+    progress.message("SAVE", "Reloading the selected checkpoint and checking its tensors.")
     loaded, payload = load_policy(output / "policy.pt", cache.spec)
     require(payload["epoch"] == report["best_epoch"], "Saved checkpoint is not the selected epoch")
     report["model_sha256"] = digest(output / "policy.pt")
     report["complete"] = True
     atomic_json(output / "training.json", report)
-    print(f'Saved validation-selected epoch {report["best_epoch"]} to {output / "policy.pt"}')
+    progress.summary("DONE", f'Saved validation-selected epoch {report["best_epoch"]} to {output / "policy.pt"}')
     if best_loss >= initial["overall"]["order_nll"]:
-        print("WARNING: no trained epoch improved on the initial validation NLL.")
-    print("Test was not opened. Keep policy.pt and send training.json plus this console output.")
+        progress.summary("WARN", "WARNING: no trained epoch improved on the initial validation NLL.")
+    progress.summary("INFO", "Test was not opened. Keep policy.pt and send training.json plus this console output.")
     return loaded, report
 
 
@@ -250,6 +279,8 @@ def main(argv=None):
     parser.add_argument("--cache", type=Path, default=Path("data/movement-neural-cache-v1"))
     parser.add_argument("--output", type=Path, default=Path("data/movement-gru-v1"))
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Show colored stage progress, throughput, ETA and model diagnostics")
     defaults = Settings()
     for name in ("epochs", "hidden", "batch_size", "max_options", "bucket_window", "seed", "validation_samples", "threads"):
         parser.add_argument("--" + name.replace("_", "-"), type=int, default=getattr(defaults, name))
@@ -258,12 +289,15 @@ def main(argv=None):
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     args = parser.parse_args(argv)
     settings = Settings(**{key: getattr(args, key) for key in asdict(defaults)})
-    with Cache(args.cache) as cache:
-        print(f"Verified TRAIN and VALIDATION in {cache.verification_seconds:.3f} seconds.", flush=True)
-        print(f"Dataset SHA-256={cache.manifest['dataset_index_sha256']}", flush=True)
-        print(f"Specification SHA-256={SPEC_HASH}", flush=True)
+    progress = Progress(args.verbose)
+    progress.message("INFO", "JReferee | The orders room")
+    progress.message("INFO", f"Opening {args.cache}. Export filters stay unchanged; TEST stays unopened.")
+    with Cache(args.cache, progress=progress) as cache:
+        progress.summary("DONE", f"Verified TRAIN and VALIDATION in {cache.verification_seconds:.3f} seconds.")
+        progress.summary("INFO", f"Dataset SHA-256={cache.manifest['dataset_index_sha256']}")
+        progress.summary("INFO", f"Specification SHA-256={SPEC_HASH}")
         if not args.verify_only:
-            fit(cache, args.output, settings)
+            fit(cache, args.output, settings, progress)
 
 
 if __name__ == "__main__":
