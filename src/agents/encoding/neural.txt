@@ -4,14 +4,15 @@ NeuralMovementSpec defines jreferee-neural-movement-v1.
 NeuralMovementEncoding converts MovementInput directly, without JSON or label
 parsing. The same adapter accepts stored examples and live movement catalogs.
 Existing movement-v2 labels, local indices and masks remain unchanged.
-No neural model, optimizer or inference runtime is introduced in this step.
+The Python reader and supervised GRU trainer are documented in neural/README.md.
+The Java encoder has no PyTorch dependency. Java neural inference is separate work.
 
 Vocabulary and map
 ------------------
 specification.json contains ordered vocabularies. Their list positions are IDs.
 They are explicitly named in source; Java enum ordinals are never serialized.
 Changing IDs, fields, transforms or map semantics requires a new neural schema.
-The exact specification SHA-256 must accompany each future model as well.
+The exact specification SHA-256 accompanies each model as well.
 
 Location 0 is NONE. IDs 1..81 cover the standard map including six exact coasts.
 There are 75 board rows, in specification.board_locations order. Coast children
@@ -89,7 +90,7 @@ Press and unknown labels remain included when the original export includes them.
 The cache is derived data. Keep the JSONL export and frozen linear model.
 All TRAIN, VALIDATION and TEST rows are converted, including test bytes, but
 conversion does not fit a model or compute policy/coordination metrics on test.
-The later trainer must open only TRAIN and VALIDATION for model selection.
+The Python trainer opens only TRAIN and VALIDATION for model selection.
 No new source-game export is needed.
 
 Layout
@@ -130,9 +131,9 @@ refer back to the original export; source result metadata is not copied.
 
 No dictionary or padding is required in this version: each option occupies five
 bytes regardless of its printed label length. This bounds working memory without
-a corpus-sized vocabulary scan. A later reader can memory-map arrays and pad
-only similarly sized examples within a batch. Padding receives no probability
-or loss; do not evaluate a softmax over an all-padding slot.
+a corpus-sized vocabulary scan. The Python reader memory-maps arrays and groups
+similarly sized examples. The GRU uses packed options at each step, without
+padding. Each active slot has its own softmax segment.
 
 Bounds and failures
 -------------------
@@ -148,7 +149,7 @@ closed and every source split reaches verified EOF. A failure leaves partial
 files but no completed manifest. Do not load or merge an incomplete directory.
 Existing outputs are never overwritten, resumed or silently removed.
 
-Future readers must check schemas/specification hash, dtype/shapes, file hashes,
+Readers must check schemas/specification hash, dtype/shapes, file hashes,
 monotone offsets, terminal counts, ID ranges and target bounds before training.
 Model artifacts must bind to the exact input specification. Python/Java golden
 fixtures must agree on encoded arrays and conditional probabilities.
@@ -165,4 +166,4 @@ No JDBC driver, PyTorch or neural inference dependency is required.
 Run testing.selfcheck.NeuralMovementSelfCheck with no arguments.
 Send its completion line, the complete cache console output, manifest.json and
 specification.json. Keep the numeric shards locally; do not upload the dataset.
-Next implementation: a strict Python cache reader/batcher and the supervised GRU.
+Continue with the Python commands in neural/README.md after creating the cache.
