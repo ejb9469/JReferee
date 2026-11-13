@@ -129,6 +129,119 @@ directory must be new; failures leave incomplete artifacts for inspection.
 `training.json` becomes complete only after the selected checkpoint reloads.
 
 Send `training.json` and the console output. Keep `policy.pt` locally.
-This checkpoint cannot yet replace the Java linear `policy.bin`. The next
-integration is a Java inference adapter and cross-language conditional-probability
-parity, followed by the existing proposal/search experiments.
+
+## Java export
+
+Export the selected checkpoint without retraining or regenerating the cache:
+
+```powershell
+.venv\Scripts\python.exe -m neural.test_export --spec data/movement-neural-cache-v1/specification.json
+.venv\Scripts\python.exe -m neural.export --checkpoint data/movement-gru-v1/policy.pt --output data/movement-gru-java-v1 --cache data/movement-neural-cache-v1 --examples 32
+```
+
+The output directory must be new and its parent must exist. Export runs on CPU
+with one thread. It verifies the checkpoint's architecture, tensors and exact
+specification. With `--cache`, it verifies only VALIDATION payloads and requires
+the original cache-manifest and dataset-index hashes from training. TRAIN and
+TEST payloads remain unopened. No training or evaluation metrics are computed.
+
+Omitting `--cache` exports only built-in parity cases. With the cache, up to
+`--examples` evenly spaced validation records are added (default 32, range
+1..256). Built-in cases cover all powers, coast choices, support/convoy fields,
+different prefixes, zero units, singleton masks and an 18-unit position.
+Each case records observed/default, last-option, greedy and seeded-sample paths,
+deduplicated when they coincide. Every conditional distribution along each
+path is retained. Player identities and source metadata are excluded.
+
+The directory contains:
+
+| File | Contents |
+|---|---|
+| `model.bin` | Frozen float32 parameters and model/input identities |
+| `parity.bin` | Numeric positions, paths and Python conditional log probabilities |
+| `export.json` | Completion receipt, original checkpoint hash, counts and file hashes |
+
+`export.json` is written last. A failed export leaves incomplete artifacts for
+inspection; use a new directory after correcting the failure. Keep the original
+`policy.pt`, training report, cache and frozen linear `policy.bin`.
+The receipt's `checkpoint_sha256` must equal the selected checkpoint hash in
+`training.json`.
+
+The binary schema is `jreferee-gru-java-v1`. All multibyte values are big-endian;
+the numeric cache remains little-endian. Both binaries end with a 32-byte
+SHA-256 of their preceding bytes. Receipt file hashes cover the entire files,
+including those trailers. Java rejects files larger than 64 MiB, incompatible
+specifications, wrong tensor names/shapes, nonfinite weights and trailing data.
+
+## Java inference and parity
+
+Rebuild JReferee, then run `testing.selfcheck.GruPolicySelfCheck` with the
+repository root as working directory, `-Xmx2G -Xms1G` as VM option(s) and this argument:
+
+```text
+data/movement-gru-java-v1
+```
+
+The self-check confirms numeric-encoder agreement, every exported conditional,
+complete-action scores, separated greedy maxima, arbitrary prefix calls,
+seeded Java sampling, restricted masks, live catalog legality and malformed
+model rejection. It also reports preparation/greedy and prepared sample/score
+timings using the exported position with the most options. These are local
+warm-up measurements, not a standardized benchmark.
+
+Java uses double arithmetic on the exported float32 weights. Conditional
+log probabilities must differ by at most `2e-4`; joint scores use that tolerance
+times the number of slots. Near-tied greedy choices may differ. Python uses
+Gumbel-max sampling and Java uses inverse-CDF sampling, so matching random
+seeds do not imply matching sampled actions across languages.
+
+`GruMovementPolicy` implements the existing `MovementPolicy` interface:
+
+```java
+var policy = GruMovementPolicy.load(Path.of("data/movement-gru-java-v1/model.bin"));
+var encoding = new MovementEncoding(root, power);
+var prepared = policy.prepare(encoding.input());
+var action = prepared.sample(new Random(7));
+var orders = encoding.decode(action);
+double logProbability = prepared.logProbability(action);
+```
+
+Load the model once. Each prepared position retains its board and option
+representations and can be reused for sampling and scoring. Prefix queries
+replay the supplied prefix; complete-action methods advance sequentially.
+Weights and prepared positions are immutable. Share neither a mutable random
+generator nor external game mutations across concurrent calls.
+
+Java inference needs no PyTorch installation or additional Java dependency.
+It preserves every supplied option and performs no coordination repair.
+This remains a movement policy; retreats and adjustments are unchanged.
+
+## Controlled proposal experiment
+
+Run `_app.PolicyProposalExperimentApp` from the repository root with `-Xmx512m`.
+For the opening position, use:
+
+```text
+--proposal-model data/movement-linear-v1/policy.bin --anchor-model data/movement-linear-v1/policy.bin --gru-model data/movement-gru-java-v1/model.bin --position opening
+```
+
+Repeat with `--position contact`. Keep the existing default budgets and seeds.
+Without `--gru-model`, the original five methods run unchanged. With it, `GRU`
+and `GRU_HYBRID` are added. The hybrid reserves half its places for neural draws
+and half for heuristics; an odd extra place goes to the neural side.
+
+All seven methods use the frozen full-catalog linear anchor, common fresh
+opponent draws and unchanged rollout policy. The GRU changes proposals only.
+`log_learned_proposal` remains the linear model's action score; the added
+`log_gru_proposal` scores every method's candidates under the GRU. Neither
+column describes the hybrid's selection probability. Candidate deduplication
+and hybrid selection do not redefine the full-policy probabilities.
+
+With full pools and default settings, each method makes 800 search and 896
+fresh root-evaluation requests. Short pools are reported explicitly.
+Additional paired comparisons cover GRU versus LEARNED, and GRU_HYBRID versus
+LEARNED, HYBRID and GRU. These fixture-board estimates are not full-game strength
+measurements, and no dataset TEST split is opened.
+
+Send `export.json`, the complete `GruPolicySelfCheck` output, and both experiment
+outputs. Keep the model binaries, parity fixtures and dataset shards locally.

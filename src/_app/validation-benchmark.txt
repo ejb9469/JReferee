@@ -1,0 +1,116 @@
+REAL VALIDATION PROPOSAL BENCHMARK
+
+Entry point: _app.ValidationProposalBenchmarkApp
+Requires the previously delivered Java GRU and paired fixture benchmark.
+
+The default selects up to two boards in each of 18 cells:
+  spring/fall movement;
+  early (1901-1903), middle (1904-1907), late (1908 onward);
+  largest living power's unit count: 1-4, 5-8, 9+.
+Different games supply the two boards within a cell. A game can appear in
+several cells. Unavailable cells remain empty and are reported explicitly.
+Three paired seed repetitions are run for every selected board: at most
+108 board-seed experiments, each with all seven proposal methods.
+
+Use the original completed v4 movement export, not the numeric cache:
+
+  --dataset data/training-movement-v4
+  --proposal-model data/movement-linear-v1/policy.bin
+  --anchor-model data/movement-linear-v1/policy.bin
+  --gru-model data/movement-gru-java-v1/model.bin
+  --per-stratum 2 --selection-seed 7 --runs 3 --seed 7
+  --output data/movement-validation-benchmark-v1
+
+The output directory must not already exist. These defaults retain eight
+candidates, 16 search iterations, one rollout, eight rollout candidates
+and 16 fresh opponent samples. The full run can take substantially longer
+than the earlier two-fixture benchmark. Each board-seed start is printed.
+Keep the checkpoint, linear anchor, hybrid quotas and budgets unchanged.
+
+Selection can be inspected and frozen before running any models:
+
+  --dataset data/training-movement-v4 --select-only
+  --per-stratum 2 --selection-seed 7
+  --output data/movement-validation-positions-v1
+
+Then run the same entry point with:
+
+  --positions data/movement-validation-positions-v1/positions.json
+  --proposal-model data/movement-linear-v1/policy.bin
+  --anchor-model data/movement-linear-v1/policy.bin
+  --gru-model data/movement-gru-java-v1/model.bin
+  --runs 3 --seed 7 --output data/movement-validation-benchmark-v1
+
+--positions cannot be combined with --dataset, --per-stratum or
+--selection-seed. It does not reopen any dataset payload. --select-only
+does not load models. Budget and repetition arguments are still validated.
+
+SELECTION
+
+Only VALIDATION examples are read, through verified EOF. TRAIN and TEST
+payloads are never opened. Dataset metadata and game-index hashes are
+retained, and the GRU's training dataset identity must match. No observed
+orders, outcomes or model scores determine selection.
+
+Power examples from the same source game/moment become one public board.
+Conflicting boards, duplicate power examples and inconsistent labels fail.
+Pre-1901 positions, solo-threshold boards and boards with fewer than two
+living powers are excluded. Press and unknown communication labels remain.
+
+The rank is SHA-256 of seed, source, game, year and phase, separated by
+newlines. Each game contributes its lowest-ranked board per cell; the
+lowest-ranked game representatives fill the cell quota. Games with more
+eligible moments have more opportunities for a low rank. This is a
+reproducible coverage/stress sample, not a population-representative sample.
+
+Memory retains current-game boards, bounded selected boards and visited
+game identities; it does not retain the corpus of legal masks. Exported
+masks are checked against regenerated masks for selected examples.
+
+Saved positions contain exact unit coasts, center ownership, moment and
+source-game identity. Unit IDs are reconstructed deterministically from
+owner/type/current location. They do not reconstruct original build history.
+Legal catalogs and inference use the restored current position.
+
+REPORTS
+
+positions.json: frozen boards, selection settings, hashes and coverage.
+seeds.csv: paired random streams, shared across methods and positions.
+observations.csv: every living power/method/board/repetition measurement.
+work.csv: timing, requests and failures for every method/board/repetition.
+games.csv: per-source-game fresh means, board counts and board-seed counts.
+summary.csv: equal-game-weighted estimates and source-game standard errors.
+paired.csv: all 21 paired method comparisons, with source-game errors.
+run-NNNN.txt: detailed candidate and evaluation output.
+benchmark.json: completion receipt and artifact hashes, written last.
+An interrupted or failed run has no completed benchmark.json.
+
+For ALL, first average living powers within each board/repetition, then
+average selected boards and repetitions within a source game, then give
+each source game equal weight. Per-power estimates include only positions
+where that power is alive. A power with centers but no units is still alive
+and has one empty action. Eliminated powers are excluded.
+
+The standard error is the sample standard deviation of game means divided
+by sqrt(game count). Paired errors use differences of the same game means.
+Single-game groups have an empty error field. Opponent-sample errors in
+raw observations are separate from source-game uncertainty. Repeated seeds,
+powers and boards from one game are not independent game observations.
+Counter columns are totals; generation means are equal-game weighted.
+ALL generation time covers all living powers' pools for that method.
+Short pools can be unavoidable, especially for a center-only power.
+
+These are controlled proposal diagnostics with the existing short-horizon
+rollout evaluator, not win rates. Comparisons are unadjusted; small groups
+are noisy. The sample is from the validation split used for model selection.
+TEST stays held out. No defaults or checkpoints are promoted automatically.
+
+Self-check:
+  testing.selfcheck.ValidationBenchmarkSelfCheck
+Optional program arguments exercise the arbitrary-root experiment:
+  data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin
+
+For comparison, retain benchmark.json, positions.json, summary.csv,
+paired.csv and games.csv. Raw observations/work allow a complete audit.
+ValidationPositions.load provides reusable public boards for the later
+ranked-proposal API and visualizer; those interfaces are not added here.

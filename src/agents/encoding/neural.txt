@@ -4,8 +4,8 @@ NeuralMovementSpec defines jreferee-neural-movement-v1.
 NeuralMovementEncoding converts MovementInput directly, without JSON or label
 parsing. The same adapter accepts stored examples and live movement catalogs.
 Existing movement-v2 labels, local indices and masks remain unchanged.
-The Python reader and supervised GRU trainer are documented in neural/README.md.
-The Java encoder has no PyTorch dependency. Java neural inference is separate work.
+The Python reader, GRU trainer and Java export are documented in neural/README.md.
+GruMovementPolicy uses this encoder for inference. Neither needs PyTorch in Java.
 
 Vocabulary and map
 ------------------
@@ -111,7 +111,7 @@ E, S and C below are the shard's example, slot and option counts.
   example_offsets.u64 uint64 LE[E+1]     (E+1)*8 bytes; boundaries into slots
   slot_locations.u8   uint8    [S]       S bytes
   option_offsets.u64  uint64 LE[S+1]     (S+1)*8 bytes; boundaries into options
-  options.u8          uint8    [C,5]     C*5 bytes
+  options.u8          uint8    [C,5]     C*5 bytes; structured fields
   targets.i32         int32 LE [S]       S*4 bytes; LOCAL observed indices
   metadata.jsonl      UTF-8    E rows; source, game_key, communication_type
 
@@ -158,7 +158,7 @@ Running
 -------
 Main class: _app.NeuralCacheApp
 Working directory: repository root
-VM option: -Xmx512m
+VM option: -Xmx2G -Xms1G
 Program arguments:
   --dataset data/training-movement-v4 --output data/movement-neural-cache-v1 --shard-examples 4096 --shard-options 1000000 --token-cache 32768
 

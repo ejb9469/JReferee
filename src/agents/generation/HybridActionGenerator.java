@@ -39,7 +39,13 @@ public final class HybridActionGenerator implements ActionGenerator {
 
     public record Result(List<ActionCandidate> candidates, int target,
                          int learnedAvailable, int heuristicAvailable,
-                         int learnedSelected, int heuristicSelected, int overlap) {
+                         int learnedSelected, int heuristicSelected, int overlap,
+                         Long learnedSamples, Long learnedDuplicates) {
+        public Result(List<ActionCandidate> candidates, int target, int learnedAvailable, int heuristicAvailable,
+                      int learnedSelected, int heuristicSelected, int overlap) {
+            this(candidates, target, learnedAvailable, heuristicAvailable, learnedSelected, heuristicSelected,
+                    overlap, null, null);
+        }
         public Result {
             candidates = List.copyOf(candidates);
             if (target < 1 || target > PolicyActionGenerator.MAX_CANDIDATES
@@ -50,7 +56,9 @@ public final class HybridActionGenerator implements ActionGenerator {
                     || candidates.size() != learnedSelected + heuristicSelected
                     || candidates.size() > target || overlap < 0
                     || overlap > Math.min(learnedAvailable, heuristicAvailable)
-                    || candidates.size() != Math.min(target, learnedAvailable + heuristicAvailable - overlap))
+                    || candidates.size() != Math.min(target, learnedAvailable + heuristicAvailable - overlap)
+                    || (learnedSamples == null) != (learnedDuplicates == null)
+                    || learnedSamples != null && (learnedDuplicates < 0 || learnedSamples != learnedAvailable + learnedDuplicates))
                 throw new IllegalArgumentException("Invalid hybrid counts");
         }
         public int learnedQuota() { return (target + 1) / 2; }
@@ -85,9 +93,10 @@ public final class HybridActionGenerator implements ActionGenerator {
         for (var unit : catalog.unitLocations().keySet())
             target = (int) Math.min(limit, (long) target * catalog.optionsFor(unit).size());
         var childRequest = new ActionGenerationRequest(request.state(), request.power(), target, request.seed());
-        var first = child(learned, childRequest, catalog, encoding);
+        var learnedPool = child(learned, childRequest, catalog, encoding);
+        var first = learnedPool.candidates();
         var second = target == 1 && !first.isEmpty()
-                ? List.<ActionCandidate>of() : child(heuristic, childRequest, catalog, encoding);
+                ? List.<ActionCandidate>of() : child(heuristic, childRequest, catalog, encoding).candidates();
         Set<Set<OrderForm>> firstKeys = new HashSet<>();
         first.forEach(candidate -> firstKeys.add(Set.copyOf(candidate.orders())));
         int overlap = (int) second.stream().filter(candidate -> firstKeys.contains(Set.copyOf(candidate.orders()))).count();
@@ -104,14 +113,18 @@ public final class HybridActionGenerator implements ActionGenerator {
         for (ActionCandidate candidate : selected)
             anchored.add(new ActionCandidate(candidate.power(), candidate.orders(),
                     prepared.logProbability(encoding.encode(candidate.orders())), candidate.source()));
-        return new Result(anchored, target, first.size(), second.size(), learnedSelected, heuristicSelected, overlap);
+        return new Result(anchored, target, first.size(), second.size(), learnedSelected, heuristicSelected, overlap,
+                learnedPool.samples(), learnedPool.duplicates());
     }
 
-    private static List<ActionCandidate> child(ActionGenerator generator, ActionGenerationRequest request,
-                                               LegalOrderCatalog catalog, MovementEncoding encoding) {
-        List<ActionCandidate> candidates = List.copyOf(generator instanceof PolicyActionGenerator policy
-                && catalog == encoding.catalog() ? policy.propose(request, encoding).candidates()
-                : generator.generate(request, catalog));
+    private record Child(List<ActionCandidate> candidates, Long samples, Long duplicates) { }
+
+    private static Child child(ActionGenerator generator, ActionGenerationRequest request,
+                               LegalOrderCatalog catalog, MovementEncoding encoding) {
+        PolicyActionGenerator.Result sampled = generator instanceof PolicyActionGenerator policy
+                ? catalog == encoding.catalog() ? policy.propose(request, encoding) : policy.propose(request, catalog) : null;
+        List<ActionCandidate> candidates = List.copyOf(sampled == null
+                ? generator.generate(request, catalog) : sampled.candidates());
         if (candidates.size() > request.candidateLimit())
             throw new IllegalStateException("Hybrid child exceeded its candidate limit");
         CatalogActionValidator validator = new CatalogActionValidator();
@@ -125,7 +138,7 @@ public final class HybridActionGenerator implements ActionGenerator {
             if (!seen.add(Set.copyOf(candidate.orders())))
                 throw new IllegalStateException("Hybrid child returned a duplicate action");
         }
-        return candidates;
+        return new Child(candidates, sampled == null ? null : sampled.samples(), sampled == null ? null : sampled.duplicates());
     }
 
     private static int take(List<ActionCandidate> source, int count, List<ActionCandidate> selected,
