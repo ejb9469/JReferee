@@ -1,0 +1,57 @@
+JAVA VALUE EXPORT AND PARITY
+
+Keep best.pt and training.json unchanged. This step exports their selected
+checkpoint; it does not retrain, tune or connect a model to live search.
+
+From the repository root:
+  .venv\Scripts\python -m neural.value_export --checkpoint data/value-network-v1/best.pt --training data/value-network-v1/training.json --cache data/value-neural-cache-v2 --output data/value-java-v1 --examples 32
+
+The output directory must be new. The exporter checks the checkpoint hash,
+selected epoch, reward/specification, source dataset and cache identities.
+It reuses the verified value-cache reader. TRAIN and VALIDATION may be read
+for integrity checks, but fixtures use only synthetic and VALIDATION positions.
+No TEST payload is opened. No targets or game identities enter parity.bin.
+
+Files
+-----
+model.bin: JREFVAL1 magic, length-prefixed UTF-8 architecture/model/reward/spec
+strings, four raw SHA-256 identities (spec/checkpoint/dataset/cache), int32 epoch,
+int32 hidden size, int32 parameter count, then named parameter tensors.
+Each tensor has a length-prefixed name, int32 rank/dimensions, float32 data.
+Fields are BIG_ENDIAN, tensors C order. Only named parameters are exported.
+The Java runtime reconstructs static map buffers from the exact specification.
+Both implementations round adjacency normalization and the year feature to
+float32; Java otherwise uses double-precision accumulation and softmax.
+
+parity.bin: JREFVCK1 magic, raw specification/model-file SHA-256, int32 case
+count, followed by fixed-size cases. Each case contains 300 board bytes,
+int32 phase, int32 year and seven float32 PyTorch predictions.
+Both binary files end with a 32-byte SHA-256 of their preceding bytes.
+The model identity is the SHA-256 of the entire sealed model.bin.
+export.json is published last with file hashes and artifact identities.
+Its java_parity_verified=false describes export-time status and is not edited.
+
+Run testing.selfcheck.NeuralValueParitySelfCheck with this argument:
+  data/value-java-v1
+
+The runner requires a completed export receipt and checks its hashes.
+It reconstructs typed BoardState inputs, re-encodes them with the live Java
+encoder, and compares every output against its frozen PyTorch reference.
+Fixtures cover all supported phases, six exact coasts, empty occupancy,
+ownership differing from occupation, a late year and 34-unit occupancy,
+plus evenly spaced positions from the matching VALIDATION cache.
+The fixed tolerance is 2e-5 absolute error per reward share.
+Do not increase the tolerance simply to make a failed comparison pass.
+The runner also checks distribution sums, immutable returned maps, repeated
+calls, unit-identity independence, retreat rejection, malformed containers,
+wrong specifications/dimensions and nonfinite model weights.
+
+NeuralValueModel.predict(moment, board) returns an immutable Nation->Double
+map in the trained seven-power objective. It predicts even for synthetic empty
+boards; it is not terminal scoring. Pending retreats fail explicitly.
+Actual terminal rewards must still come from the existing scoring contract.
+Do not use the model on pending-retreat states or wire it into search yet.
+
+Send the Python export console, export.json and Java parity console.
+Keep model.bin, parity.bin and best.pt locally. On failure, send the full
+exception and stop before evaluator integration.

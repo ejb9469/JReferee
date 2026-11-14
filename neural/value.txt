@@ -1,0 +1,70 @@
+SUPERVISED VALUE MODEL
+
+Run from the repository root using the existing movement-model environment.
+No dependency-manifest change is required: numpy and torch are already used.
+This value model is separate from the movement GRU and never overwrites it.
+
+Windows commands
+----------------
+.venv\Scripts\python -m neural.test_value --spec data/value-neural-cache-v1/specification.json
+.venv\Scripts\python -m neural.value_train --cache data/value-neural-cache-v1 --verify-only
+.venv\Scripts\python -m neural.value_train --cache data/value-neural-cache-v1 --output data/value-network-v1 --epochs 20 --hidden 64 --batch-size 128 --threads 4 --seed 7
+
+Run the self-check and verify-only pass successfully before training.
+The output directory must not exist. Do not resume or append to partial runs.
+CPU only in this first version. Deterministic PyTorch operations are requested;
+bit-identical results across machines/library versions are not guaranteed.
+
+Inputs and verification
+-----------------------
+Only TRAIN and VALIDATION are opened. TEST is neither read nor evaluated.
+The exact Java specification hash is frozen; mismatches fail explicitly.
+The reader verifies file sizes/hashes, IDs, standing-unit geography, exact
+coasts, ownership, chronological game boundaries, offsets and target sums.
+It checks source/key uniqueness across both splits. It cannot deduplicate
+the same real game exported under different provider identities.
+Immutable byte snapshots prevent later disk edits from changing training data.
+Total source bytes are capped at 512 MiB; exceeding the cap fails explicitly.
+This keeps the first reader simple; larger corpora will need bounded mapping.
+No silent truncation, filtering, sampling or data repair occurs.
+
+Model and objective
+-------------------
+Embeddings represent the board, exact unit coast, ownership and static map.
+Two residual neighbor-aggregation layers use direct Army/Fleet adjacency.
+Potential convoy edges are not direct board adjacency.
+Phase and normalized year supply context; winter inputs are retained.
+Seven softmax outputs predict eventual SoS in specification.output_powers order.
+Source identity, communication labels and terminal results are not features.
+There is no deciding-power duplication, reward discounting or SC-change shaping.
+No elimination mask is applied; softmax can approximate but not exactly express
+zero reward. Actual terminal scoring remains the game's deterministic rule.
+
+Every TRAIN position is used once per epoch in a seeded global shuffle.
+The loss is mean squared error over seven powers, averaged over positions.
+Longer games therefore contribute more training weight. Reports additionally
+include equal-game MSE/MAE; this does not change the optimization objective.
+Each communication subgroup and phase reports its own errors. LABEL:None
+means the literal no-press label; UNKNOWN means a missing communication label.
+The TRAIN-mean baseline weights each game's target by its position count.
+The current-board baseline uses center ownership, with the usual solo override.
+An ownership-empty board makes that baseline undefined and fails explicitly.
+Both baselines are compared with network predictions on VALIDATION only.
+
+Artifacts
+---------
+best.pt contains the lowest validation-position-MSE trained epoch. Exact ties
+keep the earlier checkpoint. Initial untrained validation is reported separately.
+Checkpoint selection uses the mixed-communication validation split, not TEST.
+best.pt binds the model/specification/reward/dataset/cache identities.
+The saved checkpoint is loaded again and its selected validation MSE checked.
+training.json is published last, recording all epochs, subgroup metrics,
+baselines, settings, software versions, selection and the checkpoint SHA-256.
+Without a complete training.json, the run is incomplete even if best.pt exists.
+Only load trusted checkpoints; weights_only=True is used for this format.
+This is supervised initialization under historical behavior, not evidence of
+SoS-optimal continuation, no-press playing strength or improved search.
+No live evaluator is changed. Java export and numerical parity come next.
+
+Send the self-check and verify-only output, training console and training.json.
+Keep best.pt and all cache arrays locally.

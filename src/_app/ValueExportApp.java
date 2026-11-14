@@ -12,7 +12,7 @@ import java.util.*;
 import static io.training.ValueDatasetJson.*;
 
 /**
- * Exports provider-neutral completed-game value observations.
+ * Exports completed-game value observations after provider-neutral checks.
  * Source adapters are selected explicitly; there is no default provider parser.
  */
 public final class ValueExportApp {
@@ -151,8 +151,6 @@ public final class ValueExportApp {
 
                         }
 
-                        entry.put("diagnostics", result.diagnostics());
-
                         if (result.game().isPresent()) {
 
                             ValueDataset.GameExample game = result.game().orElseThrow();
@@ -161,6 +159,17 @@ public final class ValueExportApp {
                                     || !game.payloadSha256().equals(payloadHash))
                                 throw new IllegalStateException("Adapter changed source identity");
 
+                            entry.put("source_scoring", game.outcome().sourceScoring().orElse(null));
+                            entry.put("source_limit", game.outcome().sourceLimit().orElse(null));
+
+                        }
+
+                        result = result.validatePositions();
+                        entry.put("diagnostics", result.diagnostics());
+
+                        if (result.game().isPresent()) {
+
+                            ValueDataset.GameExample game = result.game().orElseThrow();
                             ValueRewardContract.Assessment assessment = game.assess(
                                     ValueRewardContract.defaults());
 
@@ -180,8 +189,6 @@ public final class ValueExportApp {
                             entry.put("status", "ACCEPTED");
                             entry.put("positions", game.positions().size());
                             entry.put("termination", game.outcome().termination().name());
-                            entry.put("source_scoring", game.outcome().sourceScoring().orElse(null));
-                            entry.put("source_limit", game.outcome().sourceLimit().orElse(null));
 
                         } else {
 
@@ -227,6 +234,7 @@ public final class ValueExportApp {
         manifest.put("schema", JsonlValueDataset.SCHEMA);
         manifest.put("complete", true);
         manifest.put("reward_contract", ValueRewardContract.VERSION);
+        manifest.put("position_validation", ValueSourceAdapter.POSITION_VALIDATION);
         manifest.put("target_scoring", "SUM_OF_SQUARES");
         manifest.put("split_seed", seed);
         manifest.put("movement_manifest_sha256", movementHash);
@@ -243,9 +251,8 @@ public final class ValueExportApp {
 
         Files.writeString(output.resolve("manifest.pending"), json(manifest) + "\n",
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
-
-        // The public completion marker appears only after all payloads are closed.
-        Files.move(output.resolve("manifest.pending"), output.resolve("manifest.json"));
+        Files.move(output.resolve("manifest.pending"), output.resolve("manifest.json"),
+                StandardCopyOption.ATOMIC_MOVE);
 
         System.out.println(json(manifest));
         System.out.println("Export complete. Run ValueDatasetCheckApp before training.");

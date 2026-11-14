@@ -3,11 +3,13 @@ package io.training;
 import java.util.*;
 
 /**
- * Provider-specific payload decoding behind a provider-neutral result.
- * Invalid source data produces an explicit rejection, not a fabricated game.
+ * Provider-specific decoding with shared position-admission checks.
  */
 @FunctionalInterface
 public interface ValueSourceAdapter {
+
+    String POSITION_VALIDATION = "jreferee-value-standing-units-v1";
+    int MAX_STANDARD_UNITS = 34;
 
     Result read(String source, String gameKey, String payload, String expectedHash);
 
@@ -35,6 +37,41 @@ public interface ValueSourceAdapter {
         public static Result rejected(String reason) {
             return new Result(
                     Optional.empty(), Optional.of(reason), List.of());
+        }
+
+        public Result validatePositions() {
+
+            if (this.game.isEmpty())
+                return this;
+
+            List<String> notes = new ArrayList<>(this.diagnostics);
+            List<ValueDataset.Position> positions = this.game.orElseThrow().positions();
+            boolean invalid = false;
+
+            for (int index = 0; index < positions.size(); index++) {
+
+                ValueDataset.Position position = positions.get(index);
+                int units = position.board().locations().size();
+
+                if (units > MAX_STANDARD_UNITS) {
+
+                    invalid = true;
+                    notes.add("Position " + index + ": " + position.moment().year()
+                            + " " + position.moment().gamePhase().name()
+                            + " has " + units + " standing units; maximum "
+                            + MAX_STANDARD_UNITS + ".");
+
+                }
+
+            }
+
+            if (!invalid)
+                return this;
+
+            notes.add("Entire game excluded; no positions or outcomes were repaired.");
+            return new Result(Optional.empty(),
+                    Optional.of("TOO_MANY_STANDING_UNITS"), notes);
+
         }
 
     }

@@ -1,0 +1,35 @@
+VALUE EXPORT ADMISSION
+
+ValueExportApp dispatches by source_type, then calls the provider-neutral
+ValueSourceAdapter.Result.validatePositions before writing any game targets.
+The manifest records position_validation=jreferee-value-standing-units-v1.
+This is a limited sanity check, not historical adjudication replay.
+
+Any retained position with more than 34 standing units rejects the whole game
+as TOO_MANY_STANDING_UNITS. Diagnostics identify every offending retained
+position's zero-based index, year, phase and count. Existing source diagnostics
+and available literal scoring/limit labels remain in the game index.
+Earlier positions are not kept with targets potentially affected by invalid
+later play. Nothing is repaired, silently skipped or blacklisted by game ID.
+The reward contract and existing provider-specific ending checks are unchanged.
+TEST identities are indexed as before; TEST payloads remain unopened.
+
+Run testing.selfcheck.ValueAdmissionSelfCheck first.
+Rebuild the value export in a new directory, leaving v1 intact.
+
+_app.ValueExportApp arguments:
+  --database data/diplobn-catalog.sqlite --movement-dataset data/training-movement-v4 --output data/training-value-v2
+
+_app.ValueDatasetCheckApp arguments:
+  data/training-value-v2
+
+_app.NeuralValueCacheApp arguments:
+  data/training-value-v2 data/value-neural-cache-v2
+
+Python verification:
+  .venv\Scripts\python -m neural.value_train --cache data/value-neural-cache-v2 --verify-only
+
+The v2 directory names identify rebuilt artifacts, not a new wire schema.
+The input specification and SoS contract are unchanged. Dataset/cache hashes
+change because the admitted game set changes. Do not hand-edit fingerprints.
+No model should train until Java readback and Python verification both pass.
