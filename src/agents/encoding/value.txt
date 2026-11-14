@@ -1,0 +1,69 @@
+NEURAL VALUE INPUTS AND CACHE
+
+NeuralValueEncoding defines jreferee-neural-value-v1.
+It accepts a GameMoment and BoardState, not a provider payload.
+No deciding power, legal orders, UnitId origin/UUID, communication label,
+source identity, scoring label, ending moment or outcome is an input.
+All seven eventual SoS shares are predicted together.
+
+Vocabulary
+----------
+specification.json embeds NeuralMovementSpec as board_specification.
+Reuse its location/power/unit vocabularies, canonical board rows and static
+map tables. Its movement phase, context and order fields are NOT value inputs.
+Use the value specification's top-level phases and context_fields instead.
+No existing movement specification or trained policy changes.
+
+Board bytes are [75,4]: unit_type, unit_owner, unit_location, center_owner.
+Exact fleet coasts survive in unit_location. Center ownership is independent
+of occupation. Unit birth/build identity does not affect the board encoding.
+Phase IDs: SPRING_MOVEMENT=1, FALL_MOVEMENT=2, WINTER_ADJUSTMENT=3.
+NONE=0 is reserved and is not a valid position phase.
+Pending retreats fail explicitly because BoardState omits displaced units.
+Year is stored as int32; the model transform is float32(year-1901)/20,
+without clipping. Do not divide a categorical phase or power ID as a scalar.
+Output order: AUSTRIA ENGLAND FRANCE GERMANY ITALY RUSSIA TURKEY.
+
+Layout
+------
+Run testing.selfcheck.NeuralValueSelfCheck with no arguments.
+Then run _app.NeuralValueCacheApp from the repository root, with arguments:
+  data/training-value-v1 data/value-neural-cache-v1
+The output directory must be new and its parent must already exist.
+No JDBC or Python dependency is required for this conversion.
+
+The cache contains specification.json, manifest.json, train/ and validation/.
+There is no TEST conversion, model fitting or model evaluation.
+All arrays use C order and LITTLE_ENDIAN multibyte numbers.
+For a split with G games and N positions:
+
+  board.u8         uint8 [N,75,4]  N*300 bytes
+  context.i32      int32 [N,2]     N*8 bytes: phase, raw year
+  targets.f32      float32 [G,7]   G*28 bytes: eventual SoS
+  game_offsets.i64 int64 [G+1]     (G+1)*8 bytes
+  games.jsonl      UTF-8 G rows: source/key/hash/communication/start/end
+
+For game g, its positions are [offsets[g], offsets[g+1]).
+Every such position has targets[g]. Nonempty games have increasing offsets.
+Offsets start at zero and end at N. An empty split has one zero offset.
+No random sampling, rebalancing or additional filtering is performed.
+Game offsets preserve grouping for later weighting and subgroup reporting.
+Metadata and targets must never enter the input feature path.
+Literal source scoring and limit labels remain in the original value dataset.
+All targets use reward contract jreferee-eventual-sos-v3, regardless of labels.
+Float32 conversion may introduce small rounding errors in their unit sum.
+
+Verification
+------------
+Conversion streams one game at a time. Each split must reach verified EOF.
+The manifest binds the dataset fingerprint, reward contract, specification
+bytes/hash, source split hashes and every output file's byte count and hash.
+The completion marker is atomically published last. Failure leaves partial
+output with no manifest.json; do not train from or append to partial output.
+Existing output is never overwritten or resumed.
+This is format conversion, not proof of historical adjudication or natural
+draw agreement. It preserves the source-recorded evidence already admitted.
+Send the self-check line, cache console output, manifest.json and
+specification.json. Keep the numeric files and source dataset locally.
+The Python reader must independently verify receipts, arrays and offsets
+before the first supervised model is trained. Java inference parity follows.

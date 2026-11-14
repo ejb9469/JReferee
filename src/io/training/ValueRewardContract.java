@@ -17,7 +17,7 @@ public final class ValueRewardContract {
 
     // Version and rejection reasons \\
 
-    public static final String VERSION = "jreferee-sos_eventual-v3";
+    public static final String VERSION = "jreferee-eventual-sos-v3";
 
     public enum Rejection {
 
