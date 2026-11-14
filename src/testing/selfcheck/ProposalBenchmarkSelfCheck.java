@@ -2,12 +2,16 @@ package testing.selfcheck;
 
 import _app.PolicyProposalBenchmarkApp;
 import _app.PolicyProposalExperimentApp;
+import _app.ProposalDiagnostics;
 import agents.encoding.MovementEncoding;
+import agents.execution.ProposalInspector;
 import agents.generation.*;
 import agents.policy.*;
-import domain.Nation;
+import domain.*;
 import game.*;
 import io.json.*;
+import phase.Order;
+import phase.UnitId;
 
 import java.io.*;
 import java.nio.file.*;
@@ -32,6 +36,7 @@ public final class ProposalBenchmarkSelfCheck {
         String gru = args.length == 0 ? "data/movement-gru-java-v1/model.bin" : args[1];
         statistics();
         counters();
+        diagnostics();
         Path temporary = Files.createTempDirectory("jreferee-proposal-benchmark-");
         try {
             List<String> settings = List.of("--proposal-model", linear, "--anchor-model", linear, "--gru-model", gru,
@@ -44,12 +49,32 @@ public final class ProposalBenchmarkSelfCheck {
             var observations = table(output.resolve("observations.csv"));
             var summary = table(output.resolve("summary.csv"));
             var pairs = table(output.resolve("paired.csv"));
-            require(observations.size() == 196 && summary.size() == 112 && pairs.size() == 336, "Complete result dimensions");
+            var details = table(output.resolve("diagnostics.csv"));
+            require(observations.size() == 252 && summary.size() == 144 && pairs.size() == 576 && details.size() == 252,
+                    "Nine methods with complete paired result dimensions");
             for (var row : observations) {
-                boolean sampled = !Set.of("UNIFORM", "PLAUSIBLE").contains(row.get("method"));
+                boolean sampled = !Set.of("UNIFORM", "PLAUSIBLE", "COHERENT_GRU", "COHERENT_GRU_HYBRID").contains(row.get("method"));
                 require(sampled != row.get("policy_samples").isEmpty(), "Unknown sampling counts remain empty");
                 if (sampled) require(Long.parseLong(row.get("policy_samples")) >= Long.parseLong(row.get("policy_duplicates")),
                         "Sample accounting");
+            }
+            for (var row : details) {
+                boolean coherent = row.get("method").startsWith("COHERENT_");
+                require(coherent != row.get("construction_attempts").isEmpty(), "Only coherent modes have construction attempts");
+                if (coherent) {
+                    require(row.get("blocker_actions").equals("0") && Double.parseDouble(row.get("blocker_mass")) == 0,
+                            "Coherent pools contain no blockers");
+                    require(Long.parseLong(row.get("construction_attempts")) == Long.parseLong(row.get("learned_available"))
+                                    + Long.parseLong(row.get("construction_dead_ends")) + Long.parseLong(row.get("construction_duplicates")),
+                            "Construction attempt accounting");
+                }
+                if (!row.get("learned_selected").isEmpty())
+                    require(Integer.parseInt(row.get("learned_selected")) + Integer.parseInt(row.get("heuristic_selected"))
+                            == Integer.parseInt(row.get("candidates")), "Selected child counts match pool size");
+                for (String metric : List.of("blocker_mass", "convoy_blocker_mass", "dependency_mass", "caution_mass", "all_hold_mass", "hold_fraction")) {
+                    double value = Double.parseDouble(row.get(metric));
+                    require(Double.isFinite(value) && value >= 0 && value <= 1 + 1e-12, "Valid search mass");
+                }
             }
             for (var row : pairs) {
                 double[] values = series(observations, row.get("position"), row.get("power"), row.get("method"));
@@ -80,6 +105,26 @@ public final class ProposalBenchmarkSelfCheck {
                         close(Double.parseDouble(row.get("fresh_search")), observation.freshSearch(), "Run zero reproduces single experiment");
                         require(row.get("policy_duplicates").equals(observation.policyDuplicates() == null
                                 ? "" : observation.policyDuplicates().toString()), "Same-seed duplicate count");
+                        var detail = details.stream().filter(value -> value.get("repetition").equals("0")
+                                && value.get("position").equals(position) && value.get("method").equals(observation.method().name())
+                                && value.get("power").equals(observation.power().name())).findFirst().orElseThrow();
+                        close(Double.parseDouble(detail.get("all_hold_mass")), observation.diagnostics().allHoldMass(),
+                                "Saved all-hold mass matches search");
+                        close(Double.parseDouble(detail.get("caution_mass")), observation.diagnostics().cautionMass(),
+                                "Saved caution mass matches search");
+                    }
+                    var inspector = ProposalInspector.load(Path.of(linear), Path.of(linear), Path.of(gru));
+                    for (var method : List.of(ProposalInspector.Method.COHERENT_GRU, ProposalInspector.Method.COHERENT_GRU_HYBRID)) {
+                        var inspection = inspector.inspect(result.root(), Nation.FRANCE, method,
+                                new ProposalInspector.Options(2, 2, 1, 2, 7, 7, 7, true));
+                        var generation = inspection.generation().get(Nation.FRANCE);
+                        var expected = ProposalDiagnostics.measure(result.root(), new MovementEncoding(result.root(), Nation.FRANCE).catalog(),
+                                inspection.pools().get(Nation.FRANCE),
+                                inspection.search().orElseThrow().results().get(Nation.FRANCE).distribution().probabilities(),
+                                generation.learned(), generation.hybrid().orElse(null));
+                        var measured = result.observations().stream().filter(row -> row.method().name().equals(method.name())
+                                && row.power() == Nation.FRANCE).findFirst().orElseThrow();
+                        require(expected.equals(measured.diagnostics()), "Viewer and benchmark construction/search parity");
                     }
                 }
             }
@@ -148,7 +193,8 @@ public final class ProposalBenchmarkSelfCheck {
                 && report.get("complete").equals(true) && report.get("test_evaluated").equals(false), "Completed receipt");
         require(!Files.exists(directory.resolve("benchmark.pending")), "Receipt was finalized");
         var files = JSON.array(report.get("files"), "files");
-        require(files.size() == 9, "Four logs and five structured files");
+        require(files.size() == 10, "Four logs and six structured files");
+        require(JSON.array(report.get("methods"), "methods").size() == 9, "Receipt declares all nine methods");
         for (Object value : files) {
             var file = JSON.object(value, "file");
             byte[] bytes = Files.readAllBytes(directory.resolve((String) file.get("name")));
@@ -158,7 +204,42 @@ public final class ProposalBenchmarkSelfCheck {
         }
     }
 
-    private static List<Map<String, String>> table(Path path) throws IOException {
+    private static void diagnostics() {
+        var bre = new UnitId(Nation.ENGLAND, UnitType.ARMY, Province.Bre);
+        var lon = new UnitId(Nation.ENGLAND, UnitType.ARMY, Province.Lon);
+        var cly = new UnitId(Nation.ENGLAND, UnitType.FLEET, Province.Cly);
+        var lvp = new UnitId(Nation.ENGLAND, UnitType.FLEET, Province.Lvp);
+        var eng = new UnitId(Nation.FRANCE, UnitType.FLEET, Province.ENG);
+        var root = new GameState_Movement(new GameMoment(1905, GamePhase.SPRING_MOVEMENT),
+                new BoardState(Map.of(bre, Province.Bre, lon, Province.Lon, cly, Province.Cly, lvp, Province.Lvp, eng, Province.ENG),
+                        Map.of(Province.Smy, Nation.TURKEY)));
+        var bad = new ActionCandidate(Nation.ENGLAND, List.of(Order.supportMove(bre, Province.Lon, Province.Pic),
+                Order.move(lon, Province.Bel), Order.move(cly, Province.NAO), Order.move(lvp, Province.NAO)), 0, ActionCandidate.Source.POLICY);
+        var hold = new ActionCandidate(Nation.ENGLAND, List.of(Order.hold(bre), Order.hold(lon), Order.hold(cly), Order.hold(lvp)),
+                0, ActionCandidate.Source.HEURISTIC);
+        var catalog = new MovementEncoding(root, Nation.ENGLAND).catalog();
+        var row = ProposalDiagnostics.measure(root, catalog, List.of(bad, hold), List.of(0.25, 0.75), null, null);
+        require(row.blockerActions() == 1 && row.dependencyActions() == 1 && row.cautionActions() == 1,
+                "Finding categories count each affected action once");
+        require(row.orders() == 8 && row.holdOrders() == 4 && row.allHoldActions() == 1, "Pool counts are unweighted");
+        close(row.blockerMass(), 0.25, "Blocker search mass");
+        close(row.dependencyMass(), 0.25, "Foreign-dependency search mass");
+        close(row.cautionMass(), 0.25, "Caution search mass");
+        close(row.allHoldMass(), 0.75, "All-hold search mass");
+        close(row.holdFraction(), 0.75, "Expected fraction of hold orders");
+        require(row.construction() == null && row.mixing() == null, "Unavailable construction counters remain absent");
+        expect(IllegalArgumentException.class, () -> ProposalDiagnostics.measure(root, catalog,
+                List.of(bad, hold), List.of(0.8, 0.8), null, null));
+        expect(IllegalStateException.class, () -> ProposalDiagnostics.measure(root, catalog, List.of(bad), List.of(1.0),
+                new CoherentPolicyActionGenerator.Result(List.of(bad), 1, 1, 0, 0, 4), null));
+        var empty = new ActionCandidate(Nation.TURKEY, List.of(), 0, ActionCandidate.Source.POLICY);
+        var idle = ProposalDiagnostics.measure(root, new MovementEncoding(root, Nation.TURKEY).catalog(),
+                List.of(empty), List.of(1.0), null, null);
+        require(idle.emptyActions() == 1 && idle.allHoldActions() == 0 && idle.holdFraction() == 0,
+                "Empty center-only action is separate from all-hold");
+    }
+
+    static List<Map<String, String>> table(Path path) throws IOException {
         List<String> lines = Files.readAllLines(path);
         String[] header = lines.getFirst().split(",", -1);
         List<Map<String, String>> result = new ArrayList<>();
@@ -172,7 +253,7 @@ public final class ProposalBenchmarkSelfCheck {
         return result;
     }
 
-    private static double[] series(List<Map<String, String>> rows, String position, String power, String method) {
+    static double[] series(List<Map<String, String>> rows, String position, String power, String method) {
         double[] result = new double[2];
         for (int run = 0; run < 2; run++) {
             String repetition = Integer.toString(run);

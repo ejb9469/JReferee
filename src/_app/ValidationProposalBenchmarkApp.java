@@ -21,7 +21,7 @@ import static _app.PolicyProposalBenchmarkApp.*;
  */
 public final class ValidationProposalBenchmarkApp {
 
-    private static final String SCHEMA = "jreferee-validation-benchmark-v1";
+    private static final String SCHEMA = "jreferee-validation-benchmark-v2";
     private static final String USAGE = "Usage: ValidationProposalBenchmarkApp [--dataset <v4-directory> | --positions <positions.json>] "
             + "[--select-only] [--per-stratum <1..10>] [--selection-seed <long>] [--runs <2..1000>] [--seed <long>] "
             + "[--output <new-directory>] [--proposal-model <policy.bin>] [--anchor-model <policy.bin>] [--gru-model <model.bin>] "
@@ -62,7 +62,7 @@ public final class ValidationProposalBenchmarkApp {
     public static void main(String[] args) throws Exception {
         if (Arrays.asList(args).contains("--help")) { System.out.println(USAGE); return; }
         Path dataset = Path.of("data/training-movement-v4"), positions = null;
-        Path output = Path.of("data/movement-validation-benchmark-v1");
+        Path output = Path.of("data/movement-validation-benchmark-v2");
         int perStratum = 2, runs = 3;
         long selectionSeed = 7, seed = 7;
         boolean selectOnly = false;
@@ -127,7 +127,8 @@ public final class ValidationProposalBenchmarkApp {
         if (selectOnly) { System.out.println("Saved fixed positions to " + selected + ". No model or dataset TEST evaluation."); return; }
         List<Path> artifacts = new ArrayList<>(List.of(selected));
         Path seeds = output.resolve("seeds.csv"), observations = output.resolve("observations.csv"), work = output.resolve("work.csv");
-        artifacts.addAll(List.of(seeds, observations, work));
+        Path diagnostics = output.resolve("diagnostics.csv");
+        artifacts.addAll(List.of(seeds, observations, work, diagnostics));
         try (var writer = writer(seeds)) {
             csv(writer, "repetition", "pool", "search", "rollout", "opponents");
             for (int run = 0; run < schedule.size(); run++) {
@@ -138,13 +139,14 @@ public final class ValidationProposalBenchmarkApp {
         Map<String, String> hashes = null;
         long start = System.nanoTime();
         int completed = 0, target = Integer.parseInt(settings.get("--candidates"));
-        try (var rows = writer(observations); var costs = writer(work)) {
+        try (var rows = writer(observations); var costs = writer(work); var details = writer(diagnostics)) {
             csv(rows, "position", "source", "game", "stratum", "repetition", "method", "power", "candidates",
                     "samples", "duplicates", "own_supports", "bad_supports", "own_convoys", "bad_convoys",
                     "mismatch_actions", "mismatch_mass", "log_anchor_mass", "fresh_anchor", "fresh_search", "opponent_se", "fresh_best", "generation_seconds");
             csv(costs, "position", "repetition", "method", "generation_seconds", "search_seconds", "fresh_seconds",
                     "search_requests", "search_simulations", "search_evaluations", "search_failures",
                     "fresh_requests", "fresh_simulations", "fresh_evaluations", "fresh_failures");
+            ProposalDiagnostics.header(details, "position", "source", "game", "stratum", "repetition", "method", "power", "candidates");
             for (Position position : selection.positions())
                 for (int run = 0; run < runs; run++) {
                     Seeds s = schedule.get(run);
@@ -171,6 +173,9 @@ public final class ValidationProposalBenchmarkApp {
                                 row.candidates(), row.policySamples(), row.policyDuplicates(), row.ownSupports(), row.badOwnSupports(),
                                 row.ownConvoys(), row.badOwnConvoys(), row.mismatchedActions(), row.mismatchMass(), row.logAnchorMass(), row.freshAnchor(),
                                 row.freshSearch(), row.freshSearchError(), row.freshBest(), row.generationSeconds());
+                    for (Observation row : result.observations())
+                        ProposalDiagnostics.write(details, row.diagnostics(), position.rank(), position.source(), position.gameKey(),
+                                position.stratum(), run, row.method(), row.power(), row.candidates());
                     for (Work cost : result.work()) {
                         csv(costs, position.rank(), run, cost.method(), cost.generationSeconds(), cost.searchSeconds(), cost.freshSeconds(),
                                 cost.search().requests(), cost.search().simulations(), cost.search().evaluations(), cost.search().failures(),
@@ -192,7 +197,7 @@ public final class ValidationProposalBenchmarkApp {
                         all[5] = cost.generationSeconds() * 1000;
                         add(totals, position, "ALL", cost.method(), all, allCounts, sampled);
                     }
-                    rows.flush(); costs.flush();
+                    rows.flush(); costs.flush(); details.flush();
                 }
         }
         Path summary = output.resolve("summary.csv"), paired = output.resolve("paired.csv"), games = output.resolve("games.csv");
@@ -201,6 +206,7 @@ public final class ValidationProposalBenchmarkApp {
         Map<String, String> files = new TreeMap<>();
         for (Path file : artifacts) files.put(file.getFileName().toString(), hash(file));
         String report = "{\"schema\":\"" + SCHEMA + "\",\"complete\":true,\"test_evaluated\":false,\"runs\":" + runs
+                + ",\"methods\":" + Arrays.stream(Method.values()).map(method -> "\"" + method.name() + "\"").toList()
                 + ",\"seed\":" + seed + ",\"boards\":" + selection.positions().size() + ",\"games\":"
                 + selection.positions().stream().map(Position::game).distinct().count()
                 + ",\"dataset_sha256\":\"" + selection.datasetHash() + "\",\"validation_sha256\":\"" + selection.validationHash()

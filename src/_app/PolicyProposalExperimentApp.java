@@ -28,7 +28,10 @@ import java.util.*;
  */
 public final class PolicyProposalExperimentApp {
 
-    public enum Method { UNIFORM, PLAUSIBLE, FULL_UNIFORM, LEARNED, HYBRID, GRU, GRU_HYBRID }
+    public enum Method {
+        UNIFORM, PLAUSIBLE, FULL_UNIFORM, LEARNED, HYBRID, GRU, GRU_HYBRID,
+        COHERENT_GRU, COHERENT_GRU_HYBRID
+    }
     public enum Position { OPENING, CONTACT }
     private static final String USAGE = "Usage: PolicyProposalExperimentApp "
             + "[--proposal-model <policy.bin>] [--anchor-model <policy.bin>] "
@@ -48,7 +51,7 @@ public final class PolicyProposalExperimentApp {
                               int ownSupports, int badOwnSupports, int ownConvoys, int badOwnConvoys,
                               int mismatchedActions, double mismatchMass, double logAnchorMass,
                               double freshAnchor, double freshSearch, double freshSearchError, double freshBest,
-                              double generationSeconds) { }
+                              double generationSeconds, ProposalDiagnostics.Row diagnostics) { }
     public record Work(Method method, double generationSeconds, double searchSeconds, double freshSeconds,
                        JointActionEvaluator.Counts search, JointActionEvaluator.Counts fresh) { }
     public record Result(GameState_Movement root, Map<String, String> hashes, List<Observation> observations, List<Work> work) {
@@ -153,7 +156,7 @@ public final class PolicyProposalExperimentApp {
                 new UniformActionGenerator(), PolicyProposalExperimentApp::game, rollouts, rolloutCandidates, rolloutSeed);
         PaperSearchProfile profile = PaperSearchProfile.forState(root);
 
-        out.println("BEGIN POLICY PROPOSAL EXPERIMENT " + (gru == null ? "v2" : "v3"));
+        out.println("BEGIN POLICY PROPOSAL EXPERIMENT v4");
         out.println("Position=" + (supplied == null ? position : "SUPPLIED") + "; moment=" + root.moment());
         if (supplied == null) out.println("CONTACT is a constructed Fall 1902 board, not a replayed source position.");
         out.println("Proposal SHA-256=" + hashes.get("proposal_sha256"));
@@ -161,6 +164,7 @@ public final class PolicyProposalExperimentApp {
         if (gru != null) {
             out.println("GRU SHA-256=" + gru.sha256() + "; checkpoint SHA-256=" + gru.checkpointSha256());
             out.println("GRU/GRU_HYBRID use neural proposals with the same frozen linear anchor and opponent draws.");
+            out.println("COHERENT_GRU/COHERENT_GRU_HYBRID add bounded own-order and convoy constraints.");
             out.println("Existing log_learned_proposal columns still use the linear proposal model.");
         }
         out.printf(Locale.ROOT, "Budgets: candidates=%d iterations=%d rollouts=%d rollout_candidates=%d opponent_samples=%d%n",
@@ -173,7 +177,8 @@ public final class PolicyProposalExperimentApp {
         out.println("FULL_UNIFORM/LEARNED sample full catalogs without inserting all-hold or greedy actions.");
         out.println("HYBRID constructs up to two full pools, reserves half for each, then fills unused places.");
         out.println("An odd extra place goes to learned proposals. Duplicates keep the first retained source.");
-        out.println("Coordination counts own support/convoy mismatches only; no orders are repaired or filtered.");
+        out.println("Raw modes are unchanged. Coherent modes constrain construction; completed orders are not repaired.");
+        out.println("Feasibility findings include convoy routes, foreign dependencies and friendly-conflict cautions.");
         out.println("Continuation policy is unchanged convoy-free uniform, ending at this year's winter.");
         out.println("Q uses each solve's own opponents. Fresh values use common independent anchor draws.");
         out.println("Anchor pool mass measures coverage, not playing strength. No model is fitted here.");
@@ -190,8 +195,10 @@ public final class PolicyProposalExperimentApp {
         Map<Nation, double[]> learnedReference = new EnumMap<>(Nation.class);
         Map<Nation, double[]> hybridReference = new EnumMap<>(Nation.class);
         Map<Nation, double[]> gruReference = new EnumMap<>(Nation.class);
+        Map<Nation, double[]> gruHybridReference = new EnumMap<>(Nation.class);
+        Map<Nation, double[]> coherentReference = new EnumMap<>(Nation.class);
         for (Method method : Method.values()) {
-            if (gru == null && (method == Method.GRU || method == Method.GRU_HYBRID)) continue;
+            if (gru == null && method.ordinal() >= Method.GRU.ordinal()) continue;
             ActionGenerator generator = switch (method) {
                 case UNIFORM -> new UniformActionGenerator();
                 case PLAUSIBLE -> new PlausibleActionGenerator();
@@ -200,9 +207,11 @@ public final class PolicyProposalExperimentApp {
                 case HYBRID -> new HybridActionGenerator(proposal, anchor);
                 case GRU -> new PolicyActionGenerator(gru, anchor);
                 case GRU_HYBRID -> new HybridActionGenerator(gru, anchor);
+                case COHERENT_GRU, COHERENT_GRU_HYBRID -> new CoherentPolicyActionGenerator(gru, anchor);
             };
             Map<Nation, List<ActionCandidate>> pools = new EnumMap<>(Nation.class);
             Map<Nation, HybridActionGenerator.Result> hybrid = new EnumMap<>(Nation.class);
+            Map<Nation, CoherentPolicyActionGenerator.Result> coherent = new EnumMap<>(Nation.class);
             Map<Nation, Generation> generation = new EnumMap<>(Nation.class);
             Random random = new Random(poolSeed);
             long start = System.nanoTime(), draws = 0, duplicates = 0;
@@ -213,7 +222,18 @@ public final class PolicyProposalExperimentApp {
                 long generationStart = System.nanoTime();
                 Long policySamples = null, policyDuplicates = null;
                 List<ActionCandidate> raw;
-                if (generator instanceof PolicyActionGenerator learned) {
+                if (generator instanceof CoherentPolicyActionGenerator learned) {
+                    var generated = learned.propose(request, policy.encoding());
+                    coherent.put(power, generated);
+                    if (method == Method.COHERENT_GRU_HYBRID) {
+                        var combined = new HybridActionGenerator((r, c) -> generated.candidates(),
+                                new PlausibleActionGenerator(), anchor, new UniformActionGenerator()).propose(request, policy.encoding());
+                        hybrid.put(power, combined);
+                        raw = combined.candidates();
+                    } else raw = generated.candidates();
+                    if (raw.isEmpty())
+                        throw new IllegalStateException(method + " has no candidate for " + power + "; construction=" + generated);
+                } else if (generator instanceof PolicyActionGenerator learned) {
                     var generated = learned.propose(request, policy.encoding());
                     raw = generated.candidates();
                     draws += generated.samples();
@@ -233,8 +253,7 @@ public final class PolicyProposalExperimentApp {
                     anchored.add(new ActionCandidate(power, candidate.orders(), logPrior, candidate.source()));
                 }
                 pools.put(power, List.copyOf(anchored));
-                generation.put(power, new Generation(policySamples, policyDuplicates, seconds(generationStart)));
-            }
+                generation.put(power, new Generation(policySamples, policyDuplicates, seconds(generationStart)));            }
             double generationSeconds = seconds(start);
             out.printf(Locale.ROOT, "%nMETHOD %s generation_seconds=%.6f%n", method, generationSeconds);
             if (generator instanceof PolicyActionGenerator)
@@ -262,6 +281,8 @@ public final class PolicyProposalExperimentApp {
                 if (method == Method.LEARNED) learnedReference.put(power, searchValues);
                 if (method == Method.HYBRID) hybridReference.put(power, searchValues);
                 if (method == Method.GRU) gruReference.put(power, searchValues);
+                if (method == Method.GRU_HYBRID) gruHybridReference.put(power, searchValues);
+                if (method == Method.COHERENT_GRU) coherentReference.put(power, searchValues);
                 double best = Arrays.stream(values).mapToDouble(row -> estimate(row).mean()).max().orElseThrow();
                 List<MovementCoordination.Counts> coordination = candidates.stream()
                         .map(candidate -> MovementCoordination.inspect(root, candidate)).toList();
@@ -277,13 +298,15 @@ public final class PolicyProposalExperimentApp {
                     }
                 }
                 var generated = generation.get(power);
+                var diagnostics = ProposalDiagnostics.measure(root, bound.get(power).encoding().catalog(), candidates,
+                        result.distribution().probabilities(), coherent.get(power), hybrid.get(power));
                 observations.add(new Observation(method, power, candidates.size(), generated.samples(), generated.duplicates(),
                         coordination.stream().mapToInt(MovementCoordination.Counts::ownSupports).sum(),
                         coordination.stream().mapToInt(MovementCoordination.Counts::mismatchedSupports).sum(),
                         coordination.stream().mapToInt(MovementCoordination.Counts::ownConvoys).sum(),
                         coordination.stream().mapToInt(MovementCoordination.Counts::mismatchedConvoys).sum(),
                         badActions, badMass, logMass(candidates), anchorEstimate.mean(), searchEstimate.mean(),
-                        searchEstimate.standardError(), best, generated.seconds()));
+                        searchEstimate.standardError(), best, generated.seconds(), diagnostics));
                 if (!reported.contains(power)) continue;
                 out.printf(Locale.ROOT, "POWER %s pool=%d/%d log_anchor_mass=%.10f%n",
                         power, candidates.size(), limit, logMass(candidates));
@@ -294,19 +317,28 @@ public final class PolicyProposalExperimentApp {
                             counts.learnedQuota(), counts.heuristicQuota(), counts.learnedAvailable(), counts.heuristicAvailable(),
                             counts.learnedSelected(), counts.heuristicSelected(), counts.overlap());
                 }
+                if (diagnostics.construction() != null)
+                    out.println("Coherent construction=" + diagnostics.construction());
                 out.printf(Locale.ROOT, "Fresh anchor_pool=%.8f se=%.8f search=%.8f se=%.8f best_in_pool=%.8f%n",
                         anchorEstimate.mean(), anchorEstimate.standardError(), searchEstimate.mean(), searchEstimate.standardError(), best);
                 paired(out, "UNIFORM", searchValues, reference.get(power));
                 if (heuristicReference.containsKey(power))
                     paired(out, "PLAUSIBLE", searchValues, heuristicReference.get(power));
-                if (method == Method.HYBRID || method == Method.GRU || method == Method.GRU_HYBRID)
+                if (method.ordinal() >= Method.HYBRID.ordinal())
                     paired(out, "LEARNED", searchValues, learnedReference.get(power));
-                if (method == Method.GRU_HYBRID) {
+                if (method.ordinal() >= Method.GRU_HYBRID.ordinal()) {
                     paired(out, "HYBRID", searchValues, hybridReference.get(power));
                     paired(out, "GRU", searchValues, gruReference.get(power));
                 }
+                if (coherent.containsKey(power))
+                    paired(out, "GRU_HYBRID", searchValues, gruHybridReference.get(power));
+                if (method == Method.COHERENT_GRU_HYBRID)
+                    paired(out, "COHERENT_GRU", searchValues, coherentReference.get(power));
                 out.printf(Locale.ROOT, "Coordination support_mismatch_actions=%d convoy_mismatch_actions=%d either=%d/%d search_mass=%.8f%n",
                         badSupports, badConvoys, badActions, candidates.size(), badMass);
+                out.printf(Locale.ROOT, "Feasibility blockers=%d dependencies=%d cautions=%d all_hold=%d; search_mass=%.8f/%.8f/%.8f/%.8f; hold_fraction=%.8f%n",
+                        diagnostics.blockerActions(), diagnostics.dependencyActions(), diagnostics.cautionActions(), diagnostics.allHoldActions(),
+                        diagnostics.blockerMass(), diagnostics.dependencyMass(), diagnostics.cautionMass(), diagnostics.allHoldMass(), diagnostics.holdFraction());
                 out.println("candidate source log_learned_proposal log_anchor anchor_pool search Q fresh_value bad_own_supports bad_own_convoys"
                         + (gru == null ? "" : " log_gru_proposal"));
                 Bound policy = bound.get(power);

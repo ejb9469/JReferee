@@ -1,0 +1,128 @@
+FIXED-POOL SEARCH BUDGETS
+
+Main class:
+  _app.SearchBudgetBenchmarkApp
+
+Program arguments, from the repository root:
+  --positions data/movement-validation-benchmark-v2/positions.json
+  --proposal-model data/movement-linear-v1/policy.bin
+  --anchor-model data/movement-linear-v1/policy.bin
+  --gru-model data/movement-gru-java-v1/model.bin
+  --methods PLAUSIBLE,COHERENT_GRU,COHERENT_GRU_HYBRID
+  --checkpoints 16,64,256
+  --runs 3
+  --seed 7
+  --candidates 8
+  --rollouts 1
+  --rollout-candidates 8
+  --opponent-samples 16
+  --output data/movement-search-budget-benchmark-v1
+
+Adjust the frozen input path if necessary. The output directory must not exist.
+There is no dataset-selection mode. Models are loaded once and the GRU dataset
+identity must match the frozen validation selection. TEST is never opened.
+
+WHAT IS HELD FIXED
+
+For each board and repetition, the existing seed schedule supplies pool,
+search, rollout and independent opponent seeds. ProposalInspector generates
+each method's pool for each living power once, with search disabled. Candidate
+order, source labels, exact fleet coasts and full-anchor log priors are retained.
+
+DiLPiKLSearch.trace records AVERAGE playing distributions after 16, 64 and 256
+iterations of a single solve. Earlier checkpoints are exactly the prefixes of
+the longer search. Checkpoints do not generate candidates, draw extra random
+numbers or evaluate additional joint actions. Adaptive temperature and the
+existing opening/standard PaperSearchProfile settings remain unchanged.
+
+Fresh opponent actions are independent full-linear-anchor draws shared across
+all methods and checkpoints. Every retained candidate is evaluated against
+each draw once. The resulting payoff table is combined with each checkpoint's
+playing probabilities. Fresh values do not enter the search updates.
+
+Rollouts use the existing convoy-free uniform continuation through the current
+year's winter, before adjustments, with SUM_OF_SQUARES and JUDGE:1:0 rules.
+More search iterations change sampling effort, not the continuation horizon.
+Search has no candidate expansion, order repair or new anchor fitting.
+
+PURE COHERENT POOLS
+
+A short pool remains short at every checkpoint. An empty pure coherent pool
+stops the run with its method, power and construction counts; no completion
+receipt is written. Coherent hybrid retains its existing quotas and heuristic
+fill. Cautions are reported without filtering them out.
+
+ARTIFACTS
+
+positions.json: unchanged frozen selection, including communication labels.
+seeds.csv: one common four-seed schedule for all methods and budgets.
+opponents.csv: complete fresh opponent orders, stored once per board/seed.
+candidates.csv: exact ordered pools, sources, anchor/GRU scores and pool hashes.
+fresh.csv: one payoff per candidate/opponent sample, with no iteration column.
+policies.csv: AVERAGE playing probabilities and historical Q at each checkpoint.
+observations.csv: fresh search mean, opponent-sampling standard error, anchor
+  reference and optimistic best-in-pool value for each power/checkpoint.
+diagnostics.csv: retained-pool findings and their checkpoint playing masses,
+  plus coherent construction counters. It uses the existing ProposalDiagnostics
+  columns. Construction counters and unweighted pool counts repeat at each
+  checkpoint; do not add them across iteration budgets.
+work.csv: actual one-time generation, largest-budget trace and fresh work.
+summary.csv: source-game-weighted results by method and iteration budget.
+games.csv: the source-game means used for uncertainty and pairing.
+paired.csv: within-method budget comparisons and same-budget method comparisons.
+benchmark.json: completion receipt with settings, model identities and artifact
+  hashes, written only after all reports finish.
+
+A pool SHA-256 covers ordered candidate sources, exact anchor log priors and
+order tokens. Every checkpoint references that same identity. Source position,
+repetition, method and power accompany the hash; identical actions can occur
+in different source games.
+
+Generation time includes inspector preparation, scoring and finding diagnostics.
+Its timing boundary differs from the earlier proposal benchmark. It is paid
+once per method/board/seed, not once per checkpoint. work.csv reports elapsed
+time for the entire maximum-budget trace; it does not estimate per-checkpoint
+wall time. Cumulative root requests at checkpoint T are exactly:
+  T * requests_per_iteration
+where requests_per_iteration is 1 + sum over living powers of (pool size - 1).
+Fresh work is opponent_samples * sum of pool sizes, independent of checkpoints.
+
+INTERPRETATION
+
+In paired.csv, use group ALL and power ALL first. Within the same method,
+compare 64 versus 16, 256 versus 16 and 256 versus 64. Then compare proposal
+methods at the same iteration budget. No row changes both factors together.
+
+Each board/seed first averages living powers for ALL. Those board/seed values
+are averaged within source game, then source games receive equal weight.
+Per-power, phase and stratum reports retain the earlier grouping. A group with
+only one source game has an empty game-level standard error.
+
+The same samples are deliberately reused across budgets. Use paired game-level
+differences, not separate unpaired error bars or opponent samples as independent
+games. best-in-pool is chosen on its evaluation samples and remains optimistic.
+Additional search need not improve the fresh score monotonically: the search
+opponent population differs from the fixed full-anchor evaluation opponents.
+These are short-horizon diagnostics, not full-game or non-press win rates.
+
+OTHER SETTINGS
+
+--checkpoints accepts at least two strictly increasing positive integers.
+--methods accepts distinct names from ProposalInspector.Method. The default
+three methods keep the comparison focused; raw baselines can be included.
+Candidate limits are 1..64, rollout counts 1..8 and rollout candidates 1..64,
+matching the inspector. The single-budget --iterations flag is not accepted.
+
+CHECK
+
+Main class:
+  testing.selfcheck.SearchBudgetBenchmarkSelfCheck
+Arguments:
+  data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin
+
+Without arguments, the check uses synthetic policies and the actual default
+16/64/256 checkpoints. With model paths it also checks the previous experiment's
+values and diagnostics, file reconstruction, paired reporting and dataset guards.
+Checks create and remove their own temporary files.
+
+Zip the completed output directory for analysis. No retraining is required.

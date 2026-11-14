@@ -1,0 +1,169 @@
+PROPOSAL INSPECTION
+
+Launch from the repository root, using the compiled JReferee classpath:
+
+_app.ProposalViewerApp
+  --linear-model data/movement-linear-v1/policy.bin
+  --anchor-model data/movement-linear-v1/policy.bin
+  --gru-model data/movement-gru-java-v1/model.bin
+  --positions path/to/saved/positions.json
+
+Supply the flags as program arguments after the main class. Omit
+--anchor-model to reuse the linear model. Omit --positions for the standard
+opening alone. --positions accepts the existing ValidationPositions format;
+use the frozen file from the completed validation benchmark. Source
+communication labels are retained, with null displayed as UNKNOWN.
+
+Optional: --port 8080 --assets src/resources/ui
+Port 0 chooses an available port. Use the printed 127.0.0.1 URL.
+Restart after replacing models or assets. No model weights or input files
+are changed. The app requires Java 25 and does not require SQLite.
+
+JAVA API
+
+var inspector = ProposalInspector.load(linearPath, anchorPath, gruPath);
+var options = new ProposalInspector.Options(
+        8, 16, 1, 8, 7, 7, 7, true);
+var result = inspector.inspect(movementState, Nation.ITALY,
+        ProposalInspector.Method.COHERENT_GRU_HYBRID, options);
+var top = result.top(5, ProposalInspector.Ranking.SEARCH);
+
+Options, in order:
+  candidates, iterations, rollouts, rolloutCandidates,
+  poolSeed, searchSeed, rolloutSeed, search
+
+Accepts any valid GameState_Movement, independently of the validation
+dataset. Models load once. Prepared full-position inputs are reused within
+one request. The constructor taking three MovementPolicy instances supports
+caller-supplied immutable policies; its model identity map is empty.
+
+The server also accepts a caller-supplied List<ProposalViewerServer.Position>.
+This allows another Java application to inspect its current movement root
+without creating a validation selection file.
+
+POOLS AND RANKINGS
+
+The seven raw proposal benchmark constructions are unchanged:
+UNIFORM, PLAUSIBLE, FULL_UNIFORM, LEARNED, HYBRID, GRU, GRU_HYBRID.
+All retained candidates are scored under the full-root linear anchor.
+Generation seeds are successive Random(poolSeed).nextLong() values for
+living powers in Nation declaration order, matching the benchmark.
+Policy-only and search requests therefore retain the same selected pool.
+
+Every proposal is a complete catalog-valid order set. In raw modes,
+coordination mismatches are reported without filtering or repairing orders.
+Sources describe the child that first retained an action; they are not
+inclusion probabilities.
+Pool index is a stable identity within this inspection.
+
+LINEAR_POLICY and GRU_POLICY rank complete-action natural-log probabilities.
+ANCHOR ranks the independently loaded linear anchor. anchorPoolProbability
+conditions that anchor on the entire retained pool.
+SEARCH ranks averaged DiL-piKL playing probabilities, not Q.
+Ties keep generation order. top(X, ranking) returns up to X candidates and
+never renormalizes their scores. X must be within the requested pool budget;
+the retained pool can be smaller. No greedy action or global top-X guarantee
+is added. Changing the viewer's ranking or X does not rerun inference.
+After a new search, the viewer selects SEARCH ranking. Policy-only requests
+select GRU_POLICY. The ranking selector can then display any computed score.
+
+COHERENT GENERATION
+
+COHERENT_GRU uses CoherentPolicyActionGenerator. Each decoding prefix constrains
+the remaining own orders: supports must match, convoy orders must match own
+armies, and convoy-dependent moves need compatible connected sea-fleet routes.
+A convoying fleet must lie on an endpoint-to-endpoint route; a disconnected
+fleet or a dead-end branch is insufficient. Foreign orders are unknown:
+potential foreign cooperation is allowed and identified as a dependency.
+Fleet survival, support cutting and strategic value are not predicted.
+
+Completion follows full-catalog policy conditionals in the original slot
+order. Choices are tried in a randomized policy-weighted order with bounded
+backtracking. There are at most 8 attempts per target candidate and at most
+32 * max(1, own unit count) attempted choices per attempt. No submitted action
+is repaired afterward. The retained pool may be short or empty; pure-mode
+inspection reports empty-pool exhaustion explicitly.
+
+Construction probabilities differ from the raw learned policy. Retained
+actions use source POLICY, not POLICY_SAMPLE. Displayed linear/GRU/anchor
+scores are recomputed under the unchanged full-catalog models. They are not
+the probability of inclusion or of constraint-guided construction.
+Models, training masks, the legal catalog and raw benchmark modes are unchanged.
+
+COHERENT_GRU_HYBRID uses the same HybridActionGenerator selection and quotas,
+with coherent learned proposals and the existing PlausibleActionGenerator.
+Half the places go to each child, odd extra to learned; unused places fill
+from remaining learned actions and then plausible actions. This provides
+explicit heuristic coverage when coherent learned generation is short.
+The viewer defaults to this hybrid. It reports attempts, dead ends, duplicates,
+attempted choices, child availability, selected counts and overlap per power.
+No fallback is hidden or assigned the learned model's sampling probability.
+
+MovementFeasibility supplies the same own-order and convoy rules to decoding
+and complete-action inspection. Findings identify the affected order:
+  BLOCKER: mismatched own support/convoy, absent route, or off-route convoy fleet.
+  DEPENDENCY: foreign support, foreign army agreement, or foreign convoy fleets.
+  CAUTION: shared destination, own stationary occupant, or a direct own swap.
+Friendly collisions remain available because deliberate self-bounces can be
+useful; warnings do not automatically filter them. Ordinary direct Army moves,
+including Den-Swe, require no convoy. Exact fleet coasts are retained.
+Instances of MovementFeasibility belong to one construction/inspection.
+
+Policy-only inspection generates one power's pool and has no search or Q.
+Search generates all living powers' pools, using the chosen method for each.
+A center-only power has one empty action; an eliminated power is rejected.
+
+Search uses PaperSearchProfile.forState, ADAPTIVE temperature, AVERAGE output,
+JUDGE:1:0 adjudication, SUM_OF_SQUARES, and convoy-free uniform continuations
+to the current year's winter before adjustments. Q is the historical raw
+payoff mean against search-sampled opponents, not fresh evaluation.
+The full joint result and root-evaluation counters remain available in Java.
+
+HTTP AND EXPORT
+
+GET /api/positions lists supplied boards, communication labels and models.
+POST /api/inspect requires Content-Type: application/json and
+X-JReferee-Inspect: 1, with these exact JSON fields:
+
+{"position":"opening","power":"ITALY","method":"GRU","candidates":8,
+ "iterations":16,"rollouts":1,"rolloutCandidates":8,"poolSeed":"7",
+ "searchSeed":"7","rolloutSeed":"7","search":false}
+
+Seeds are decimal strings to preserve all signed 64-bit values in JavaScript.
+Requests are limited to 4096 bytes. Options allow candidates 1..64,
+iterations 1..256, rollouts 1..8 and rolloutCandidates 1..64.
+The viewer additionally limits their product to 32768 when search is enabled.
+Only one inference runs at once; another request receives HTTP 429.
+Static assets and position metadata remain available during inference.
+Cross-origin requests and alternate Host headers are rejected.
+
+The inspection schema is jreferee-proposal-inspection-v2. The response contains
+position metadata and the complete inspected pool,
+ranking index arrays, model hashes, budgets, seeds, root board, coordination
+counts, per-order findings, construction counters and optional search data.
+Raw modes have an empty generation object. Missing search fields are null; a zero
+policy probability is represented by the log-score string "-Infinity".
+Finite log probabilities can exponentiate to zero through floating-point
+underflow; the viewer keeps the log value visible.
+Save inspection JSON downloads the full response plus the displayed
+ranking/count. Opponent pools are represented by sizes in JSON; Java retains
+their complete actions and joint result.
+
+CHECKS
+
+testing.selfcheck.ProposalInspectorSelfCheck
+testing.selfcheck.ProposalInspectorSelfCheck
+  data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin
+
+testing.selfcheck.CoherentProposalSelfCheck
+testing.selfcheck.CoherentProposalSelfCheck
+  data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin
+
+Run from the repository root. Without arguments, each check uses synthetic
+policies; with arguments it also uses the supplied models.
+ProposalInspectorSelfCheck covers legal complete actions,
+ranking, determinism, unchanged roots, short pools, exact coasts, center-only
+powers, solver parity, HTTP validation and simultaneous-request handling.
+CoherentProposalSelfCheck also compares through-fleet routes with exhaustive simple
+paths, retains deliberate collisions and foreign dependencies, and verifies
+bounded exhaustion, full-catalog scores and explicit plausible coverage.

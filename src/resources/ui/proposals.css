@@ -1,0 +1,15 @@
+.toolbar { margin: 0; border: 0; }
+.toolbar legend { background: #172033; padding: 0.7rem 1rem; font-weight: bold; }
+.toolbar input { width: 7rem; }
+.toolbar input[type="checkbox"] { width: auto; }
+#board-position { max-width: 26rem; }
+.navigation label { display: grid; gap: 0.3rem; }
+#top { width: 5rem; }
+#download { margin-bottom: 1rem; }
+#metadata { white-space: pre-wrap; overflow-wrap: anywhere; }
+.scores { display: block; font-size: 0.8rem; overflow-wrap: anywhere; margin: 0.35rem 0; }
+.mismatch { display: block; color: #9a3412; font-weight: bold; }
+.finding { display: block; font-size: 0.8rem; margin: 0.15rem 0 0.45rem; }
+.blocker { color: #991b1b; font-weight: bold; }
+.dependency { color: #3730a3; }
+.caution { color: #854d0e; }

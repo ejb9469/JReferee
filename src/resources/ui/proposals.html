@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JReferee Proposals</title>
+    <link rel="stylesheet" href="/ui/openings.css">
+    <link rel="stylesheet" href="/ui/proposals.css">
+    <script type="module" src="/ui/proposals.js"></script>
+</head>
+<body>
+<form id="request">
+    <fieldset id="request-controls" class="toolbar" disabled>
+        <legend>JReferee Proposals</legend>
+        <label>Position<select id="board-position"></select></label>
+        <label>Power<select id="power"></select></label>
+        <label>Generator<select id="method">
+            <option>UNIFORM</option><option>PLAUSIBLE</option><option>FULL_UNIFORM</option>
+            <option>LEARNED</option><option>HYBRID</option><option>GRU</option><option>GRU_HYBRID</option>
+            <option>COHERENT_GRU</option><option selected>COHERENT_GRU_HYBRID</option>
+        </select></label>
+        <label>Pool limit<input id="candidates" type="number" min="1" max="64" value="8" required></label>
+        <label>Pool seed<input id="poolSeed" value="7" pattern="-?[0-9]+" required></label>
+        <label>Search seed<input id="searchSeed" value="7" pattern="-?[0-9]+" required></label>
+        <label>Rollout seed<input id="rolloutSeed" value="7" pattern="-?[0-9]+" required></label>
+        <label>Iterations<input id="iterations" type="number" min="1" max="256" value="16" required></label>
+        <label>Rollouts<input id="rollouts" type="number" min="1" max="8" value="1" required></label>
+        <label>Rollout pool<input id="rolloutCandidates" type="number" min="1" max="64" value="8" required></label>
+        <label>Run DiL-piKL<input id="search" type="checkbox"></label>
+        <button type="submit">Inspect</button>
+    </fieldset>
+</form>
+<p id="summary" class="summary" role="status">Loading positions and models...</p>
+<p class="summary muted">
+    Top X within the generated pool; complete action probabilities use the full legal catalog.
+    Search probabilities use the entire retained pool. Changing X or ranking reuses the same result.
+    Search Q describes sampled search opponents, without fresh evaluation or win-rate estimates.
+    Coherent GRU constrains own supports and possible convoy routes; its hybrid uses PlausibleActionGenerator.
+</p>
+<main class="browser-layout">
+    <aside class="opening-panel" aria-label="Proposal selection">
+        <div class="navigation">
+            <label>Rank by<select id="ranking" disabled></select></label>
+            <label>Top X<input id="top" type="number" min="1" max="64" value="5" disabled required></label>
+        </div>
+        <p id="list-summary"></p>
+        <button id="download" type="button" disabled>Save inspection JSON</button>
+        <div id="opening-list"></div>
+    </aside>
+    <section class="map-panel" aria-label="Proposed orders">
+        <h2 id="selection-title">Position</h2>
+        <p id="position-details" class="muted"></p>
+        <div id="map-host"></div>
+        <p class="legend">Solid arrow: move · Ring: hold · Dashed: support · Dotted: convoy.
+            Units remain at the root. Non-center map colors are static decoration.</p>
+        <p id="map-warning" role="status"></p>
+        <p id="province-details" aria-live="polite"></p>
+        <p class="muted">Blockers identify mismatched own orders or absent compatible convoy routes.
+            Dependencies require foreign cooperation. Cautions include friendly collisions, which may be intentional.
+            No finding predicts fleet survival, support cutting or tactical success.</p>
+    </section>
+</main>
+<details class="diagnostics"><summary>Models and run settings</summary><pre id="metadata"></pre></details>
+</body>
+</html>

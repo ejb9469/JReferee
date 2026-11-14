@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
  */
 public final class PolicyProposalBenchmarkApp {
 
-    public static final String SCHEMA = "jreferee-proposal-benchmark-v1";
+    public static final String SCHEMA = "jreferee-proposal-benchmark-v2";
     public static final double TIE_TOLERANCE = 1e-12;
     private static final String USAGE = "Usage: PolicyProposalBenchmarkApp [--runs <2..1000>] [--seed <long>] "
             + "[--output <new-directory>] [--proposal-model <policy.bin>] [--anchor-model <policy.bin>] "
@@ -65,12 +65,12 @@ public final class PolicyProposalBenchmarkApp {
     public static void main(String[] args) throws Exception {
         if (Arrays.asList(args).contains("--help")) {
             System.out.println(USAGE);
-            System.out.println("Defaults: 20 paired seed sets, base seed 7, both positions, all seven methods and unchanged budgets.");
+            System.out.println("Defaults: 20 paired seed sets, base seed 7, both positions, all nine methods and unchanged budgets.");
             return;
         }
         int runs = 20;
         long seed = 7;
-        Path output = Path.of("data/movement-proposal-benchmark-v1");
+        Path output = Path.of("data/movement-proposal-benchmark-v2");
         Map<String, String> settings = new LinkedHashMap<>();
         settings.put("--proposal-model", "data/movement-linear-v1/policy.bin");
         settings.put("--gru-model", "data/movement-gru-java-v1/model.bin");
@@ -108,7 +108,8 @@ public final class PolicyProposalBenchmarkApp {
         Files.createDirectory(output);
         List<Path> artifacts = new ArrayList<>();
         Path seedFile = output.resolve("seeds.csv"), observations = output.resolve("observations.csv"), work = output.resolve("work.csv");
-        artifacts.addAll(List.of(seedFile, observations, work));
+        Path diagnostics = output.resolve("diagnostics.csv");
+        artifacts.addAll(List.of(seedFile, observations, work, diagnostics));
         try (var writer = writer(seedFile)) {
             csv(writer, "repetition", "pool", "search", "rollout", "opponents");
             for (int run = 0; run < runs; run++) {
@@ -119,7 +120,7 @@ public final class PolicyProposalBenchmarkApp {
         List<Trial> trials = new ArrayList<>();
         Map<String, String> hashes = null;
         long start = System.nanoTime();
-        try (var rows = writer(observations); var costs = writer(work)) {
+        try (var rows = writer(observations); var costs = writer(work); var details = writer(diagnostics)) {
             csv(rows, "repetition", "position", "method", "power", "candidates", "policy_samples", "policy_duplicates",
                     "own_supports", "bad_own_supports", "own_convoys", "bad_own_convoys", "mismatched_actions",
                     "mismatch_mass", "log_anchor_mass", "fresh_anchor", "fresh_search", "fresh_search_opponent_se",
@@ -127,6 +128,7 @@ public final class PolicyProposalBenchmarkApp {
             csv(costs, "repetition", "position", "method", "generation_seconds", "search_seconds", "fresh_seconds",
                     "search_requests", "search_simulations", "search_evaluations", "search_failures",
                     "fresh_requests", "fresh_simulations", "fresh_evaluations", "fresh_failures");
+            ProposalDiagnostics.header(details, "repetition", "position", "method", "power", "candidates");
             for (int run = 0; run < runs; run++)
                 for (Position position : Position.values()) {
                     Seeds s = seeds.get(run);
@@ -152,12 +154,15 @@ public final class PolicyProposalBenchmarkApp {
                                 row.ownSupports(), row.badOwnSupports(), row.ownConvoys(), row.badOwnConvoys(), row.mismatchedActions(),
                                 row.mismatchMass(), row.logAnchorMass(), row.freshAnchor(), row.freshSearch(), row.freshSearchError(),
                                 row.freshBest(), row.generationSeconds());
+                    for (Observation row : result.observations())
+                        ProposalDiagnostics.write(details, row.diagnostics(), run, position, row.method(), row.power(), row.candidates());
                     for (Work cost : result.work())
                         csv(costs, run, position, cost.method(), cost.generationSeconds(), cost.searchSeconds(), cost.freshSeconds(),
                                 cost.search().requests(), cost.search().simulations(), cost.search().evaluations(), cost.search().failures(),
                                 cost.fresh().requests(), cost.fresh().simulations(), cost.fresh().evaluations(), cost.fresh().failures());
                     rows.flush();
                     costs.flush();
+                    details.flush();
                 }
         }
         Path summary = output.resolve("summary.csv"), comparisons = output.resolve("paired.csv");
@@ -167,6 +172,7 @@ public final class PolicyProposalBenchmarkApp {
         JsonEscaper.appendString(receipt, SCHEMA);
         receipt.append(",\n\"complete\":true,\"test_evaluated\":false,\"runs\":").append(runs)
                 .append(",\"base_seed\":").append(seed).append(",\"positions\":[\"OPENING\",\"CONTACT\"],")
+                .append("\n\"methods\":").append(Arrays.stream(Method.values()).map(method -> "\"" + method.name() + "\"").toList()).append(',')
                 .append("\n\"paired_tie_tolerance\":").append(TIE_TOLERANCE).append(',')
                 .append("\n\"seconds\":").append((System.nanoTime() - start) / 1e9).append(",\n\"java_version\":");
         JsonEscaper.appendString(receipt, System.getProperty("java.version"));

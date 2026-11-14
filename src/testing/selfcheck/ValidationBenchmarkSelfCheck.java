@@ -2,14 +2,18 @@ package testing.selfcheck;
 
 import _app.ValidationProposalBenchmarkApp;
 import _app.PolicyProposalExperimentApp;
+import _app.PolicyProposalBenchmarkApp;
 import agents.encoding.*;
+import agents.policy.GruMovementPolicy;
 import domain.*;
 import game.*;
 import io.training.*;
+import io.json.*;
 import phase.UnitId;
 
 import java.io.*;
 import java.nio.file.*;
+import java.security.MessageDigest;
 import java.util.*;
 
 /**
@@ -121,7 +125,7 @@ public final class ValidationBenchmarkSelfCheck {
                 "--candidates", "2", "--iterations", "2", "--opponent-samples", "2", "--rollout-candidates", "2"};
         try (var out = new PrintStream(OutputStream.nullOutputStream())) {
             var result = PolicyProposalExperimentApp.runPosition(state, settings, out);
-            require(result.root().equals(state) && result.observations().size() == 28, "Only the four living powers are evaluated");
+            require(result.root().equals(state) && result.observations().size() == 36, "Nine methods evaluate only the four living powers");
             require(result.observations().stream().filter(row -> row.power() == Nation.TURKEY)
                     .allMatch(row -> row.candidates() == 1), "Center-only power has one empty action");
             for (var cost : result.work()) {
@@ -140,6 +144,68 @@ public final class ValidationBenchmarkSelfCheck {
             }
             expect(IllegalArgumentException.class,
                     () -> PolicyProposalExperimentApp.runPosition(state, new String[]{"--position", "opening"}, out));
+        }
+        frozen(state, models, settings);
+    }
+
+    private static void frozen(GameState_Movement state, String[] models, String[] settings) throws Exception {
+        var input = new MovementEncoding(state, Nation.ENGLAND).input();
+        var example = new MovementDataset.Example("DIPLOBN", "benchmark-fixture", null, input,
+                Collections.nCopies(input.slots().size(), 0));
+        String fingerprint = GruMovementPolicy.load(Path.of(models[1])).datasetIndexSha256();
+        var selected = ValidationPositions.select(dataset(List.of(example), fingerprint), 1, 7);
+        Path temporary = Files.createTempDirectory("jreferee-validation-benchmark-");
+        try {
+            Path positions = temporary.resolve("positions.json"), output = temporary.resolve("results");
+            ValidationPositions.save(selected, positions);
+            var command = new ArrayList<>(Arrays.asList(settings));
+            command.addAll(List.of("--positions", positions.toString(), "--runs", "2", "--seed", "7", "--output", output.toString()));
+            ValidationProposalBenchmarkApp.main(command.toArray(String[]::new));
+            require(Files.readString(positions).equals(Files.readString(output.resolve("positions.json"))), "Frozen positions are copied unchanged");
+            var observations = ProposalBenchmarkSelfCheck.table(output.resolve("observations.csv"));
+            var details = ProposalBenchmarkSelfCheck.table(output.resolve("diagnostics.csv"));
+            var pairs = ProposalBenchmarkSelfCheck.table(output.resolve("paired.csv"));
+            require(observations.size() == 72 && details.size() == 72, "Two repetitions, four living powers and nine methods");
+            for (var row : details) {
+                if (row.get("method").startsWith("COHERENT_"))
+                    require(row.get("blocker_actions").equals("0") && !row.get("construction_attempts").isEmpty(),
+                            "Frozen benchmark retains coherent diagnostics");
+                if (row.get("power").equals("TURKEY"))
+                    require(row.get("empty_actions").equals("1") && row.get("all_hold_actions").equals("0")
+                            && Double.parseDouble(row.get("hold_fraction")) == 0, "Center-only diagnostics");
+            }
+            require(pairs.stream().anyMatch(row -> row.get("method").equals("COHERENT_GRU_HYBRID")
+                    && row.get("baseline").equals("COHERENT_GRU")), "Direct paired coherent comparison");
+            for (var row : pairs) {
+                require(row.get("games").equals("1") && row.get("game_se").isEmpty(), "One source game has no game-level error");
+                double[] values = ProposalBenchmarkSelfCheck.series(observations, selected.positions().getFirst().rank(), row.get("power"), row.get("method"));
+                double[] baseline = ProposalBenchmarkSelfCheck.series(observations, selected.positions().getFirst().rank(), row.get("power"), row.get("baseline"));
+                close(Double.parseDouble(row.get("mean_delta")), PolicyProposalBenchmarkApp.paired(values, baseline).mean(),
+                        "Source-game paired difference");
+            }
+            var json = new JsonAccess((path, message) -> new IllegalArgumentException(path + ": " + message));
+            var receipt = json.object(JsonReader.read(Files.readString(output.resolve("benchmark.json"))), "$");
+            require(receipt.get("schema").equals("jreferee-validation-benchmark-v2") && Boolean.TRUE.equals(receipt.get("complete"))
+                    && Boolean.FALSE.equals(receipt.get("test_evaluated")), "Completed v2 validation receipt");
+            require(json.array(receipt.get("methods"), "methods").size() == 9, "Receipt declares nine methods");
+            var artifacts = json.object(receipt.get("files"), "files");
+            require(artifacts.containsKey("diagnostics.csv"), "Diagnostics included in artifact hashes");
+            for (var entry : artifacts.entrySet())
+                require(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(
+                        Files.readAllBytes(output.resolve(entry.getKey())))).equals(entry.getValue()), "Validation artifact hash");
+            expect(FileAlreadyExistsException.class, () -> ValidationProposalBenchmarkApp.main(command.toArray(String[]::new)));
+            Path wrong = temporary.resolve("wrong.json"), failed = temporary.resolve("failed");
+            String other = fingerprint.equals("a".repeat(64)) ? "b".repeat(64) : "a".repeat(64);
+            Files.writeString(wrong, Files.readString(positions).replace("\"dataset_sha256\":\"" + fingerprint + "\"",
+                    "\"dataset_sha256\":\"" + other + "\""));
+            var invalid = new ArrayList<>(Arrays.asList(settings));
+            invalid.addAll(List.of("--positions", wrong.toString(), "--runs", "2", "--output", failed.toString()));
+            expect(IOException.class, () -> ValidationProposalBenchmarkApp.main(invalid.toArray(String[]::new)));
+            require(!Files.exists(failed.resolve("benchmark.json")), "Dataset mismatch has no completion receipt");
+        } finally {
+            try (var paths = Files.walk(temporary)) {
+                for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
+            }
         }
     }
 
@@ -177,6 +243,10 @@ public final class ValidationBenchmarkSelfCheck {
     }
 
     private static MovementDataset dataset(List<MovementDataset.Example> rows) {
+        return dataset(rows, "a".repeat(64));
+    }
+
+    private static MovementDataset dataset(List<MovementDataset.Example> rows, String fingerprint) {
         return new MovementDataset() {
             @Override public Cursor open(EncodingPurpose split) {
                 require(split == EncodingPurpose.VALIDATION, "Only VALIDATION may be opened");
@@ -196,7 +266,7 @@ public final class ValidationBenchmarkSelfCheck {
             @Override public long examples(EncodingPurpose split) {
                 require(split == EncodingPurpose.VALIDATION, "Only validation counts are used"); return rows.size();
             }
-            @Override public String fingerprint() { return "a".repeat(64); }
+            @Override public String fingerprint() { return fingerprint; }
         };
     }
 

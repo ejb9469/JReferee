@@ -1,0 +1,121 @@
+COHERENT PROPOSAL BENCHMARK
+
+Use the completed validation benchmark's frozen positions.json. Do not
+reselect boards, change checkpoints or evaluate TEST for this comparison.
+
+Main class:
+  _app.ValidationProposalBenchmarkApp
+
+Program arguments, from the repository root:
+  --positions data/movement-validation-benchmark-v1/positions.json
+  --proposal-model data/movement-linear-v1/policy.bin
+  --anchor-model data/movement-linear-v1/policy.bin
+  --gru-model data/movement-gru-java-v1/model.bin
+  --runs 3
+  --seed 7
+  --candidates 8
+  --iterations 16
+  --rollouts 1
+  --rollout-candidates 8
+  --opponent-samples 16
+  --output data/movement-validation-benchmark-v2
+
+Adjust the input path if the earlier frozen file was saved elsewhere.
+The output directory must not exist. A complete run writes benchmark.json
+last, with schema jreferee-validation-benchmark-v2 and hashes of all artifacts.
+The GRU dataset identity must still match the saved validation selection.
+
+METHODS
+
+The original seven methods run first in their existing order:
+UNIFORM, PLAUSIBLE, FULL_UNIFORM, LEARNED, HYBRID, GRU, GRU_HYBRID.
+COHERENT_GRU and COHERENT_GRU_HYBRID follow them.
+
+Both new methods use CoherentPolicyActionGenerator with the original full
+catalog masks and frozen linear anchor. The coherent hybrid uses the same
+HybridActionGenerator quotas and existing PlausibleActionGenerator as the
+viewer. Raw modes and their sample counts are unchanged.
+
+All methods use the same candidate budget, seed schedule, search settings,
+independent full-anchor opponent draws and continuation policy. No budget is
+retuned to compensate for coherence work. Generation timing includes actual
+construction and anchor scoring, excluding shared model loading/preparation.
+Finding diagnostics are calculated after evaluation and included in the
+fresh-stage wall time, which also includes reporting.
+
+A pure coherent pool can be short. If it is empty, the experiment stops with
+the affected power and construction counts; there is no completion receipt
+or hidden fallback. A coherent hybrid can explicitly fill unused learned
+places from its plausible child.
+
+ARTIFACTS
+
+observations.csv and work.csv retain their previous columns and add rows for
+the new methods. summary.csv, paired.csv and games.csv use the existing
+source-game grouping and include the new methods and all earlier baselines.
+The validation selection is copied to positions.json unchanged.
+
+diagnostics.csv adds one row per position, repetition, method and power:
+  orders, hold_orders: totals across the retained pool.
+  empty_actions, all_hold_actions: separate counts.
+  blocker_actions, convoy_blocker_actions, dependency_actions, caution_actions:
+    number of candidates with at least one finding in that category.
+  blocker_mass, convoy_blocker_mass, dependency_mass, caution_mass, all_hold_mass:
+    sum of the final AVERAGE search playing probabilities for those actions.
+  hold_fraction: expected fraction of a power's orders that are holds, weighted
+    by that same search policy; zero for a center-only empty action.
+  construction_target, construction_attempts, construction_dead_ends,
+    construction_duplicates, construction_choices: bounded coherent generation
+    counts, before hybrid selection. These columns are blank for raw methods.
+  learned_available, learned_selected, heuristic_available, heuristic_selected,
+    overlap: child pool and selection counts for hybrids and coherent methods.
+    Unavailable counts are blank rather than zero.
+
+Finding categories overlap. A candidate is counted once within each category.
+Construction attempts are not raw-policy samples; the old policy sample
+columns stay blank for coherent modes. Playing probabilities are not
+renormalized over a category. Raw GRU likelihood and maximum Q do not define
+the playing policy used for these diagnostic masses.
+
+COMPARISON
+
+Use paired.csv, group ALL and power ALL, for the source-game-level comparison
+of fresh-evaluated search decisions. Compare each coherent method against
+PLAUSIBLE, HYBRID, GRU and GRU_HYBRID, and compare the coherent hybrid against
+pure coherent generation. Pairing uses identical board/seed/opponent draws.
+Use per-power and stratum rows to understand differences, not as independent
+extra samples. A single source game's standard error is unavailable.
+
+Inspect diagnostics.csv alongside values: a zero blocker count alone does
+not establish strong play. Check whether search places mass on collisions,
+foreign-dependent orders or all-hold actions, and whether construction fills
+the requested pools. best_in_pool is optimistic because it is selected on
+the same fresh samples.
+
+These are short-horizon validation diagnostics, not full-game win rates.
+Keep the checkpoints, anchor, hybrid quotas and TEST split unchanged.
+The full output directory can be zipped and shared for analysis.
+
+OTHER ENTRY POINTS
+
+PolicyProposalBenchmarkApp also includes the two new methods, writes
+diagnostics.csv, and uses schema jreferee-proposal-benchmark-v2. Its opening
+and contact positions remain fixtures; errors are paired across seed sets.
+Its default output is data/movement-proposal-benchmark-v2.
+
+PolicyProposalExperimentApp includes the new methods when --gru-model is
+supplied, retains per-power diagnostics in Observation.diagnostics(), and
+prints construction counts and search masses. Without a GRU model it still
+runs the original five non-GRU methods.
+
+CHECKS
+
+testing.selfcheck.ProposalBenchmarkSelfCheck
+  data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin
+testing.selfcheck.ValidationBenchmarkSelfCheck
+  data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin
+
+Checks use small budgets and temporary synthetic boards. They cover report
+dimensions, receipt hashes, construction accounting, search-weighted findings,
+viewer/benchmark parity, source-game pairing, unchanged frozen positions and
+dataset-mismatch rejection.
