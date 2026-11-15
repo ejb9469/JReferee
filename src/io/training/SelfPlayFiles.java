@@ -33,6 +33,10 @@ public final class SelfPlayFiles implements AutoCloseable {
 
     public record Summary(String gameId, int phases, int decisions, String termination) { }
 
+    public record Snapshot(
+            Summary summary, String run, String phases, String outcome, String fingerprint
+    ) { }
+
     public SelfPlayFiles(Path directory, Map<String, Object> run) throws IOException {
 
         this.directory = Objects.requireNonNull(directory, "directory");
@@ -84,7 +88,7 @@ public final class SelfPlayFiles implements AutoCloseable {
         }
         Map<String, Object> manifest = object("schema", SCHEMA, "game_id", this.gameId,
                 "files", receipts);
-        Summary summary = verifyPayloads(this.directory, manifest);
+        Summary summary = verifyPayloads(this.directory, manifest).summary();
         write("manifest.pending", json(manifest));
         Files.move(this.directory.resolve("manifest.pending"), this.directory.resolve("manifest.json"),
                 StandardCopyOption.ATOMIC_MOVE);
@@ -101,21 +105,30 @@ public final class SelfPlayFiles implements AutoCloseable {
     }
 
     public static Summary verify(Path directory) throws IOException {
+        return snapshot(directory).summary();
+    }
+
+    /**
+     * Returns the exact verified payloads, avoiding a verification/read race.
+     */
+    public static Snapshot snapshot(Path directory) throws IOException {
         return verifyPayloads(directory, parse(read(directory.resolve("manifest.json"))));
     }
 
-    private static Summary verifyPayloads(Path directory, Map<String, Object> manifest) throws IOException {
+    private static Snapshot verifyPayloads(Path directory, Map<String, Object> manifest) throws IOException {
 
         require(SCHEMA.equals(text(manifest, "schema")), "Unsupported archive schema");
         Map<String, Object> receipts = JSON.object(manifest.get("files"), "files");
         require(receipts.keySet().equals(new HashSet<>(PAYLOADS)), "Unexpected archive payloads");
         Map<String, byte[]> payloads = new LinkedHashMap<>();
+        StringBuilder identity = new StringBuilder(SCHEMA);
         for (String name : PAYLOADS) {
             Map<String, Object> receipt = JSON.object(receipts.get(name), name);
             byte[] bytes = read(directory.resolve(name));
             require(integer(receipt, "bytes") == bytes.length
                     && hash(bytes).equals(text(receipt, "sha256")), "Checksum or size mismatch: " + name);
             payloads.put(name, bytes);
+            identity.append('\n').append(hash(bytes));
         }
         Map<String, Object> run = parse(payloads.get("run.json"));
         Map<String, Object> outcome = parse(payloads.get("outcome.json"));
@@ -146,7 +159,9 @@ public final class SelfPlayFiles implements AutoCloseable {
         require(solo ? outcome.get("eventual_sos_target") != null && outcome.get("cutoff_scores") == null
                         : outcome.get("eventual_sos_target") == null && outcome.get("cutoff_scores") != null,
                 "Cutoff scores and eventual targets must remain separate");
-        return new Summary(id, phases, decisions, termination);
+        return new Snapshot(new Summary(id, phases, decisions, termination),
+                utf8(payloads.get("run.json")), lines, utf8(payloads.get("outcome.json")),
+                hash(identity.toString().getBytes(StandardCharsets.UTF_8)));
 
     }
 

@@ -33,7 +33,7 @@ Errors propagate. Existing directories are never reused or overwritten.
 An unsupported atomic manifest move fails explicitly. There is no resume,
 crash-durability guarantee, or automatic recovery of partial archives.
 Verification checks hashes, JSON syntax, identities, counts and target
-separation. It is not yet a typed training reader or an adjudication replay.
+separation. Use SelfPlayDatasetCheckApp for typed reading and replay.
 Each payload is limited to 64 MiB during verification.
 
 Decision semantics
@@ -68,11 +68,53 @@ SOLO: exact eventual_sos_target, value_target_eligible=true, cutoff_scores=null.
 YEAR_LIMIT: ARTIFICIAL_CUTOFF, eventual_sos_target=null,
             value_target_eligible=false, cutoff_scores=actual boundary SoS.
 No draw agreement, completed-game label or bootstrap target is invented.
-No records are automatically admitted to training. Future training readers
-must validate states, policies, chronology and provenance before use.
+No records are automatically admitted to training. Typed reading validates
+states, policies, chronology, recorded metadata and target eligibility.
 Do not import a cutoff score as an eventual-value target.
 
 The recorder does not alter search, model weights or any existing launcher.
 No training or TEST data is opened. Same configuration and seed yield the
 same logical game ID; duplicate runs must not become independent examples.
 Elapsed-time fields mean repeated archives need not have identical bytes.
+
+Typed readback
+--------------
+Self-check main class: testing.selfcheck.SelfPlayDatasetSelfCheck
+No arguments. Rerun SelfPlayRecordSelfCheck after replacing SelfPlayFiles.
+
+Main class: _app.SelfPlayDatasetCheckApp
+Arguments: data/self-play-smoke-v1
+For a batch, pass every archive directory together to detect duplicates.
+No model loading, search, training, cache creation or TEST access occurs.
+
+SelfPlayDataset.open returns immutable typed positions, candidate pools,
+policies, selected actions, type profiles, model identity metadata and ending.
+It replays selected actions with the existing Simulator and JUDGE processor.
+Every candidate is checked against the phase's legal-order catalog.
+The actual successor, pending retreats, terminal boundary and SoS must match.
+Seeds must match the v1 derivation, and selection must match its saved seed.
+PRIOR and BEST_RESPONSE policies are checked against priors/means respectively.
+DiL search histories and neural predictions are NOT recomputed.
+Artifact hashes are validated as recorded identities; model files are not
+reopened or authenticated. A resealed archive is not proof of its producer.
+
+This reader accepts movement-start JUDGE archives only. It rejects initial
+retreat/adjustment states and other movement policies explicitly: v1 did not
+retain all construction history/order needed for those starting conditions.
+Ordinary retreats and adjustments reached during replay are fully supported.
+Exact coasts are preserved; unit identities are reconstructed, not restored.
+
+openAll rejects repeated game IDs and repeated canonical run configurations
+(including seeds, model identities and initial positions), even with changed
+game IDs or elapsed times. The logical key excludes only game_id.
+This does not detect every possible duplicated trajectory under different
+configurations. Future split assignment must keep each logical game together.
+
+valueAssessment() uses the existing ValueRewardContract and returns an
+explicit ARTIFICIAL_CUTOFF rejection for capped games, never zero targets.
+Only non-retreat positions before an accepted ending are value inputs.
+Movement search policies remain distinguishable from PRIOR diagnostics.
+No examples are yet converted into tensors or used for optimization.
+
+The reader materializes one game's typed history. File limits remain 64 MiB
+per payload; use small batches until a streaming training reader is needed.
