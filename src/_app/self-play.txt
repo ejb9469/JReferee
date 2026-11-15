@@ -1,0 +1,78 @@
+Persistent self-play v1
+======================
+
+Main class: _app.SelfPlayGameApp
+Working directory: project root.
+The output directory must not exist; its parent must already exist.
+
+Small recorded neural game:
+data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin 1902 4 8 7 data/self-play-smoke-v1
+
+Matched baseline, without loading a value model:
+baseline data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin 1902 4 8 7 data/self-play-baseline-v1
+
+Development budget:
+data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin 1903 8 64 7 data/self-play-development-v1
+
+Verify an existing archive without loading models or playing:
+--verify data/self-play-smoke-v1
+
+Self-check main class: testing.selfcheck.SelfPlayRecordSelfCheck
+No arguments or model files. Uses small real games and temporary files.
+
+Files
+-----
+run.json: initial position, all seat configurations, model identities,
+          game seed, adjudication settings and reward contract.
+phases.jsonl: one line per resolved phase, flushed after that phase.
+outcome.json: final position, stopping reason, counts and separated scores.
+manifest.json: completion marker; SHA-256 and byte counts for the three files.
+
+No manifest means incomplete, even if some phase lines were written.
+Errors propagate. Existing directories are never reused or overwritten.
+An unsupported atomic manifest move fails explicitly. There is no resume,
+crash-durability guarantee, or automatic recovery of partial archives.
+Verification checks hashes, JSON syntax, identities, counts and target
+separation. It is not yet a typed training reader or an adjudication replay.
+Each payload is limited to 64 MiB during verification.
+
+Decision semantics
+------------------
+Every living seat has its own root candidate pools, including opponent pools.
+An opponent pool in one seat's search is not another seat's actual decision.
+Pool order is preserved. The policy vector and selected_index refer to the
+deciding seat's pool; selected orders are checked against actual submissions.
+An empty orders list is meaningful, including omitted retreats/disbands.
+Search means are historical raw payoff means, not fresh policy evaluations.
+
+For DIL_PIKL, type records the actual PaperSearchProfile selected by the
+current AgentSettings: playing lambda, population lambdas/probabilities,
+temperature schedule and output mode. The playing type is not randomly
+sampled per game. The population governs within-search sampling.
+Only the returned playing-type policy is retained, not every counterfactual
+type policy, per-iteration lambda draws, or final adaptive temperatures.
+Changing AgentSettings to configurable types must also update this recorder.
+PRIOR and BEST_RESPONSE have no DiL type; type is null.
+
+Seeds and elapsed nanoseconds are decimal strings to preserve all 64 bits.
+Zero anchor probability is represented by log_prior = "-Infinity".
+Movement and disband origins come from the current board; retreat origins
+come from dislodgements. Build coasts remain exact. Waives have null origin
+and unit type. Unit UUIDs and birth provinces are not learning features.
+Retreat positions retain dislodged units, attacker origins/convoy flags,
+and standoffs. These are positional records, not Java object snapshots.
+
+Targets and scope
+-----------------
+SOLO: exact eventual_sos_target, value_target_eligible=true, cutoff_scores=null.
+YEAR_LIMIT: ARTIFICIAL_CUTOFF, eventual_sos_target=null,
+            value_target_eligible=false, cutoff_scores=actual boundary SoS.
+No draw agreement, completed-game label or bootstrap target is invented.
+No records are automatically admitted to training. Future training readers
+must validate states, policies, chronology and provenance before use.
+Do not import a cutoff score as an eventual-value target.
+
+The recorder does not alter search, model weights or any existing launcher.
+No training or TEST data is opened. Same configuration and seed yield the
+same logical game ID; duplicate runs must not become independent examples.
+Elapsed-time fields mean repeated archives need not have identical bytes.
