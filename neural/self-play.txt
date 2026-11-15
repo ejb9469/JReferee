@@ -1,0 +1,95 @@
+PYTHON SELF-PLAY CACHE READBACK
+
+Run from the repository root. Python 3.12 is recommended. These modules use
+only the standard library: no NumPy, PyTorch, model loading or installation.
+
+Windows:
+
+  .venv\Scripts\python.exe -m neural.test_self_play_cache --spec data/self-play-cache-v1/value/specification.json
+  .venv\Scripts\python.exe -m neural.self_play_cache --cache data/self-play-cache-v1
+
+Alternatively use py -3.12 in place of .venv\Scripts\python.exe.
+Linux/macOS can use python3 with the same module arguments.
+
+For the confirmed smoke cache, the readback should report:
+
+  TRAIN: policy_examples=28 value_positions=0
+  VALIDATION: policy_examples=0 value_positions=0
+  Games=1 policy_examples=28 value_positions=0
+
+The dataset fingerprint must remain:
+  9c183210784b880b9cd1ccbdc84c24351179a71e80ea21888ef7c459282e7dc9
+
+Verification
+------------
+SelfPlayCache requires the completed root manifest and the linked child value
+manifest. It validates schemas, specification hashes, every named payload's
+size and SHA-256, numeric shapes, offsets, IDs, issuing slots, supplied order
+geometry, complete-action indices, unique candidates and probability mass.
+It also checks type features, policy-output IDs, historical diagnostic ranges,
+the frozen GameRunner seed protocol and Java Random selection.
+
+The frozen value specification authenticates the embedded movement map.
+Changing a specification/hash to get a cache accepted is not supported.
+No paths named by arbitrary metadata are opened. TRAIN and VALIDATION are the
+only accepted splits; unexpected TEST entries or redirected shard paths fail.
+
+Game IDs, logical keys and archive fingerprints must be unique. Membership
+uses the same unsigned hash rule and split seed as the Java writer. Counts,
+phase ordering and acting-power coverage are checked. Accepted value games
+must link to their policy-cache game, split and archive identity. Movement
+boards shared by policy and value examples must agree. Cutoffs and terminal-
+only games cannot acquire value rows. v1 completed self-play outcomes are
+solos, so their value targets must be one-hot in the existing power order.
+
+These are derived-cache checks, not another Java adjudication replay.
+The reader does not authenticate model execution, reconstruct omitted legal
+options, recompute search histories or reopen source archives to establish
+the winner. Preserve the replay-validated archives and their fingerprints.
+
+Snapshots and API
+-----------------
+The reader owns immutable bytes, never mutable file-backed arrays. Every hash
+is computed over the exact bytes later decoded. Editing files after opening
+does not change an existing reader's verified snapshot. Reopening verifies
+the new files again. All file handles are closed during construction.
+
+At most 512 MiB of input bytes are accepted per cache, including metadata and
+specifications. Decoded metadata and returned Python tuples add memory usage;
+512 MiB is not a total process-RAM guarantee. Use the Java writer's small
+batches rather than raising limits blindly.
+
+  from neural.self_play_cache import SelfPlayCache, validate_disjoint
+
+  cache = SelfPlayCache("data/self-play-cache-v1")
+  for example in cache.policies("TRAIN"):
+      actions = example.actions
+      weights = example.probabilities
+
+Each PolicyExample has board [75,4], context [3], exact slot locations [U],
+per-slot option counts [U], structured options [O,5], complete actions [C,U],
+probabilities [C], raw type features [9], type IDs [2], selected index and
+separate anchor/search diagnostics. Arrays are nested immutable tuples.
+Actions contain LOCAL option indices, not embedding IDs. Every action retains
+its own full autoregressive prefix. No per-slot marginals or sampled labels
+are substituted. log_priors and historical_means are never training targets.
+
+get_policy(split,index) supports explicit shuffled indexing. policies(split)
+iterates in recorded order. values(split) yields board/context/target rows;
+metadata retains game identity for game-weighted metrics and grouping.
+games, specification, policy_counts and value_counts are read-only.
+Call validate_disjoint(caches) before combining separately generated batches.
+It rejects mixed split seeds and duplicated IDs, keys or archive fingerprints.
+
+Checks and next boundary
+------------------------
+The self-check creates temporary synthetic caches. With --spec it uses the
+actual frozen map and unmodified production hash checks. Without --spec it
+uses a small synthetic map and a clearly announced test-only hash override;
+this mode exercises the reader without requiring local Java-generated files.
+Production code has no hash-override option.
+
+This step adds no trainer, type-conditioned network or Java model export.
+The old single-action movement trainer is not compatible with these targets.
+Verify this readback before implementing candidate-weighted autoregressive
+policy learning. Keep the human anchor frozen and TEST unopened.
