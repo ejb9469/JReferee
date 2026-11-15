@@ -1,0 +1,125 @@
+SELF-PLAY TRAINING CACHE
+
+Run testing.selfcheck.SelfPlayCacheSelfCheck without arguments first.
+Then run _app.SelfPlayCacheApp from the repository root:
+
+  data/self-play-cache-v1 7 data/self-play-smoke-v1
+
+Arguments: new output directory, split seed, one or more completed archives.
+The output parent must exist. Existing outputs are never overwritten.
+The confirmed all-DiL smoke archive should yield 28 policy examples and
+zero value positions. The dataset fingerprint is printed after completion.
+Keep the same split seed for subsequent batches and checkpoint iterations.
+
+Admission and scope
+-------------------
+Every archive passes SelfPlayDataset.openAll before output creation: checksums,
+typed replay, legal candidates, policies, chronology and outcome assessment.
+Duplicate IDs and logical game keys are rejected across the complete input list.
+No source model, historical dataset, training command or TEST payload is opened.
+Recorded model hashes are provenance, not proof of authentic model execution.
+
+This version caches nonempty DiL-piKL movement decisions only. PRIOR,
+BEST_RESPONSE, retreats, adjustments and zero-unit decisions are counted as
+exclusions in games.jsonl, not disguised as lambda-conditioned examples.
+Exclusion categories are mutually exclusive, in that order: non-movement,
+non-DiL, zero-unit. A zero-unit complete action has no policy-learning loss.
+
+Each policy target is the entire recorded distribution over complete candidate
+actions. Candidate order, zero probabilities and negative-infinity anchor priors
+are retained. No per-slot marginalization, sampled-action imitation or
+probability renormalization is performed. Opponent candidate pools remain in
+the source archives; they are not additional targets for the acting seat.
+
+Playing lambda, all four population lambdas and their four weights are saved
+as raw float64 values. Profile and configured policy-output IDs are separate.
+Temperature scheduling is the recorded v1 ADAPTIVE protocol. No random playing
+types, counterfactual type policies or final temperatures are invented.
+
+ValueRewardContract alone decides eventual-value eligibility. Rejected games
+have no value rows; rejection reasons are retained. An accepted terminal-only
+archive has NO_POSITIONS and also contributes no value rows. Accepted games
+contribute each pre-ending movement/adjustment board once, not once per seat.
+Retreat boards and the terminal board are excluded. Existing NeuralValueCache
+writes the game-level targets and offsets using its unchanged value schema.
+Those value inputs remain board-only, not newly type-conditioned.
+
+Splits and identity
+-------------------
+Games are ordered by logical key, independently of input path order.
+Hash UTF-8 decimal split seed + LF + the lowercase logical key with SHA-256.
+Interpret the first 16 hexadecimal digits as an UNSIGNED 64-bit integer.
+Its unsigned remainder modulo 10 selects VALIDATION for zero, otherwise TRAIN.
+This is an expected 90/10 split, not an exact quota. Never move individual
+positions to fill an empty split. All policy/value rows of a game stay together.
+The same rule must be used across batches; combined-cache consumers must also
+reject duplicate game IDs/logical keys across those batches.
+
+games.jsonl binds IDs, logical keys, archive fingerprints, configurations,
+model identities, exclusions and assignments. None is a predictive input.
+dataset_fingerprint hashes schema + LF + decimal seed + LF + games.jsonl SHA-256.
+File receipts separately bind all actual numeric contents and specifications.
+The child value manifest shares this dataset fingerprint.
+
+Layout
+------
+manifest.json is the completion marker for the entire cache. It is published
+atomically last. Failures leave an incomplete directory without that marker.
+Do not consume a partial root merely because its child value manifest exists.
+Keep source archives; this cache does not replace replay evidence.
+
+policy-specification.json embeds the existing movement specification and its
+original SHA-256, plus the new type vocabulary and target semantics.
+Board/context/options use NeuralMovementEncoding without changed IDs or masks.
+All multibyte arrays are LITTLE_ENDIAN, without binary headers.
+E=examples, S=slots, O=legal options, C=candidates, A=action indices in a shard.
+
+  board.u8             uint8   [E,75,4]
+  context.i32          int32   [E,3]    power, phase, raw year
+  types.f64            float64 [E,9]    playing lambda, 4 lambdas, 4 weights
+  type_ids.i32         int32   [E,2]    profile ID, output ID
+  example_offsets.i64  int64   [E+1]    boundaries into slots
+  slot_locations.u8    uint8   [S]
+  option_offsets.i64   int64   [S+1]    boundaries into legal options
+  options.u8           uint8   [O,5]
+  candidate_offsets.i64 int64  [E+1]    boundaries into candidates
+  action_offsets.i64   int64   [C+1]    boundaries into action indices
+  actions.i32          int32   [A]      LOCAL per-slot legal option indices
+  policy.f64           float64 [C]      whole-action target probabilities
+  log_prior.f64        float64 [C]      diagnostics; negative infinity allowed
+  mean_values.f64      float64 [C]      historical raw search diagnostics
+  selected.i32         int32   [E]      example-local candidate index
+  metadata.jsonl       UTF-8   E rows   game/phase/power, seeds, samples, sources
+
+Profile IDs: NONE=0, OPENING=1, STANDARD=2.
+Output IDs: NONE=0, FINAL=1, AVERAGE=2.
+NONE is reserved and never emitted for an admitted row.
+Offsets start at zero. Their terminal values are S/O/C/A respectively.
+For example e and candidate c in its candidate range, the action slice
+[action_offsets[c], action_offsets[c+1]) contains exactly that example's
+unit count. Index t selects a LOCAL option of issuing slot t, not a global ID.
+policy[c], log_prior[c] and mean_values[c] refer to that same complete action.
+Never interpret mean_values as eventual-value labels or log_prior as a target.
+
+Shards never cross games or splits. They hold at most 256 examples and at most
+1000000 legal options or action indices. Oversized individual examples fail.
+This first batch converter retains all validated source games in memory.
+Use small archive batches; streaming large corpora is not implemented here.
+
+Learning boundary
+-----------------
+This step prepares data only. It does not modify weights, the frozen human
+anchor, the live search loop, Java exports or the existing GRU architecture.
+The old single-demonstration movement cache/trainer cannot consume this schema.
+A new reader and type-aware policy training/export are subsequent work.
+
+The intended policy loss is -sum_a target(a) * log P(a | state,type), with
+log P(a) the sum of autoregressive conditional log probabilities under FULL
+legal masks and each candidate's own prefix. Do not normalize model scores
+only over the retained candidate pool. Skip zero-weight terms safely.
+Validation must remain game-held-out. An empty validation split or zero value
+examples is valid cache output, not permission to train/promote such a model.
+Readers must verify the root/child manifests, specifications, all hashes and
+sizes, offsets, vocabulary IDs, action bounds, probability mass and game links
+before optimization. No production reader for the new policy schema is added
+by this cache-only step.
