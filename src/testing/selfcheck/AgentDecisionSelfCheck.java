@@ -26,7 +26,7 @@ import java.util.*;
 /**
  * Decision capture preserves policies, sampled actions, and recorded games.<br><br>
  *
- * <u>Note:</u> This class may take a long time to run, since it performs (a small amount of) self-play.
+ * <u>Note:</u> This class may take a long time to run.
  */
 public final class AgentDecisionSelfCheck {
 

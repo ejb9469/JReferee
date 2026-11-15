@@ -1,0 +1,43 @@
+OPT-IN NEURAL VALUE SEARCH
+
+AgentSettings adds Optional<NeuralValueModel> valueModel. All prior constructors
+remain and default to Optional.empty(), preserving the stop-now SoS baseline.
+withValueModel returns a new configuration sharing immutable model weights.
+The optional value-model hash is included in configuration-derived identities.
+PRIOR rejects a value model because it never evaluates payoffs.
+Neural mode rejects non-SUM_OF_SQUARES scoring rather than mixing payoff scales.
+
+No changes are made to the human anchor, coherent proposals, search objective,
+regularization constants, rollout sampling or real game adjudication.
+The existing RolloutEvaluator continues through the current Fall, including
+pending retreats, and stops before winter builds. Nonterminal winter leaves
+use NeuralValueModel; observed solos and the configured last-year winter use
+exact ScoringEvaluator SoS. The real GameRunner final scores remain unchanged.
+GameState does not encode agreed draws or other external completion causes.
+The neural network is not called directly on pending-retreat positions.
+Its outputs estimate historical eventual SoS, not the configured cutoff's
+continuation value: exact cutoff scoring applies only once that boundary is
+reached. Short bounded games are integration exercises, not strength evidence.
+
+Run testing.selfcheck.NeuralEvaluatorSelfCheck with:
+  data/value-java-v1/model.bin
+Also rerun testing.selfcheck.AgentDecisionSelfCheck and
+testing.selfcheck.RolloutEvaluatorSelfCheck without arguments.
+
+NeuralValueGameApp is a separate console smoke launcher. Existing launchers
+remain baseline unless their AgentSettings explicitly opt in. It does not
+create a browser server or save replay files; GameRunner records phases in
+memory during the run and the console reports decisions and actual end scores.
+Arguments, in order:
+  <value-model.bin|baseline> <anchor.bin> <gru-model.bin> <last-year> <candidates> <iterations>
+
+Start with last-year=1902, candidates=4, iterations=8. A 1901 cutoff would
+exercise only terminal year-end scoring, not a neural nonterminal leaf.
+For later development use 1903,8,64 after the smoke run succeeds.
+Replace only the first argument with baseline for the matched baseline setup.
+Both modes use coherent GRU hybrid roots, uniform continuations, one rollout,
+rollout-candidates equal to candidates, AVERAGE, seed7 and JUDGE.
+The models load once and are shared across seats and phases.
+
+Send the self-check completion lines and complete neural smoke-run console.
+No training, cache regeneration, checkpoint replacement or TEST access is needed.
