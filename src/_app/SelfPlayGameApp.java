@@ -11,6 +11,7 @@ import io.training.SelfPlayRecorder;
 import misc.scoring.ScoringSystem;
 import phase.movement.MovementProcessor;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -38,27 +39,11 @@ public final class SelfPlayGameApp {
         int iterations = Integer.parseInt(args[5]);
         long seed = Long.parseLong(args[6]);
         Path directory = Path.of(args[7]);
-        if (lastYear < 1902)
-            throw new IllegalArgumentException("Use at least 1902 to exercise nonterminal values");
         if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS))
             throw new FileAlreadyExistsException(directory.toString());
-
-        AgentModels movement = AgentModels.load(Path.of(args[1]), Optional.of(Path.of(args[2])));
-        Optional<NeuralValueModel> value = args[0].equals("baseline")
-                ? Optional.empty() : Optional.of(NeuralValueModel.load(Path.of(args[0])));
-        AgentSettings settings = new AgentSettings(
-                AgentSettings.Method.DIL_PIKL, candidates, iterations, 1, candidates,
-                PolicyOutput.AVERAGE, AgentSettings.Generator.COHERENT_GRU_HYBRID,
-                AgentSettings.Generator.UNIFORM, Optional.of(movement), value);
-        Map<Nation, AgentSettings> seats = new EnumMap<>(Nation.class);
-        for (Nation power : Nation.values())
-            seats.put(power, settings);
-        GameRunner.Options options = new GameRunner.Options(
-                lastYear, seed, ScoringSystem.SUM_OF_SQUARES,
-                MovementProcessor.Policy.JUDGE, 1, Justice.SHUFFLE_SEED_DEFAULT, seats);
-        settings.createEvaluator(options, 0);
-        UUID id = UUID.nameUUIDFromBytes(("SelfPlayGameApp:v1:" + options)
-                .getBytes(StandardCharsets.UTF_8));
+        GameRunner.Options options = options(args[0], Path.of(args[1]), Path.of(args[2]),
+                lastYear, candidates, iterations, seed);
+        UUID id = gameId(options);
 
         System.out.println("BEGIN PERSISTENT SELF-PLAY");
         System.out.println("Game: " + id);
@@ -79,6 +64,36 @@ public final class SelfPlayGameApp {
         System.out.printf(Locale.ROOT, "Elapsed seconds: %.3f%n", (System.nanoTime() - started) / 1e9);
         System.out.println("END PERSISTENT SELF-PLAY");
 
+    }
+
+    static GameRunner.Options options(
+            String valuePath, Path anchorPath, Path gruPath,
+            int lastYear, int candidates, int iterations, long seed
+    ) throws IOException {
+
+        if (lastYear < 1902)
+            throw new IllegalArgumentException("Use at least 1902 to exercise nonterminal values");
+        AgentModels movement = AgentModels.load(anchorPath, Optional.of(gruPath));
+        Optional<NeuralValueModel> value = valuePath.equals("baseline")
+                ? Optional.empty() : Optional.of(NeuralValueModel.load(Path.of(valuePath)));
+        AgentSettings settings = new AgentSettings(
+                AgentSettings.Method.DIL_PIKL, candidates, iterations, 1, candidates,
+                PolicyOutput.AVERAGE, AgentSettings.Generator.COHERENT_GRU_HYBRID,
+                AgentSettings.Generator.UNIFORM, Optional.of(movement), value);
+        Map<Nation, AgentSettings> seats = new EnumMap<>(Nation.class);
+        for (Nation power : Nation.values())
+            seats.put(power, settings);
+        GameRunner.Options options = new GameRunner.Options(
+                lastYear, seed, ScoringSystem.SUM_OF_SQUARES,
+                MovementProcessor.Policy.JUDGE, 1, Justice.SHUFFLE_SEED_DEFAULT, seats);
+        settings.createEvaluator(options, 0);
+        return options;
+
+    }
+
+    static UUID gameId(GameRunner.Options options) {
+        return UUID.nameUUIDFromBytes(("SelfPlayGameApp:v1:" + options)
+                .getBytes(StandardCharsets.UTF_8));
     }
 
 }

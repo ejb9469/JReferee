@@ -89,7 +89,9 @@ uses a small synthetic map and a clearly announced test-only hash override;
 this mode exercises the reader without requiring local Java-generated files.
 Production code has no hash-override option.
 
-This step adds no trainer, type-conditioned network or Java model export.
-The old single-action movement trainer is not compatible with these targets.
-Verify this readback before implementing candidate-weighted autoregressive
-policy learning. Keep the human anchor frozen and TEST unopened.
+This reader performs no training. The old single-action movement trainer is
+not compatible with these targets. After verifying readback, use
+neural.self_play_train as described in neural/self-play-train.txt for
+candidate-weighted, type-conditioned policy learning with a frozen human
+anchor. That trainer uses a separate checkpoint schema; typed Java export
+is not implemented yet. Keep TEST unopened.

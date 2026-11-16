@@ -1,0 +1,120 @@
+TYPE-CONDITIONED SELF-PLAY POLICY LEARNING
+
+Use the existing Python training environment with neural/requirements.txt.
+This step introduces no additional packages. Run from the repository root.
+Here, python means the interpreter from that existing training environment.
+
+First run the full numerical self-check:
+
+  python -m neural.test_self_play_train --spec data/self-play-cache-v1/value/specification.json
+
+Then check the current smoke cache without training:
+
+  python -m neural.self_play_train --cache data/self-play-cache-v1 --initial-policy data/movement-gru-v1/policy.pt --anchor data/movement-linear-v1/policy.bin --verify-only -v
+
+The initial policy is the Python .pt checkpoint, NOT either Java model.bin.
+Hidden size is taken from that checkpoint, never supplied independently.
+The smoke cache has no VALIDATION policies. Verification reports that explicitly
+and performs no optimization or checkpoint writes. Attempting to fit it fails
+before creating an output directory.
+
+After generating independently seeded self-play games and caches containing
+both policy splits, use a NEW output directory, for example:
+
+  python -m neural.self_play_train --cache data/self-play-cache-round1 --initial-policy data/movement-gru-v1/policy.pt --anchor data/movement-linear-v1/policy.bin --output data/movement-self-play-v1 --epochs 3 --batch-size 8 --candidate-batch-size 32 --max-options 16384 --learning-rate 0.0001 --threads 4 -v
+
+--cache accepts multiple cache directories. Duplicate games and mixed split
+seeds across them are rejected. Keep the same self-play split seed across
+rounds. The optimizer/randomization --seed is a separate setting.
+CPU is the default. --device cuda requires an available compatible runtime;
+unsupported deterministic kernels fail rather than silently falling back.
+
+Model
+-----
+TypeConditionedGRU reuses the existing movement GRU and its full legal masks.
+Its new initial recurrent state is:
+
+  base_initial + tanh(type_projection(type_features))
+
+The projection has no bias. A supervised warm start copies every old tensor
+and initializes only this new projection to zero, preserving old predictions.
+All GRU and adapter parameters can then learn. The separate human anchor is
+hashed for identity checks and is never a parameter or optimization target.
+
+The 11 type features are float32 log10 values of the playing lambda and four
+population lambdas, the four float32 population weights, and FINAL/AVERAGE
+one-hot flags. The logarithm is computed in float64 before float32 conversion;
+there is no clipping. Profile IDs are checked metadata, not another embedding.
+Current archives contain phase-based types only. This does not establish
+generalization to arbitrary unseen lambda assignments.
+
+Training admits COHERENT_GRU_HYBRID DiL movement targets whose recorded anchor
+matches --anchor. Uniform/heuristic-root targets are not silently treated as
+human-anchor-conditioned data. Different producer checkpoints are permitted
+and recorded, but the human anchor must remain the same.
+
+Loss and batching
+-----------------
+The objective is mean over ROOT DECISIONS of:
+
+  -sum_candidate q(candidate) * sum_slot log P(order | its own prefix, board, type)
+
+q is the recorded search probability, retained at float64 precision.
+Each candidate keeps its complete action and its own autoregressive prefix.
+The decoder normalizes over the full legal options of the current slot,
+NEVER only over the retained candidates. No per-slot marginals replace q.
+Selected actions, anchor priors, historical search means and outcomes are
+not predictive inputs or extra labels. No second anchor penalty is added.
+
+--batch-size counts root decisions per optimizer update.
+--candidate-batch-size and --max-options bound each candidate microbatch.
+The latter counts the full legal options repeated for each included candidate.
+A whole candidate is never truncated. An oversized candidate fails preflight.
+Exactly zero-weight candidates are omitted from forward/backward work.
+
+Each microbatch loss uses the SAME total root-minibatch denominator.
+Gradients accumulate across all positive-weight candidates; clipping and the
+optimizer step occur once afterward. This preserves root weighting, including
+the final short batch. No division by candidates or unit/order count is used.
+Smaller microbatches reduce memory, not the intended objective; floating-point
+roundoff can still vary slightly with packing/device.
+
+Selection and artifacts
+-----------------------
+Both TRAIN and VALIDATION must contain policy roots for fitting. Membership is
+never repaired by moving positions between splits. Whole-action cross-entropy
+averaged over held-out root decisions selects the checkpoint. Target entropy,
+KL, uniform-mask cross-entropy, game-mean cross-entropy and subgroup losses
+are reported, but they do not constitute playing-strength measurements.
+
+The initialization is candidate epoch 0. Only strict validation improvement
+replaces it; ties retain the earlier checkpoint. A completed run can correctly
+retain epoch 0 and report improved_over_initial=false.
+
+The new directory contains policy.pt and training.json. The latter remains
+incomplete until the selected checkpoint reloads and reproduces its validation
+score. Keep the baseline and source archives. Existing outputs are rejected.
+The checkpoint binds the movement/type specifications, frozen anchor, initial
+policy, self-play split seed and input cache fingerprints.
+
+A subsequent compatible typed checkpoint can also be used as --initial-policy.
+Its anchor and self-play split seed must match. This is a warm start with a
+fresh optimizer, not interrupted-run resumption.
+
+This checkpoint has a NEW schema. Do not pass it to the old neural.export
+command or install it as the current Java GRU. Typed Java export, inference
+and numerical parity are the next implementation step.
+No value model, TEST payload, automatic promotion or baseline file is changed.
+
+Checks
+------
+The full self-check covers unchanged initial predictions, complete-action loss,
+zero-weight exclusion, chunk-invariant gradients, finite-difference type
+gradients, causal prefixes, joint-target learning, held-out selection,
+checkpoint reload, epoch-zero ties and output/preflight guards.
+
+Without --spec it uses a synthetic map with explicitly test-only hash bindings.
+With --spec it verifies the actual frozen Java value/movement specifications.
+The fixtures and checkpoints remain temporary; existing weights are untouched.
+--data-only runs the standard-library checks without NumPy/PyTorch. It does
+NOT run the numerical/model tests and is not a substitute for the full check.

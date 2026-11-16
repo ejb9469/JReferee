@@ -5,6 +5,11 @@ Main class: _app.SelfPlayGameApp
 Working directory: project root.
 The output directory must not exist; its parent must already exist.
 
+For fixed-model sequential collection and a combined numeric cache, use
+_app.SelfPlayBatchApp as described in self-play-batch.txt.
+The launchers share the existing game-ID rule; overlapping seeds/settings
+must not be treated as independent games.
+
 Small recorded neural game:
 data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin 1902 4 8 7 data/self-play-smoke-v1
 
@@ -108,13 +113,15 @@ openAll rejects repeated game IDs and repeated canonical run configurations
 (including seeds, model identities and initial positions), even with changed
 game IDs or elapsed times. The logical key excludes only game_id.
 This does not detect every possible duplicated trajectory under different
-configurations. Future split assignment must keep each logical game together.
+configurations. Numeric cache assignment keeps each logical game together.
 
 valueAssessment() uses the existing ValueRewardContract and returns an
 explicit ARTIFICIAL_CUTOFF rejection for capped games, never zero targets.
 Only non-retreat positions before an accepted ending are value inputs.
 Movement search policies remain distinguishable from PRIOR diagnostics.
-No examples are yet converted into tensors or used for optimization.
+Typed readback itself does not convert examples into tensors or optimize
+models. SelfPlayCacheApp and SelfPlayBatchApp perform numeric conversion
+separately; neither launcher trains a model.
 
 The reader materializes one game's typed history. File limits remain 64 MiB
 per payload; use small batches until a streaming training reader is needed.

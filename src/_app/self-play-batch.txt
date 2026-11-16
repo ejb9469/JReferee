@@ -1,0 +1,147 @@
+SEQUENTIAL SELF-PLAY COLLECTION
+
+Main class: _app.SelfPlayBatchApp
+Working directory: project root.
+The output directory must not exist. Its parent must already exist.
+Uses the existing Java model exports, NOT a Python .pt checkpoint.
+
+First run:
+
+  testing.selfcheck.SelfPlayBatchSelfCheck
+
+No arguments or model files are required by the self-check. It plays small,
+real DiL games with uniform proposals and validates collection, cache handoff,
+split reporting, collision guards and interrupted/changed-archive failures.
+Those uniform-proposal fixtures are not a corpus for the typed policy trainer.
+
+Small two-game plumbing run:
+
+  data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin 1902 4 8 8 2 7 data/self-play-batch-smoke-v1
+
+Pilot collection instead of the plumbing run:
+
+  data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-gru-java-v1/model.bin 1902 4 8 8 32 7 data/self-play-round1
+
+Arguments, in order:
+  value-model.bin|baseline, anchor.bin, gru-model.bin,
+  last-year, candidates, iterations, first-game-seed,
+  games, split-seed, new-output-directory
+
+The pilot uses game seeds 8 through 39. The existing single-game smoke used
+seed 7, so it does not overlap. The two-game plumbing example DOES overlap
+with this pilot; choose one, or advance the pilot's first seed accordingly.
+For another 32 games after the pilot, use first seed 40 and a new directory.
+Keep a record of seed ranges; the launcher does not scan previous batches.
+
+The game count is explicit and fixed, from 1 through 128. Seed overflow is
+rejected before model loading or output creation. The launcher does not keep
+running until it happens to get a preferred score, winner or validation result.
+There is no parallel execution, resume, automatic extension or model promotion.
+
+Frozen configuration
+--------------------
+The anchor, Java movement GRU and optional value model are loaded once.
+All seven seats use the existing COHERENT_GRU_HYBRID DiL configuration:
+AVERAGE output, one rollout, rollout candidate limit equal to candidates,
+and UNIFORM continuation. Rules and budgets are the same as SelfPlayGameApp.
+Every game starts at the standard Spring 1901 position. Only its game seed
+changes. No model is reloaded or trained during the collection.
+
+The single-game launcher now shares option construction and game-ID creation
+with the batch launcher. Its command line and valid-run behavior are unchanged.
+The same settings and seed retain the existing SelfPlayGameApp:v1 UUID rule.
+Replaying a seed through another launcher is NOT an independent new game.
+
+The model files are not copied. Preserve them and the archives for provenance.
+Changing on-disk weights after loading does not change this batch's loaded
+models, but those changes must not be mistaken for the recorded artifacts.
+
+Output layout
+-------------
+  plan.json
+  games.jsonl
+  archives/game-00000/
+  archives/game-00001/
+  ...
+  cache/
+  manifest.json
+
+Each archive contains the existing run.json, phases.jsonl, outcome.json and
+manifest.json files. It is fully replay-verified before the next game starts.
+The batch games.jsonl journal is flushed after each successful replay. It
+records the seed, relative archive directory, UUID, logical key, archive
+fingerprint, split, phase/decision counts and ending.
+
+cache/ is the unchanged numeric self-play cache, built only after every
+requested game succeeds. The handoff checks each cached game's identity,
+seed, split and archive fingerprint against its earlier replay receipt.
+Changed archives, missing games or inconsistent counts fail explicitly.
+
+The batch manifest.json is published atomically last. It binds the plan,
+completed-game journal and cache manifest, and reports policy counts by split.
+No batch manifest means the collection did not finish all its checks.
+Previously completed archives are retained after failure; partial output is
+never silently resumed, overwritten or deleted. A cache may already have its
+own manifest if a later batch-handoff check fails: do not treat that as a
+successful batch. Investigate the failure before manually reusing artifacts.
+Flushing is not an fsync/crash-durability guarantee.
+
+Adjudicator failures
+-------------------
+A search can fail while adjudicating a hypothetical joint action, before the
+current real phase is recorded. Completed-archive replay does not rerun every
+search branch. Do not skip the failing seed, catch the error and substitute a
+result, or treat a partial archive as a completed game.
+
+After correcting recursive cycle handling in Judge, run these self-checks
+with no arguments:
+
+  testing.selfcheck.JudgeCycleSelfCheck
+  testing.selfcheck.SelfDislodgementSelfCheck
+  testing.selfcheck.SelfPlayBatchSelfCheck
+
+JudgeCycleSelfCheck isolates the actual resolver with nested dependency
+fixtures. Caller-owned cycle prefixes must survive both definitive cleanup
+and nested backups; an ancestor-only dependency must remain provisional.
+SelfDislodgementSelfCheck covers the existing real-board movement rules.
+
+Keep the failed batch unchanged for diagnosis. Rerun the failing seed first
+in a new one-game batch directory. Then rerun the original pilot into another
+new directory and use only that completed pilot cache for the first fit.
+Do not combine the old partial collection or the repeated one-game check with
+the replacement pilot: overlapping seeds/settings retain the same game IDs.
+Previously verified archives must pass replay again under the corrected
+adjudicator before any deliberate reuse; their old verification is not enough.
+
+Splits and fitting
+------------------
+The split seed is separate from the game seeds. Keep split seed 7 across
+batches and iterations. The existing logical-game hash rule still determines
+TRAIN versus VALIDATION; no phases or games are moved to fix sparse coverage.
+
+A fixed batch can finish with no VALIDATION games. policy_splits_ready then
+remains false and the launcher explicitly warns that fitting is not ready.
+This flag checks split population only, not model quality or every trainer
+preflight condition. Collect several whole VALIDATION games before meaningful
+checkpoint selection; one validation game is only a plumbing milestone.
+
+In the existing Python training environment:
+
+  python -m neural.self_play_cache --cache data/self-play-round1/cache
+  python -m neural.self_play_train --cache data/self-play-round1/cache --initial-policy data/movement-gru-v1/policy.pt --anchor data/movement-linear-v1/policy.bin --verify-only -v
+
+Once the splits have sufficient independent games:
+
+  python -m neural.self_play_train --cache data/self-play-round1/cache --initial-policy data/movement-gru-v1/policy.pt --anchor data/movement-linear-v1/policy.bin --output data/movement-self-play-v1 --epochs 3 --batch-size 8 --candidate-batch-size 32 --max-options 16384 --learning-rate 0.0001 --threads 4 -v
+
+--cache can name several disjoint batch cache directories. The Python reader
+rejects mixed split seeds and repeated games. Do not change a split seed or
+configuration merely to move an already collected game between splits.
+The trainer retains epoch 0 unless a trained epoch improves validation.
+
+Small batches are intentional: the current cache writer materializes all
+replay-validated histories before writing. The 128-game bound is not a total
+RAM guarantee; start small, especially with longer games or larger searches.
+Cutoffs supply policy targets, never eventual-value targets. This launcher
+does no optimization, TEST access or strength evaluation. Typed Java policy
+export/inference and Python-Java parity remain a separate subsequent step.
