@@ -746,11 +746,8 @@ public class Judge implements Adjudicator, ParadoxTransparent {
 
         if (optResult == pesResult) {
             // We have a single resolution
-            // Delete any cycle info that was found in recursion
-            if (cycleLen_Old >= cycle.size())
-                cycle.clear();
-            else
-                cycle.subList(0, cycleLen_Old).clear();
+            // Keep the caller's prefix; discard only this call's dependencies.
+            cycle.subList(cycleLen_Old, cycle.size()).clear();
 
             recursionHits = recursionHits_Old;
 
@@ -764,18 +761,21 @@ public class Judge implements Adjudicator, ParadoxTransparent {
             return ResolutionResult.definitive(optResult);
         }
 
-        if (cycle.contains(order)) {
+        boolean closesCycle = cycle.contains(order);
+
+        if (closesCycle) {
             // We returned from recursion, where this order hit the cycle,
             // ... and we didn't receive any resolution
             recursionHits--;
         }
 
-        if (recursionHits == recursionHits_Old) {
+        // Depending on an ancestor's cycle does not make this order its owner.
+        if (closesCycle && recursionHits == recursionHits_Old) {
             // We have sufficiently retreated from recursion such that ...
             // ... this order is the ancestor of the whole cycle
             // Apply the backup rule on all orders in the cycle
             this.backupRule(cycle.subList(cycleLen_Old, cycle.size()));
-            cycle.subList(0, cycleLen_Old).clear();
+            cycle.subList(cycleLen_Old, cycle.size()).clear();
             uncertain = uncertain_Old;
 
             // The backup rule may not have resolved THIS order
