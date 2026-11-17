@@ -1,0 +1,19 @@
+The supervised models and live search integration are working.
+
+Remaining steps:
+
+    Persistent self-play records — current step.
+        Save states, candidates, search policies, selected actions, agent types, seeds and model identities. Separate artificial cutoffs from completed outcomes.
+    Training-data readback.
+        Validate records and build policy/value examples with explicit type conditioning, target rules and leakage protection.
+    Self-play learning loop.
+        Train policy from search distributions and value from eligible outcomes; keep the human anchor frozen. Export updated models and repeat Java parity checks.
+    Iterative improvement.
+        Generate games with versioned models, retrain, and promote checkpoints only after controlled evaluation.
+    Full-game strength evaluation.
+        Use multiple seeds, rotated powers and fixed opponents/budgets. Reserve held-out TEST data for the final frozen evaluation.
+    Operational hardening.
+        Add resumability, profiling, caching and parallel workers where needed.
+
+Completion means a reproducible end-to-end learning agent with validated full-game behavior—not merely a successful training run.
+Improved playing strength remains an empirical goal, not a guarantee.
