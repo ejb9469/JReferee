@@ -2,7 +2,10 @@ package agents.execution;
 
 import agents.evaluation.*;
 import agents.encoding.MovementEncoding;
+import agents.encoding.NeuralSearchType;
 import agents.generation.*;
+import agents.policy.GruMovementPolicy;
+import agents.policy.MovementPolicy;
 import agents.search.*;
 import domain.Nation;
 import game.Game;
@@ -60,6 +63,9 @@ public record AgentSettings(
             if (candidateLimit > PolicyActionGenerator.MAX_CANDIDATES)
                 throw new IllegalArgumentException("Coherent hybrid supports at most "
                         + PolicyActionGenerator.MAX_CANDIDATES + " candidates");
+            if (models.orElseThrow().proposal().orElseThrow() instanceof GruMovementPolicy gru
+                    && gru.typeConditioned() && method != Method.DIL_PIKL)
+                throw new IllegalArgumentException("Typed proposals require an explicit DiL search profile");
         } else if (models.isPresent() && models.orElseThrow().proposal().isPresent()) {
             throw new IllegalArgumentException("A proposal model requires COHERENT_GRU_HYBRID root generation");
         }
@@ -126,9 +132,17 @@ public record AgentSettings(
 
         if (this.rootGenerator == Generator.COHERENT_GRU_HYBRID) {
             AgentModels loaded = this.models.orElseThrow();
-            return new HybridActionGenerator(
-                    new CoherentPolicyActionGenerator(loaded.proposal().orElseThrow(), loaded.anchor()),
-                    new PlausibleActionGenerator(), loaded.anchor(), new UniformActionGenerator());
+            MovementPolicy proposal = loaded.proposal().orElseThrow();
+            if (proposal instanceof GruMovementPolicy gru && gru.typeConditioned())
+                return (request, catalog) -> {
+                    PaperSearchProfile profile = PaperSearchProfile.forState(request.state());
+                    NeuralSearchType type = new NeuralSearchType(
+                            switch (profile) { case OPENING -> 1; case STANDARD -> 2; },
+                            switch (this.output) { case FINAL -> 1; case AVERAGE -> 2; },
+                            profile.agentLambda(), profile.population().values(), profile.population().probabilities());
+                    return hybrid(loaded, gru.conditioned(type)).generate(request, catalog);
+                };
+            return hybrid(loaded, proposal);
         }
         ActionGenerator generator = this.rootGenerator.create();
         if (this.models.isEmpty())
@@ -145,6 +159,12 @@ public record AgentSettings(
                     prepared.logProbability(encoding.encode(candidate.orders())), candidate.source())).toList();
         };
 
+    }
+
+    private static ActionGenerator hybrid(AgentModels models, MovementPolicy proposal) {
+        return new HybridActionGenerator(
+                new CoherentPolicyActionGenerator(proposal, models.anchor()),
+                new PlausibleActionGenerator(), models.anchor(), new UniformActionGenerator());
     }
 
     @Override

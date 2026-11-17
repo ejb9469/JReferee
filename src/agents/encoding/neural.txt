@@ -6,6 +6,9 @@ parsing. The same adapter accepts stored examples and live movement catalogs.
 Existing movement-v2 labels, local indices and masks remain unchanged.
 The Python reader, GRU trainer and Java export are documented in neural/README.md.
 GruMovementPolicy uses this encoder for inference. Neither needs PyTorch in Java.
+It also reads separately versioned type-conditioned exports. NeuralSearchType
+supplies explicit lambda/population/output features; see neural/self-play-export.txt.
+The supervised format and the movement encoding below remain unchanged.
 
 Vocabulary and map
 ------------------

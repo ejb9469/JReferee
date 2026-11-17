@@ -25,7 +25,7 @@ public final class AgentModels {
     // Models and identities \\
 
     private final MovementPolicy            anchor;
-    private final Optional<MovementPolicy>  proposal;
+    private final Optional<MovementPolicy>  proposal;               // possible candidate for change: using `Optional<>` for fields is not recommended (unless for records)
     private final Map<String, String>       identities;
 
 
@@ -57,7 +57,7 @@ public final class AgentModels {
     // Loading \\
 
     /**
-     * Loads a frozen linear anchor and an optional Java GRU export once.
+     * Loads a frozen linear anchor and an optional supervised or typed GRU once.
      * Model readers validate their existing schemas and checksums.
      */
     public static AgentModels load(
@@ -85,9 +85,13 @@ public final class AgentModels {
             GruMovementPolicy gru = GruMovementPolicy.load(
                     gruPath.orElseThrow());
 
+            if (gru.anchorSha256().isPresent()
+                    && !gru.anchorSha256().orElseThrow().equals(anchorHash))
+                throw new IOException("Typed GRU was trained with a different frozen human anchor");
+
             identities.put("gru", gru.sha256());
             identities.put("checkpoint", gru.checkpointSha256());
-            identities.put("dataset", gru.datasetIndexSha256());
+            identities.put("dataset", gru.datasetSha256());
 
             proposal = Optional.of(gru);
 
@@ -128,6 +132,14 @@ public final class AgentModels {
 
     public Map<String, String> identities() {
         return this.identities;
+    }
+
+    public void requireSelfPlaySplitSeed(long seed) {
+
+        if (this.proposal.orElse(null) instanceof GruMovementPolicy gru
+                && gru.splitSeed().isPresent() && gru.splitSeed().orElseThrow() != seed)
+            throw new IllegalArgumentException("Typed GRU self-play split seed differs");
+
     }
 
     @Override

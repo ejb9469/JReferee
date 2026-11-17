@@ -47,6 +47,13 @@ and UNIFORM continuation. Rules and budgets are the same as SelfPlayGameApp.
 Every game starts at the standard Spring 1901 position. Only its game seed
 changes. No model is reloaded or trained during the collection.
 
+The movement path may also name a typed neural.self_play_export model after its
+Python checks and Java parity pass. AgentModels checks the frozen anchor;
+AgentSettings binds the current paper profile and AVERAGE output explicitly.
+The batch rejects a split seed differing from the typed checkpoint. Supervised
+models retain their existing behavior. See neural/self-play-export.txt for a
+typed smoke run using disjoint seeds 40..41 and a new directory.
+
 The single-game launcher now shares option construction and game-ID creation
 with the batch launcher. Its command line and valid-run behavior are unchanged.
 The same settings and seed retain the existing SelfPlayGameApp:v1 UUID rule.
@@ -96,11 +103,11 @@ result, or treat a partial archive as a completed game.
 After correcting recursive cycle handling in Judge, run these self-checks
 with no arguments:
 
-  testing.selfcheck.JudgeCycleSelfCheck
+  testing.selfcheck.JudgeCycleBugSelfCheck
   testing.selfcheck.SelfDislodgementSelfCheck
   testing.selfcheck.SelfPlayBatchSelfCheck
 
-JudgeCycleSelfCheck isolates the actual resolver with nested dependency
+JudgeCycleBugSelfCheck isolates the actual resolver with nested dependency
 fixtures. Caller-owned cycle prefixes must survive both definitive cleanup
 and nested backups; an ancestor-only dependency must remain provisional.
 SelfDislodgementSelfCheck covers the existing real-board movement rules.
@@ -143,5 +150,6 @@ Small batches are intentional: the current cache writer materializes all
 replay-validated histories before writing. The 128-game bound is not a total
 RAM guarantee; start small, especially with longer games or larger searches.
 Cutoffs supply policy targets, never eventual-value targets. This launcher
-does no optimization, TEST access or strength evaluation. Typed Java policy
-export/inference and Python-Java parity remain a separate subsequent step.
+does no optimization, TEST access or strength evaluation. Typed export and
+Python-Java parity are documented separately in neural/self-play-export.txt;
+selecting the typed proposal is explicit and is not automatic promotion.

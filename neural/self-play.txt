@@ -93,5 +93,7 @@ This reader performs no training. The old single-action movement trainer is
 not compatible with these targets. After verifying readback, use
 neural.self_play_train as described in neural/self-play-train.txt for
 candidate-weighted, type-conditioned policy learning with a frozen human
-anchor. That trainer uses a separate checkpoint schema; typed Java export
-is not implemented yet. Keep TEST unopened.
+anchor. That trainer uses a separate checkpoint schema. Export it with
+neural.self_play_export, not neural.export; see neural/self-play-export.txt
+for matching Java inference, parity and opt-in self-play integration.
+Keep TEST unopened.

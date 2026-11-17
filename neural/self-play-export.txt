@@ -1,0 +1,131 @@
+TYPE-CONDITIONED POLICY: PYTHON TO JAVA
+
+Use the existing neural/requirements.txt environment, from the project root.
+Do not use neural.export for a typed checkpoint. The supervised export format
+and its existing Java behavior remain supported separately.
+
+Run the numerical export checks:
+
+  python -m neural.test_self_play_export --spec data/self-play-round1/cache/value/specification.json
+
+Export the selected checkpoint to a NEW directory:
+
+  python -m neural.self_play_export --checkpoint data/movement-self-play-v1/policy.pt --training data/movement-self-play-v1/training.json --cache data/self-play-round1/cache --anchor data/movement-linear-v1/policy.bin --output data/movement-self-play-java-v1 --examples 32
+
+The output parent must exist. --cache accepts all of the exact caches recorded
+by the checkpoint. Cache order is immaterial; missing, additional, duplicate or
+changed caches fail. training.json is consumed locally, not uploaded anywhere.
+Only the selected completed training run is accepted, including epoch 0 when
+no trained epoch improved validation. The anchor must be the same frozen file.
+
+The exporter verifies checkpoint tensors, movement/type specifications, anchor,
+split seed, dataset receipts, training completion and selected-score identity.
+It writes model.bin, parity.bin and a final export.json. Failures are not resumed
+or silently cleaned up; an incomplete directory is not a completed export.
+No training, value update, TEST access or strength promotion occurs.
+The existing immutable cache reader verifies both policy splits; parity roots
+are selected only from VALIDATION. No source TEST payload is opened.
+
+Java parity
+-----------
+Run testing.selfcheck.GruPolicySelfCheck with these program arguments:
+
+  data/movement-self-play-java-v1 data/movement-linear-v1/policy.bin
+
+The second argument is required for typed exports, so the check can also load
+the real frozen anchor and exercise AgentSettings integration. The old
+supervised invocation remains:
+
+  data/movement-gru-java-v1
+
+Typed fixtures contain 40 synthetic cases: the existing 10 movement cases
+crossed with OPENING/STANDARD and FINAL/AVERAGE, plus up to --examples evenly
+spaced held-out roots. Synthetic cross-types check the numerical interface,
+not policy quality on unseen type assignments. They cover causal prefixes,
+zero-unit actions, exact coasts, support/convoy fields and long actions.
+Every retained path carries full-mask conditional log probabilities and its
+complete-action log probability. No pool-only normalization is introduced.
+
+Java checks encoded type features within two float32 ULPs, conditional natural
+log probabilities within 2e-4, and complete-action scores within that tolerance
+times max(1, units). It also checks independent preparations, deterministic
+sampling, model corruption, typed epoch-zero loading, anchor/split guards,
+and explicit profile/output binding through the live root generator.
+Export completion is not Java parity completion. Keep the printed parity
+result with the export receipt; export.json deliberately records
+java_parity_verified=false.
+
+Inference and integration
+-------------------------
+GruMovementPolicy.load recognizes both versioned binary formats.
+A typed model rejects prepare(input) without a type. Use prepare(input,type)
+or conditioned(type); there is no default zero adapter or guessed search type.
+NeuralSearchType validates two profile IDs, two output IDs, five positive
+finite lambdas and four nonnegative population probabilities summing to one.
+Its 11 features match Python: double log10 followed by float32 conversion,
+float32 population weights, then FINAL/AVERAGE one-hot. No clipping.
+
+The recurrence starts at:
+
+  base_initial + tanh(type_projection(type_features))
+
+There is no second tanh on the sum and no projection bias. The existing GRU
+gate order, option vocabulary, full legal masks and causal prefixes are intact.
+Weights are immutable. Each prepared position has its own conditioned state.
+
+AgentModels.load verifies that a typed proposal's frozen-anchor hash matches
+the loaded linear model. AgentSettings admits it only for DIL_PIKL with
+COHERENT_GRU_HYBRID roots. At every root it binds PaperSearchProfile.forState
+and the configured output, exactly as the solver and recorder do. This binding
+also applies to opposing root pools; it does not sample a new type or alter
+the solver's population. Rollouts and non-movement fallbacks are unchanged.
+Candidate priors still come exclusively from the frozen full-mask anchor.
+Selecting an older supervised model retains the old unconditioned path.
+Existing supervised-only inspection tools do not accept a typed model as a
+supervised dataset-index model.
+
+The archive/cache identity map retains anchor, gru, checkpoint and dataset.
+For a supervised GRU, dataset remains its historical dataset-index hash.
+For a typed GRU, dataset is the self-play cohort binding below. The binary and
+export receipt retain each individual dataset fingerprint and manifest hash.
+No archive/cache schema or logical-game split rule changes.
+SelfPlayBatchApp rejects a split seed differing from the typed checkpoint.
+For standalone archive-to-cache conversion, keep that same split seed too.
+
+First integration smoke
+-----------------------
+Only after Python checks and Java parity pass, run _app.SelfPlayBatchApp:
+
+  data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-self-play-java-v1/model.bin 1902 4 8 40 2 7 data/self-play-typed-smoke-v1
+
+This explicitly selects the new proposal, preserves the value model and human
+anchor, and consumes disjoint seeds 40..41. A subsequent independent collection
+starts at 42; do not combine duplicate reruns. This is not strength promotion.
+The two games may not populate both policy splits; do not move games to repair
+that. Read the resulting cache and verify the typed warm start:
+
+  python -m neural.self_play_cache --cache data/self-play-typed-smoke-v1/cache
+  python -m neural.self_play_train --cache data/self-play-typed-smoke-v1/cache --initial-policy data/movement-self-play-v1/policy.pt --anchor data/movement-linear-v1/policy.bin --verify-only -v
+
+Cutoffs still produce policy targets, never eventual-value labels.
+Larger independent collections and full-game evaluation remain separate steps.
+
+Binary contract
+---------------
+All integers/floats are big-endian. Each file ends with SHA-256 of all preceding
+bytes and is bounded to 64 MiB. Text is int32 UTF-8 byte length followed by bytes.
+model.bin:
+  JREFTGR1; text export schema; text checkpoint schema; text movement spec;
+  text type spec; 32-byte movement, checkpoint, cohort, training and anchor hashes;
+  int64 split seed; int32 dataset count; sorted pairs of 32-byte dataset/manifest
+  hashes; int32 epoch; int32 hidden; int32 tensor count; named float32 tensors.
+Tensor order/shapes equal the supervised GRU plus type_projection.weight [H,11].
+Dataset count is 1..1024; epoch is 0..10000; hidden is 16..512.
+Cohort hash is SHA-256 of ASCII "jreferee-self-play-cohort-v1\n" followed by the
+raw dataset/manifest pairs, ordered by dataset fingerprint, without duplicates.
+parity.bin:
+  JREFTCK1; movement-spec hash; full model-file hash; int32 case count;
+  each case's existing movement numeric input; int32 profile/output IDs;
+  nine float64 raw type values; eleven float32 expected features; int32 paths;
+  each path's int32 local indices, float32 full-slot conditionals, float64 joint.
+Hashes detect corruption and bind artifacts; they are not signatures.

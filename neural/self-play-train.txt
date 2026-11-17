@@ -102,8 +102,9 @@ Its anchor and self-play split seed must match. This is a warm start with a
 fresh optimizer, not interrupted-run resumption.
 
 This checkpoint has a NEW schema. Do not pass it to the old neural.export
-command or install it as the current Java GRU. Typed Java export, inference
-and numerical parity are the next implementation step.
+command. Use neural.self_play_export and the matching Java type-conditioned
+loader, then pass Java parity before selecting the new model for self-play.
+See neural/self-play-export.txt for the exact commands and provenance checks.
 No value model, TEST payload, automatic promotion or baseline file is changed.
 
 Checks

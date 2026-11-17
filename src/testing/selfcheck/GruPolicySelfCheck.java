@@ -1,8 +1,10 @@
 package testing.selfcheck;
 
 import agents.encoding.*;
+import agents.execution.*;
 import agents.generation.*;
 import agents.policy.*;
+import agents.search.*;
 import domain.*;
 import game.*;
 
@@ -15,25 +17,34 @@ import java.util.*;
 
 /**
  * Python/Java conditional probabilities, model loading and live policy contracts.
- * The supplied export contains synthetic and optional validation examples.
+ * Supports both supervised and typed exports; typed integration checks need the frozen anchor.
  */
 public final class GruPolicySelfCheck {
 
-    private static final double TOLERANCE = 2e-4;
-    private static int checks, conditionals, values;
-    private static double maximumError;
+    private static final    double      TOLERANCE = 2e-4;
+    private static          int         checks, conditionals, values;
+    private static          double      maximumError;
 
     private GruPolicySelfCheck() { }
 
     public static void main(String[] args) throws Exception {
-        if (args.length > 1) throw new IllegalArgumentException("Usage: GruPolicySelfCheck [export-directory]");
+        if (args.length > 2)
+            throw new IllegalArgumentException("Usage: GruPolicySelfCheck [export-directory] [typed-policy-anchor.bin]");
         Path directory = Path.of(args.length == 0 ? "data/movement-gru-java-v1" : args[0]);
         Path modelPath = directory.resolve("model.bin");
         GruMovementPolicy policy = GruMovementPolicy.load(modelPath);
+        if (policy.typeConditioned() != (args.length == 2))
+            throw new IllegalArgumentException("Supply the frozen anchor as the second argument only for a typed export");
         List<MovementInput> inputs = parity(policy, directory.resolve("parity.bin"));
         failures(modelPath);
-        live(policy);
-        benchmark(policy, inputs);
+        MovementPolicy preparedPolicy = policy;
+        if (policy.typeConditioned()) {
+            AgentModels models = AgentModels.load(Path.of(args[1]), Optional.of(modelPath));
+            typedIntegration(policy, models);
+            preparedPolicy = policy.conditioned(type(PaperSearchProfile.STANDARD, PolicyOutput.AVERAGE));
+        }
+        live(preparedPolicy);
+        benchmark(preparedPolicy, inputs);
         System.out.printf(Locale.ROOT, "Model SHA-256=%s%nCheckpoint SHA-256=%s%n", policy.sha256(), policy.checkpointSha256());
         System.out.printf(Locale.ROOT, "Parity: cases=%d conditionals=%d values=%d max_logp_error=%.9g tolerance=%.1g%n",
                 inputs.size(), conditionals, values, maximumError, TOLERANCE);
@@ -47,14 +58,27 @@ public final class GruPolicySelfCheck {
                 Arrays.copyOfRange(file, file.length - 32, file.length)), "Parity checksum");
         List<MovementInput> inputs = new ArrayList<>();
         try (var in = new DataInputStream(new ByteArrayInputStream(file, 0, file.length - 32))) {
-            require(Arrays.equals(in.readNBytes(8), "JREFCHK1".getBytes(StandardCharsets.US_ASCII)), "Parity format");
+            String magic = policy.typeConditioned() ? "JREFTCK1" : "JREFCHK1";
+            require(Arrays.equals(in.readNBytes(8), magic.getBytes(StandardCharsets.US_ASCII)), "Parity format");
             require(HexFormat.of().formatHex(in.readNBytes(32)).equals(NeuralMovementSpec.sha256()), "Parity specification");
             require(HexFormat.of().formatHex(in.readNBytes(32)).equals(policy.sha256()), "Parity model identity");
-            int cases = count(in, 1, 266);
+            int cases = count(in, 1, policy.typeConditioned() ? 296 : 266);
             for (int c = 0; c < cases; c++) {
                 MovementInput input = input(in);
                 inputs.add(input);
-                MovementPolicy.Prepared prepared = policy.prepare(input);
+                MovementPolicy.Prepared prepared;
+                if (policy.typeConditioned()) {
+                    NeuralSearchType type = readType(in);
+                    double[] features = type.features();
+                    for (int feature = 0; feature < features.length; feature++) {
+                        float expected = in.readFloat();
+                        close(features[feature], expected, 2 * Math.ulp(expected), "Type feature " + feature);
+                    }
+                    prepared = policy.prepare(input, type);
+                    expect(IllegalStateException.class, () -> policy.prepare(input));
+                } else {
+                    prepared = policy.prepare(input);
+                }
                 int paths = count(in, 1, 4);
                 for (int p = 0; p < paths; p++) {
                     List<Integer> action = new ArrayList<>();
@@ -83,6 +107,8 @@ public final class GruPolicySelfCheck {
                         actual[0] = 123;
                         conditionals++;
                     }
+                    if (policy.typeConditioned())
+                        close(total, in.readDouble(), 1e-10, "Stored complete-action reference");
                     close(prepared.logProbability(action), total, TOLERANCE * Math.max(1, action.size()), "Joint log probability");
                     if (greedy && separated) require(prepared.greedy().equals(action), "Greedy action with separated maxima");
                     for (int slot = action.size() - 1; slot >= 0; slot--)
@@ -102,6 +128,15 @@ public final class GruPolicySelfCheck {
             require(in.read() == -1, "No trailing parity records");
         }
         return inputs;
+    }
+
+    private static NeuralSearchType readType(DataInputStream in) throws IOException {
+        int profile = count(in, 1, 2), output = count(in, 1, 2);
+        double playing = in.readDouble();
+        List<Double> lambdas = new ArrayList<>(), probabilities = new ArrayList<>();
+        for (int index = 0; index < 4; index++) lambdas.add(in.readDouble());
+        for (int index = 0; index < 4; index++) probabilities.add(in.readDouble());
+        return new NeuralSearchType(profile, output, playing, lambdas, probabilities);
     }
 
     private static MovementInput input(DataInputStream in) throws IOException {
@@ -156,7 +191,7 @@ public final class GruPolicySelfCheck {
         return input;
     }
 
-    private static void live(GruMovementPolicy policy) {
+    private static void live(MovementPolicy policy) {
         var root = (GameState_Movement) StandardGameFactory.create1901().snapshot();
         MovementPolicy anchor = new LinearMovementPolicy(1024);
         for (Nation power : root.aliveNations()) {
@@ -182,6 +217,61 @@ public final class GruPolicySelfCheck {
         }
     }
 
+    private static NeuralSearchType type(PaperSearchProfile profile, PolicyOutput output) {
+        return new NeuralSearchType(
+                profile == PaperSearchProfile.OPENING ? 1 : 2, output == PolicyOutput.FINAL ? 1 : 2,
+                profile.agentLambda(), profile.population().values(), profile.population().probabilities());
+    }
+
+    private static void typedIntegration(GruMovementPolicy policy, AgentModels models) throws Exception {
+        var root = (GameState_Movement) StandardGameFactory.create1901().snapshot();
+        var later = new GameState_Movement(new GameMoment(1902, GamePhase.SPRING_MOVEMENT), root.board());
+        require(models.identities().get("gru").equals(policy.sha256()), "Loaded typed identity");
+        long seed = policy.splitSeed().orElseThrow();
+        models.requireSelfPlaySplitSeed(seed);
+        expect(IllegalArgumentException.class, () -> models.requireSelfPlaySplitSeed(seed ^ 1));
+        expect(IllegalStateException.class, policy::datasetIndexSha256);
+        for (var method : List.of(AgentSettings.Method.PRIOR, AgentSettings.Method.BEST_RESPONSE))
+            expect(IllegalArgumentException.class, () -> new AgentSettings(
+                    method, 4, 2, 1, 4, PolicyOutput.AVERAGE,
+                    AgentSettings.Generator.COHERENT_GRU_HYBRID, AgentSettings.Generator.UNIFORM, Optional.of(models)));
+        for (GameState_Movement state : List.of(root, later))
+            for (PolicyOutput output : PolicyOutput.values()) {
+                var settings = new AgentSettings(AgentSettings.Method.DIL_PIKL, 4, 2, 1, 4, output,
+                        AgentSettings.Generator.COHERENT_GRU_HYBRID, AgentSettings.Generator.UNIFORM, Optional.of(models));
+                MovementPolicy bound = policy.conditioned(type(PaperSearchProfile.forState(state), output));
+                var reference = new HybridActionGenerator(
+                        new CoherentPolicyActionGenerator(bound, models.anchor()),
+                        new PlausibleActionGenerator(), models.anchor(), new UniformActionGenerator());
+                for (Nation power : List.of(Nation.ENGLAND, Nation.FRANCE, Nation.RUSSIA)) {
+                    var encoding = new MovementEncoding(state, power);
+                    var request = new ActionGenerationRequest(state, power, 4, 19);
+                    var expected = reference.generate(request, encoding.catalog());
+                    var actual = settings.createRootGenerator().generate(request, encoding.catalog());
+                    require(actual.equals(expected), "Root generator binds the current profile/output");
+                    var anchor = models.anchor().prepare(encoding.input());
+                    for (var candidate : actual)
+                        close(candidate.logPrior(), anchor.logProbability(encoding.encode(candidate.orders())),
+                                1e-12, "Typed proposals retain the frozen full-mask anchor");
+                }
+            }
+        var input = new MovementEncoding(root, Nation.FRANCE).input();
+        var opening = policy.prepare(input, type(PaperSearchProfile.OPENING, PolicyOutput.AVERAGE));
+        var action = opening.greedy();
+        double before = opening.logProbability(action);
+        policy.prepare(input, type(PaperSearchProfile.STANDARD, PolicyOutput.FINAL)).greedy();
+        close(opening.logProbability(action), before, 0, "Type preparations are independent");
+        var valid = type(PaperSearchProfile.STANDARD, PolicyOutput.AVERAGE);
+        expect(IllegalArgumentException.class, () -> new NeuralSearchType(
+                0, 2, valid.playingLambda(), valid.populationLambdas(), valid.populationProbabilities()));
+        expect(IllegalArgumentException.class, () -> new NeuralSearchType(
+                2, 3, valid.playingLambda(), valid.populationLambdas(), valid.populationProbabilities()));
+        expect(IllegalArgumentException.class, () -> new NeuralSearchType(
+                2, 2, 0, valid.populationLambdas(), valid.populationProbabilities()));
+        expect(IllegalArgumentException.class, () -> new NeuralSearchType(
+                2, 2, valid.playingLambda(), valid.populationLambdas(), List.of(0.25, 0.25, 0.25, 0.5)));
+    }
+
     private static void failures(Path model) throws Exception {
         byte[] original = Files.readAllBytes(model);
         Path file = Files.createTempFile("jreferee-gru-corrupt-", ".bin");
@@ -198,15 +288,57 @@ public final class GruPolicySelfCheck {
             Files.write(file, Arrays.copyOf(original, original.length + 1));
             expect(IOException.class, () -> GruMovementPolicy.load(file));
             ByteBuffer header = ByteBuffer.wrap(original);
+            boolean typed = new String(original, 0, 8, StandardCharsets.US_ASCII).equals("JREFTGR1");
             header.position(8);
             for (int i = 0; i < 3; i++) header.position(header.position() + 4 + header.getInt(header.position()));
+            if (typed) {
+                int typeText = header.position() + 4;
+                header.position(typeText + header.getInt(header.position()));
+                corrupt = original.clone();
+                corrupt[typeText] = '[';
+                reseal(corrupt);
+                Files.write(file, corrupt);
+                expect(IOException.class, () -> GruMovementPolicy.load(file));
+            }
             int specHash = header.position();
             corrupt = original.clone();
             corrupt[specHash] ^= 1;
             reseal(corrupt);
             Files.write(file, corrupt);
             expect(IOException.class, () -> GruMovementPolicy.load(file));
-            int hiddenOffset = specHash + 128 + 4;
+            header.position(specHash + 128);
+            if (typed) {
+                int anchorOffset = header.position();
+                header.position(anchorOffset + 40);
+                int datasets = header.getInt();
+                int receiptOffset = header.position();
+                header.position(receiptOffset + datasets * 64);
+                corrupt = original.clone();
+                corrupt[receiptOffset] ^= 1;
+                reseal(corrupt);
+                Files.write(file, corrupt);
+                expect(IOException.class, () -> GruMovementPolicy.load(file));
+                Path wrongAnchor = Files.createTempDirectory("jreferee-gru-anchor-").resolve("policy.bin");
+                try {
+                    new LinearMovementPolicy(1024).save(wrongAnchor);
+                    corrupt = original.clone();
+                    System.arraycopy(hash(Files.readAllBytes(wrongAnchor)), 0, corrupt, anchorOffset, 32);
+                    corrupt[anchorOffset] ^= 1;
+                    reseal(corrupt);
+                    Files.write(file, corrupt);
+                    expect(IOException.class, () -> AgentModels.load(wrongAnchor, Optional.of(file)));
+                } finally {
+                    Files.deleteIfExists(wrongAnchor);
+                    Files.delete(wrongAnchor.getParent());
+                }
+            }
+            int epochOffset = header.position(), hiddenOffset = epochOffset + 4;
+            corrupt = original.clone();
+            ByteBuffer.wrap(corrupt).putInt(epochOffset, 0);
+            reseal(corrupt);
+            Files.write(file, corrupt);
+            if (typed) require(GruMovementPolicy.load(file).epoch() == 0, "Typed epoch-zero export remains valid");
+            else expect(IOException.class, () -> GruMovementPolicy.load(file));
             corrupt = original.clone();
             ByteBuffer.wrap(corrupt).putInt(hiddenOffset, Integer.MAX_VALUE);
             reseal(corrupt);
@@ -229,7 +361,7 @@ public final class GruPolicySelfCheck {
         }
     }
 
-    private static void benchmark(GruMovementPolicy policy, List<MovementInput> inputs) {
+    private static void benchmark(MovementPolicy policy, List<MovementInput> inputs) {
         var input = inputs.stream().max(Comparator.comparingInt(i ->
                 i.slots().stream().mapToInt(s -> s.options().size()).sum())).orElseThrow();
         for (int i = 0; i < 5; i++) policy.prepare(input).greedy();

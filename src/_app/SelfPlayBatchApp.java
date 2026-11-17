@@ -112,14 +112,16 @@ public final class SelfPlayBatchApp {
                 throw new IllegalArgumentException("Policy collection requires DiL agents for every seat");
             if (settings.models().isPresent() && settings.models().orElseThrow().identities().isEmpty())
                 throw new IllegalArgumentException("Recording learned models requires loaded artifact identities");
+            settings.models().ifPresent(models -> models.requireSelfPlaySplitSeed(splitSeed));
             settings.createEvaluator(first, 0);
         }
 
         Files.createDirectory(directory);
         Files.createDirectory(directory.resolve("archives"));
+        String firstSeed = Long.toString(Math.addExact(first.seed(), games - 1L));
         write(directory.resolve("plan.json"), object(
                 "schema", SCHEMA, "games", games, "first_game_seed", Long.toString(first.seed()),
-                "last_game_seed", Long.toString(Math.addExact(first.seed(), games - 1L)),
+                "last_game_seed", firstSeed,
                 "split_seed", Long.toString(splitSeed), "first_configuration", first.toString(),
                 "initial_position", "STANDARD_SPRING_1901", "models_reloaded_between_games", false,
                 "training_performed", false, "test_opened", false));
@@ -182,7 +184,7 @@ public final class SelfPlayBatchApp {
         Map<String, Object> manifest = object(
                 "schema", SCHEMA, "complete", true, "games", games,
                 "first_game_seed", Long.toString(first.seed()),
-                "last_game_seed", Long.toString(Math.addExact(first.seed(), games - 1L)),
+                "last_game_seed", firstSeed,
                 "split_seed", Long.toString(splitSeed), "cache_directory", "cache",
                 "dataset_fingerprint", ValueDatasetJson.text(cacheManifest, "dataset_fingerprint"),
                 "policy_examples", ValueDatasetJson.count(cacheManifest, "policy_examples"),

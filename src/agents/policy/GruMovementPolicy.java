@@ -11,12 +11,13 @@ import java.util.*;
 import java.util.random.RandomGenerator;
 
 /**
- * Inference for the frozen PyTorch movement GRU.
+ * Inference for supervised and type-conditioned PyTorch movement GRUs.
  * Weights and prepared positions are immutable; decoder state belongs to each call.
  */
 public final class GruMovementPolicy implements MovementPolicy {
 
     public static final String SCHEMA = "jreferee-gru-java-v1";
+    public static final String TYPED_SCHEMA = "jreferee-type-conditioned-gru-java-v1";
     private static final JsonAccess JSON = new JsonAccess((path, message) -> new IllegalArgumentException(path + ": " + message));
     private static final Map<String, Object> SPEC = JSON.object(JsonReader.read(NeuralMovementSpec.toJson()), "$");
     private static final int[] ROWS = integers("location_board_rows");
@@ -24,15 +25,20 @@ public final class GruMovementPolicy implements MovementPolicy {
     private final double[][] adjacency = new double[75][75];
     private final double[][][] categorical = new double[5][][];
     private final int hidden, epoch;
-    private final String sha256, checkpointSha256, datasetIndexSha256;
+    private final String sha256, checkpointSha256, datasetSha256;
+    private final SelfPlay selfPlay;
 
-    private GruMovementPolicy(Map<String, double[][]> weights, int hidden, int epoch, String hash, String checkpoint, String dataset) {
+    private record SelfPlay(String anchor, long splitSeed, String trainingReport) { }
+
+    private GruMovementPolicy(Map<String, double[][]> weights, int hidden, int epoch,
+                              String hash, String checkpoint, String dataset, SelfPlay selfPlay) {
         this.weights = weights;
         this.hidden = hidden;
         this.epoch = epoch;
         sha256 = hash;
         checkpointSha256 = checkpoint;
-        datasetIndexSha256 = dataset;
+        datasetSha256 = dataset;
+        this.selfPlay = selfPlay;
         for (int row = 0; row < 75; row++) adjacency[row][row] = 1;
         for (String name : List.of("army_direct", "fleet_direct"))
             for (Object value : JSON.array(SPEC.get(name), name)) {
@@ -58,26 +64,66 @@ public final class GruMovementPolicy implements MovementPolicy {
     public int epoch() { return epoch; }
     public String sha256() { return sha256; }
     public String checkpointSha256() { return checkpointSha256; }
-    public String datasetIndexSha256() { return datasetIndexSha256; }
+    public String datasetSha256() { return datasetSha256; }
+    public boolean typeConditioned() { return selfPlay != null; }
+    public Optional<String> anchorSha256() { return selfPlay == null ? Optional.empty() : Optional.of(selfPlay.anchor()); }
+    public OptionalLong splitSeed() { return selfPlay == null ? OptionalLong.empty() : OptionalLong.of(selfPlay.splitSeed()); }
+    public Optional<String> trainingReportSha256() {
+        return selfPlay == null ? Optional.empty() : Optional.of(selfPlay.trainingReport());
+    }
+    public String datasetIndexSha256() {
+        if (typeConditioned())
+            throw new IllegalStateException("A typed policy has a self-play cohort, not a supervised dataset index");
+        return datasetSha256;
+    }
 
     public static GruMovementPolicy load(Path path) throws IOException {
         if (Files.size(path) > 64L * 1024 * 1024) throw new IOException("GRU file exceeds 64 MiB");
-        byte[] file = Files.readAllBytes(path);
-        if (file.length < 40 || !MessageDigest.isEqual(hash(Arrays.copyOf(file, file.length - 32)),
+        byte[] file;
+        try (InputStream input = Files.newInputStream(path)) {
+            file = input.readNBytes(64 * 1024 * 1024 + 1);
+        }
+        if (file.length < 40 || file.length > 64 * 1024 * 1024
+                || !MessageDigest.isEqual(hash(Arrays.copyOf(file, file.length - 32)),
                 Arrays.copyOfRange(file, file.length - 32, file.length)))
             throw new IOException("GRU checksum or file length is invalid: " + path);
         try (var in = new DataInputStream(new ByteArrayInputStream(file, 0, file.length - 32))) {
-            if (!Arrays.equals(in.readNBytes(8), "JREFGRU1".getBytes(StandardCharsets.US_ASCII))
-                    || !text(in).equals(SCHEMA) || !text(in).equals("jreferee-gru-policy-v1")
-                    || !text(in).equals(NeuralMovementSpec.toJson())
-                    || !HexFormat.of().formatHex(in.readNBytes(32)).equals(NeuralMovementSpec.sha256()))
+            String magic = new String(in.readNBytes(8), StandardCharsets.US_ASCII);
+            boolean typed = magic.equals("JREFTGR1");
+            if (!(typed || magic.equals("JREFGRU1"))
+                    || !text(in).equals(typed ? TYPED_SCHEMA : SCHEMA)
+                    || !text(in).equals(typed ? "jreferee-type-conditioned-gru-v1" : "jreferee-gru-policy-v1")
+                    || !text(in).equals(NeuralMovementSpec.toJson()))
                 throw new IOException("Unsupported GRU architecture or input specification");
-            String checkpoint = HexFormat.of().formatHex(in.readNBytes(32));
-            String dataset = HexFormat.of().formatHex(in.readNBytes(32));
-            if (in.readNBytes(32).length != 32) throw new EOFException();
+            if (typed && !JSON.object(JsonReader.read(text(in)), "$").equals(NeuralSearchType.specification()))
+                throw new IOException("Unsupported search-type encoding");
+            if (!identity(in).equals(NeuralMovementSpec.sha256()))
+                throw new IOException("Wrong GRU input specification hash");
+            String checkpoint = identity(in), dataset = identity(in), receipt = identity(in);
+            SelfPlay selfPlay = null;
+            if (typed) {
+                selfPlay = new SelfPlay(identity(in), in.readLong(), receipt);
+                int count = in.readInt();
+                if (count < 1 || count > 1024) throw new IOException("Invalid self-play dataset count");
+                var cohort = new ByteArrayOutputStream();
+                cohort.writeBytes("jreferee-self-play-cohort-v1\n".getBytes(StandardCharsets.US_ASCII));
+                String previous = "";
+                for (int index = 0; index < count; index++) {
+                    String fingerprint = identity(in), manifest = identity(in);
+                    if (fingerprint.compareTo(previous) <= 0)
+                        throw new IOException("Self-play datasets must be distinct and sorted");
+                    cohort.writeBytes(HexFormat.of().parseHex(fingerprint));
+                    cohort.writeBytes(HexFormat.of().parseHex(manifest));
+                    previous = fingerprint;
+                }
+                if (!HexFormat.of().formatHex(hash(cohort.toByteArray())).equals(dataset))
+                    throw new IOException("Self-play dataset cohort checksum differs");
+            }
             int epoch = in.readInt(), hidden = in.readInt();
-            if (epoch < 1 || epoch > 10000 || hidden < 16 || hidden > 512) throw new IOException("Invalid GRU dimensions/epoch");
+            if (epoch < (typed ? 0 : 1) || epoch > 10000 || hidden < 16 || hidden > 512)
+                throw new IOException("Invalid GRU dimensions/epoch");
             var shapes = shapes(hidden);
+            if (typed) shapes.put("type_projection.weight", new int[]{hidden, NeuralSearchType.FIELDS.size()});
             if (in.readInt() != shapes.size()) throw new IOException("Wrong GRU tensor count");
             Map<String, double[][]> weights = new LinkedHashMap<>();
             for (var entry : shapes.entrySet()) {
@@ -95,15 +141,34 @@ public final class GruMovementPolicy implements MovementPolicy {
                 weights.put(entry.getKey(), tensor);
             }
             if (in.read() != -1) throw new IOException("Trailing GRU data");
-            return new GruMovementPolicy(weights, hidden, epoch, HexFormat.of().formatHex(hash(file)), checkpoint, dataset);
+            return new GruMovementPolicy(weights, hidden, epoch,
+                    HexFormat.of().formatHex(hash(file)), checkpoint, dataset, selfPlay);
         } catch (EOFException exception) {
             throw new IOException("Truncated GRU file: " + path, exception);
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("Invalid GRU metadata: " + path, exception);
         }
     }
 
     @Override
     public Prepared prepare(MovementInput input) {
-        return new Position(Objects.requireNonNull(input, "input"));
+        if (typeConditioned())
+            throw new IllegalStateException("A typed GRU requires an explicit search type");
+        return new Position(Objects.requireNonNull(input, "input"), null);
+    }
+
+    public Prepared prepare(MovementInput input, NeuralSearchType type) {
+        if (!typeConditioned())
+            throw new IllegalStateException("A supervised GRU has no type adapter");
+        return new Position(Objects.requireNonNull(input, "input"),
+                Objects.requireNonNull(type, "type").features());
+    }
+
+    public MovementPolicy conditioned(NeuralSearchType type) {
+        Objects.requireNonNull(type, "type");
+        if (!typeConditioned())
+            throw new IllegalStateException("A supervised GRU has no type adapter");
+        return input -> prepare(input, type);
     }
 
     private final class Position implements Prepared {
@@ -114,7 +179,7 @@ public final class GruMovementPolicy implements MovementPolicy {
         private final double[][] biases;
         private final int[] issuing;
 
-        private Position(MovementInput input) {
+        private Position(MovementInput input, double[] typeFeatures) {
             this.input = input;
             var encoded = new NeuralMovementEncoding(input);
             double[] context = join(embedding("power", encoded.power()), embedding("phase", encoded.phase()),
@@ -151,6 +216,9 @@ public final class GruMovementPolicy implements MovementPolicy {
                 for (int h = 0; h < hidden; h++) mean[h] += row[h] / 75;
             initial = affine("initial", join(mean, context));
             tanh(initial);
+            if (typeFeatures != null)
+                for (int h = 0; h < hidden; h++)
+                    initial[h] += Math.tanh(dot(weights.get("type_projection.weight")[h], typeFeatures));
             // The order projection is linear before tanh; reuse its board and categorical terms.
             double[][][] projected = new double[3][76][];
             for (int role = 0; role < 3; role++)
@@ -305,6 +373,11 @@ public final class GruMovementPolicy implements MovementPolicy {
         byte[] bytes = in.readNBytes(length);
         if (bytes.length != length) throw new EOFException();
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+    private static String identity(DataInputStream in) throws IOException {
+        byte[] bytes = in.readNBytes(32);
+        if (bytes.length != 32) throw new EOFException();
+        return HexFormat.of().formatHex(bytes);
     }
     private static byte[] hash(byte[] bytes) {
         try { return MessageDigest.getInstance("SHA-256").digest(bytes); }
