@@ -106,7 +106,8 @@ public final class SelfPlayRecorder {
 
     }
 
-    private static Map<String, Object> settings(AgentSettings settings) {
+    /** Encodes the same seat contract for game archives and evaluation plans. */
+    public static Map<String, Object> settings(AgentSettings settings) {
 
         var identities = settings.models().map(AgentModels::identities).orElse(Map.of());
         if (settings.models().isPresent() && identities.isEmpty())

@@ -1,0 +1,129 @@
+PAIRED POLICY EVALUATION
+
+Main class: _app.PolicyMatchApp
+Working directory: project root.
+The output directory must not exist; its parent must already exist.
+Both proposals must be Java exports, not Python checkpoints.
+
+First run, with no arguments or model files:
+
+  testing.selfcheck.PolicyMatchSelfCheck
+
+This checks scheduling, clustered statistics, matched real A/A games,
+configuration guards, replay/readback, interruption and changed artifacts.
+Its uniform 1901 games are fixtures, not playing-strength evidence.
+
+Initial longer-horizon pilot, after that self-check passes:
+
+  data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-self-play-java-v1/model.bin data/movement-self-play-java-v2/model.bin 1930 4 8 106 2 data/policy-match-v2-v1-pilot
+
+Arguments:
+  value-model.bin|baseline, anchor.bin, reference-gru.bin, candidate-gru.bin,
+  last-year, candidates, iterations, first-pair-seed, rotations, new-directory
+
+The example fixes two rotations: 14 pairs / 28 games, using pair seeds
+106..119. Each seed is deliberately used for both members of its pair.
+Reserve these seeds and archives for evaluation, not later training batches.
+Do not combine a rerun with its original as independent evidence. These
+paired games are not part of the earlier self-play TRAIN/VALIDATION split.
+The next unused game seed after this example is 120.
+
+The 1930 boundary is a declared safety horizon, not an agreed draw.
+GameRunner currently ends only at a solo or the final year's completed Fall.
+This launcher does not add draw voting, repetition draws or early stopping.
+Changing the horizon changes both the evaluation metric and exact-cutoff
+leaf handling. Keep it identical between sides and across compared runs.
+A full-game rollout is much more expensive than the earlier 1902 collection.
+The fixed 4-candidate/8-iteration budget is a pilot, not paper-strength search.
+
+Pairing and opponent population
+------------------------------
+One rotation visits each power in Nation order. Each power gets a fresh
+pair seed, shared between these two games:
+
+  REFERENCE: all seven seats use the reference proposal.
+  CANDIDATE: the focal seat uses the candidate; the other six use reference.
+
+Compare only the focal seat's final score across that pair. The two games
+start from standard Spring 1901, with matching phase/power random streams.
+Their positions may diverge after different actions. Shared seeds do not
+force identical trajectories or identical random draws after divergence.
+The first side alternates between successive pairs to balance execution order.
+Each complete rotation costs fourteen games; the count is fixed in advance.
+The accepted range is 1..32 rotations, not a runtime or memory guarantee.
+
+Models are loaded before play and are not reloaded between games.
+Both sides use the same frozen human anchor, value model, DiL configuration,
+candidate/iteration/rollout budgets, AVERAGE output, JUDGE rules and seeds.
+Only the proposal changes. Candidate root search still models opponents
+using its own proposal, as AgentSettings already does; the six actual
+opponents continue to act using the reference agent. This evaluates that
+complete existing agent configuration, not an isolated likelihood model.
+Retreat/adjustment fallbacks and UNIFORM continuation remain unchanged.
+The CLI shares SelfPlayGameApp's existing settings rather than creating
+another search recipe. Supervised or typed exports can be compared.
+
+The public run() API also permits identical model-free settings for A/A
+self-checks. The CLI always loads the named artifacts. An A/A run deliberately
+has duplicate logical games within each pair, with separate role IDs; its
+score deltas must be zero. It is not an independent self-play corpus.
+
+Scores and uncertainty
+----------------------
+The primary metric is mean(candidate focal SoS - reference focal SoS).
+SoS uses the existing 0..1 reward scale, with a solo worth 1/0.
+Positive favors the candidate against this six-reference opponent population.
+It is not Elo, a win rate, or a universal ranking against other agents.
+
+All planned games contribute, INCLUDING explicit year-limit cutoff scores.
+The report separately counts solo endings, cutoffs and focal solo wins
+for both sides. A cutoff score is not an eventual outcome or a draw label.
+If cutoffs dominate, the result mainly describes finite-horizon performance.
+Do not filter to only naturally terminated games: that changes the sample.
+
+Each seven-power rotation contributes one mean paired delta. The overall
+standard error uses those rotation means, not phases, seven seats from one
+game, or fourteen nominally independent legs. Per-power errors use one pair
+per rotation. One rotation reports null, not zero, standard error.
+Two rotations are only an operational pilot with very weak uncertainty
+evidence. No confidence threshold, automatic extension or promotion is used.
+Fix larger confirmation counts and fresh seeds before inspecting those runs.
+
+Artifacts and readback
+---------------------
+  plan.json
+  games.jsonl
+  archives/pair-00000-reference/
+  archives/pair-00000-candidate/
+  ...
+  manifest.json
+
+The plan is written before the first game. It includes the exact schedule,
+seat artifact identities, common rules and initial position.
+The journal is flushed after each complete, replay-verified game. Its rows
+bind the planned power/side/seed, role UUID, logical game key, archive hash,
+ending, final moment, focal centers and actual focal SoS.
+
+manifest.json is published atomically only after every planned game, a
+second replay/receipt pass and summary recomputation succeed. It contains
+paired deltas, per-power summaries, rotation-level uncertainty and endings,
+and binds the plan and journal. It is the match completion marker.
+Missing manifest means incomplete, even when some individual archives passed.
+No resume, overwrite, skipping failed seeds, replacement scores or deletion
+of partial output is performed. Preserve failures for diagnosis.
+Flushing is not an fsync/crash-durability guarantee; hashes are not signatures.
+Readback holds one game's archive/history at a time, not the entire batch.
+The existing 64 MiB per-archive-file limit still applies.
+The plan, journal and match manifest are each limited to 4 MiB on readback.
+
+To replay and recompute a completed evaluation without loading models:
+
+  _app.PolicyMatchApp --verify data/policy-match-v2-v1-pilot
+
+The existing self-play archive format and recorder are reused unchanged.
+Individual solo archives retain that format's ordinary outcome eligibility
+metadata; this does NOT authorize training on this evaluation cohort.
+Do not pass these directories to NeuralSelfPlayCache or any trainer.
+This launcher creates no training cache, opens no historical TEST data,
+updates no policy/value model and performs no promotion.
+Preserve both proposal exports and the common anchor/value artifacts.

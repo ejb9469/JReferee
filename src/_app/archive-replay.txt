@@ -1,0 +1,85 @@
+SAVED GAME AND PAIRED MATCH REPLAY
+
+Main class: _app.ArchiveReplayApp
+Working directory: project root.
+
+After adding the files, first run with no arguments:
+
+  testing.selfcheck.ArchiveReplaySelfCheck
+
+Optional browser-model checks, using Node's built-in test runner:
+
+  node --test src/resources/ui/archive-replay.test.mjs
+
+Open the CURRENT evaluation only after its match manifest is published:
+
+  data/policy-match-v2-v1-pilot
+
+Or open one completed self-play archive:
+
+  data/self-play-round2/archives/game-00000
+
+Arguments:
+  completed-game-or-match-directory [port] [ui-directory]
+
+The port defaults to 0 (an available port); UI assets default to
+src/resources/ui. Open the exact http://127.0.0.1 URL printed by the app.
+Stop the application to close the local server.
+No model files, Python environment, JDBC database or new game are needed.
+
+Admission and provenance
+------------------------
+Only completed SelfPlayFiles games and PolicyMatchApp matches are accepted.
+Partial matches are rejected; this is not a live monitor.
+Match startup uses the existing complete plan/journal/summary and replay
+verification. Individual game admission uses the existing SelfPlayDataset
+reader, including legal catalogs, seeds, chosen actions and adjudicated boards.
+These checks do adjudicate recorded submissions; they never rerun searches.
+The page shows the same recorded evidence, not newly generated decisions.
+
+Each selected pair is loaded and replay-checked against its original archive
+fingerprints. Only the last compact pair is cached. Phase navigation then
+uses those cached snapshots without inference, search or adjudication.
+Returning to an evicted pair checks it again. Changes on disk never silently
+replace the originally admitted game. The cached view remains a snapshot.
+The browser is GET-only, loopback-only and exposes only whitelisted assets
+and numeric entry IDs. It has no write, import, training or promotion action.
+Archives, manifests and model identities are never modified.
+
+Reading the display
+-------------------
+For a match, select a focal-power/seed pair. Reference is always shown first,
+even when the candidate leg was executed first.
+The shared timeline is the ordered union of year/phase moments, not array
+indices. A skipped retreat is blank on that side. If a game ended earlier,
+its final board can remain visible but is explicitly labelled as an earlier
+ending; no additional decisions or score-history points are invented.
+
+Before orders shows the recorded root and selected orders. After resolution
+shows the actual next recorded state, whose year/phase is printed separately.
+Retreats, winter adjustments and skipped phases can produce different
+successor moments on the two sides. The order list still describes the
+selected source phase. Orders are not success/failure annotations; the
+successor board supplies the actual result.
+
+Small A*/F* tokens mark dislodged units separately from occupying units.
+Dashed retreat arrows, +A/+F build markers and X disband markers supplement
+the existing movement renderer. Omitted retreats and unused builds are
+labelled omissions, not invented submitted orders.
+The existing map's non-center colors are static decoration.
+
+Select a power for the ownership table and histories. Show-all-orders
+reveals all submitted actions and omissions without changing the chart's
+focal power. Arrow keys, Home and End navigate when not editing controls.
+
+Center/SoS histories are computed from recorded supply-center ownership.
+They are stop-now scores, NOT neural values or estimates of eventual outcome.
+Solos have the usual 1/0 override; scores at a safety limit remain cutoff
+scores. Step curves stop at each game's actual ending. The cursor denotes
+the selected source moment, even in after-resolution mode.
+
+The match overview retains the original paired finite-horizon metric and
+rotation-level uncertainty. Nothing here establishes a strength promotion.
+These evaluation archives remain held out from training.
+Candidate-pool/search diagnostics and live monitoring are intentionally
+deferred. Existing GameBrowserServer and proposal-viewer behavior are unchanged.

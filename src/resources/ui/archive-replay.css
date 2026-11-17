@@ -1,0 +1,46 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #172033; background: #f1f5f9; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header { padding: 1rem 2rem; color: white; background: #172033; }
+h1 { font-size: 1.5rem; margin: 0; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1rem; }
+main { max-width: 1600px; margin: auto; padding: 1rem; }
+fieldset { display: flex; flex-wrap: wrap; align-items: center; gap: 0.8rem; margin: 1rem 0; border: 1px solid #cbd5e1; }
+legend { font-weight: 600; }
+label { display: flex; align-items: center; gap: 0.4rem; }
+button, select { padding: 0.5rem; font: inherit; max-width: 100%; }
+#entry { max-width: 42rem; }
+#panels, .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+#panels.single { grid-template-columns: minmax(0, 1fr); max-width: 900px; margin: auto; }
+article { padding: 1rem; background: white; border: 1px solid #cbd5e1; border-radius: 0.4rem; min-width: 0; }
+.charts { margin-top: 1rem; }
+.muted, .empty-actions { color: #475569; font-size: 0.85rem; }
+.ending, .position { font-weight: 600; }
+.warning, #status.error { color: #991b1b; font-weight: 600; }
+.map[hidden] { display: none; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: right; padding: 0.25rem 0.5rem; border-bottom: 1px solid #e2e8f0; }
+th:first-child, td:first-child { text-align: left; }
+tr.focused { background: #e0f2fe; font-weight: 600; }
+caption { text-align: left; font-size: 0.85rem; }
+ul { padding-left: 1.3rem; }
+li { margin: 0.25rem 0; }
+li.implicit { color: #854d0e; }
+pre { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 0.8rem; }
+details { margin-top: 1rem; }
+svg { display: block; width: 100%; height: auto; }
+.chart-label { font-size: 12px; fill: #334155; }
+.chart-reference { stroke: #1d4ed8; }
+.chart-candidate { stroke: #b45309; stroke-dasharray: 6 4; }
+:host { display: block; }
+:host svg { width: 100%; height: auto; }
+.province { cursor: pointer; }
+.province.selected { stroke: #ef4444 !important; stroke-width: 1.1 !important; }
+.unit-token { cursor: pointer; }
+.unit-token:hover circle { stroke: #ef4444; }
+@media (max-width: 900px) {
+    #panels, .charts { grid-template-columns: minmax(0, 1fr); }
+    #entry { max-width: 100%; }
+    label { flex-wrap: wrap; }
+}
