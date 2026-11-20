@@ -1,5 +1,6 @@
 package _app;
 
+import agents.evaluation.NeuralValueModel;
 import agents.execution.*;
 import domain.Nation;
 import game.GameMoment;
@@ -21,6 +22,7 @@ import static io.training.SelfPlayFiles.object;
 
 /**
  * Paired one-candidate/six-reference games with an all-reference control.
+ * A match changes either the proposal or the neural value, never both.
  * Complete power rotations, not turns or seats, supply uncertainty estimates.
  */
 public final class PolicyMatchApp {
@@ -105,27 +107,36 @@ public final class PolicyMatchApp {
             print(verify(Path.of(args[1]), System.out::println));
             return;
         }
-        if (args.length != 10)
+        boolean values = args.length > 0 && args[0].equals("--value");
+        if (args.length != (values ? 11 : 10))
             throw new IllegalArgumentException(
                     "Usage: PolicyMatchApp <value-model.bin|baseline> <anchor.bin> "
                             + "<reference-gru.bin> <candidate-gru.bin> <last-year> "
                             + "<candidates> <iterations> <first-pair-seed> <rotations> <new-directory>"
+                            + "\n   or: PolicyMatchApp --value <reference-value.bin> <candidate-value.bin> "
+                            + "<anchor.bin> <shared-gru.bin> <last-year> "
+                            + "<candidates> <iterations> <first-pair-seed> <rotations> <new-directory>"
                             + "\n   or: PolicyMatchApp --verify <directory>");
+        if (values)
+            args = Arrays.copyOfRange(args, 1, args.length);
         long seed = Long.parseLong(args[7]);
         int rotations = Integer.parseInt(args[8]);
         Path directory = Path.of(args[9]);
         preflight(directory, rotations, seed);
         GameRunner.Options reference = SelfPlayGameApp.options(
-                args[0], Path.of(args[1]), Path.of(args[2]),
+                args[0], Path.of(args[values ? 2 : 1]), Path.of(args[values ? 3 : 2]),
                 Integer.parseInt(args[4]), Integer.parseInt(args[5]), Integer.parseInt(args[6]), seed);
         AgentSettings base = reference.agents().get(Nation.ENGLAND);
-        AgentSettings candidate = new AgentSettings(
+        AgentSettings candidate = values
+                ? base.withValueModel(NeuralValueModel.load(Path.of(args[1])))
+                : new AgentSettings(
                 base.method(), base.candidateLimit(), base.iterations(), base.rolloutCount(),
                 base.rolloutLimit(), base.output(), base.rootGenerator(), base.rolloutGenerator(),
                 Optional.of(AgentModels.load(Path.of(args[1]), Optional.of(Path.of(args[3])))),
                 base.valueModel());
 
-        System.out.println("BEGIN PAIRED POLICY MATCH");
+        String kind = values ? "VALUE" : "POLICY";
+        System.out.println("BEGIN PAIRED " + kind + " MATCH");
         System.out.println("Reference: " + base);
         System.out.println("Candidate: " + candidate);
         System.out.println("Rotations=" + rotations + "; pairs=" + rotations * 7
@@ -133,9 +144,9 @@ public final class PolicyMatchApp {
         System.out.println("A year limit is an artificial cutoff, not an agreed draw.");
         System.out.println("Evaluation only: no training cache, historical TEST access or promotion.");
         long started = System.nanoTime();
-        print(run(directory, reference, candidate, rotations, System.out::println));
+        print(run(directory, reference, candidate, rotations, values, System.out::println));
         System.out.printf(Locale.ROOT, "Elapsed seconds: %.3f%n", (System.nanoTime() - started) / 1e9);
-        System.out.println("END PAIRED POLICY MATCH");
+        System.out.println("END PAIRED " + kind + " MATCH");
 
     }
 
@@ -155,6 +166,20 @@ public final class PolicyMatchApp {
             Path directory, GameRunner.Options reference, AgentSettings candidate,
             int rotations, Consumer<String> progress
     ) throws IOException {
+        return run(directory, reference, candidate, rotations, false, progress);
+    }
+
+    public static String runValue(
+            Path directory, GameRunner.Options reference, AgentSettings candidate,
+            int rotations, Consumer<String> progress
+    ) throws IOException {
+        return run(directory, reference, candidate, rotations, true, progress);
+    }
+
+    private static String run(
+            Path directory, GameRunner.Options reference, AgentSettings candidate,
+            int rotations, boolean values, Consumer<String> progress
+    ) throws IOException {
 
         Objects.requireNonNull(reference, "reference");
         Objects.requireNonNull(candidate, "candidate");
@@ -165,7 +190,7 @@ public final class PolicyMatchApp {
                 || reference.movementPolicy() != MovementProcessor.Policy.JUDGE
                 || reference.agents().values().stream().anyMatch(seat -> !seat.equals(base)))
             throw new IllegalArgumentException("The control must have seven identical SoS/JUDGE agents");
-        checkSeats(SelfPlayRecorder.settings(base), SelfPlayRecorder.settings(candidate));
+        checkSeats(SelfPlayRecorder.settings(base), SelfPlayRecorder.settings(candidate), values);
         base.createEvaluator(reference, 0);
         candidate.createEvaluator(reference, 0);
         List<Match> matches = schedule(rotations, reference.seed());
@@ -181,6 +206,8 @@ public final class PolicyMatchApp {
                 "initial_state", SelfPlayRecorder.state(StandardGameFactory.create1901().snapshot()),
                 "reference_seat", SelfPlayRecorder.settings(base),
                 "candidate_seat", SelfPlayRecorder.settings(candidate));
+        if (values)
+            plan.put("comparison", "VALUE");
         plan.put("schedule", matches.stream().map(match -> scheduled(plan, match)).toList());
         Files.createDirectory(directory);
         Files.createDirectory(directory.resolve("archives"));
@@ -241,17 +268,44 @@ public final class PolicyMatchApp {
             throw new NoSuchFileException("Output parent must already exist: " + parent);
     }
 
-    private static void checkSeats(Map<String, Object> reference, Map<String, Object> candidate) {
+    private static boolean valueComparison(Map<String, Object> plan) {
+        if (!plan.containsKey("comparison"))
+            return false;
+        if (!"VALUE".equals(plan.get("comparison")))
+            throw new IllegalArgumentException("Unknown match comparison");
+        return true;
+    }
+
+    private static void checkSeats(
+            Map<String, Object> reference, Map<String, Object> candidate, boolean values
+    ) {
+
         Map<String, Object> left = new LinkedHashMap<>(reference);
         Map<String, Object> right = new LinkedHashMap<>(candidate);
-        Map<String, Object> a = ValueDatasetJson.object(left.remove("movement_models"));
-        Map<String, Object> b = ValueDatasetJson.object(right.remove("movement_models"));
-        if (!"DIL_PIKL".equals(reference.get("method")) || !same(left, right)
-                || !a.keySet().equals(b.keySet()) || !Objects.equals(a.get("anchor"), b.get("anchor")))
+        String field = values ? "value_model" : "movement_models";
+        if (values && (left.get(field) == null || right.get(field) == null))
+            throw new IllegalArgumentException("Value comparisons require two neural models");
+        Map<String, Object> a = ValueDatasetJson.object(left.remove(field));
+        Map<String, Object> b = ValueDatasetJson.object(right.remove(field));
+        if (!"DIL_PIKL".equals(reference.get("method")) || !same(left, right))
+            throw new IllegalArgumentException(values
+                    ? "Only the neural value may differ; keep movement artifacts and budgets fixed"
+                    : "Only the proposal may differ; keep anchor, value and budgets fixed");
+        if (values) {
+            Set<String> keys = Set.of("model_sha256", "checkpoint_sha256", "dataset_fingerprint");
+            if (!"NEURAL_YEAR_END_WITH_EXACT_SOLO_CUTOFF".equals(reference.get("evaluator"))
+                    || !a.keySet().equals(keys) || !b.keySet().equals(keys)
+                    || List.of(a, b).stream().flatMap(model -> model.values().stream())
+                    .anyMatch(value -> !(value instanceof String hash) || !hash.matches("[0-9a-f]{64}")))
+                throw new IllegalArgumentException("Value comparisons require two loaded neural model identities");
+            return;
+        }
+        if (!a.keySet().equals(b.keySet()) || !Objects.equals(a.get("anchor"), b.get("anchor")))
             throw new IllegalArgumentException("Only the proposal may differ; keep anchor, value and budgets fixed");
         if (!a.isEmpty() && (!a.keySet().equals(Set.of("anchor", "gru", "checkpoint", "dataset"))
                 || !"COHERENT_GRU_HYBRID".equals(reference.get("root_generator"))))
             throw new IllegalArgumentException("Learned comparisons require loaded GRU artifact identities");
+
     }
 
     private static Map<String, Object> header(Map<String, Object> plan, Match match) {
@@ -264,7 +318,8 @@ public final class PolicyMatchApp {
         for (String key : List.of("last_year", "scoring", "movement_policy",
                 "adjudication_trials", "adjudication_seed", "ruleset_id"))
             result.put(key, plan.get(key));
-        UUID id = UUID.nameUUIDFromBytes((SCHEMA + ":" + match.power() + ":" + match.side()
+        String domain = SCHEMA + (valueComparison(plan) ? ":VALUE" : "");
+        UUID id = UUID.nameUUIDFromBytes((domain + ":" + match.power() + ":" + match.side()
                 + ":" + SelfPlayFiles.json(result)).getBytes(StandardCharsets.UTF_8));
         result.put("game_id", id.toString());
         return result;
@@ -332,7 +387,7 @@ public final class PolicyMatchApp {
                 SelfPlayRecorder.state(StandardGameFactory.create1901().snapshot())))
             throw new IOException("Unsupported match plan");
         checkSeats(ValueDatasetJson.object(plan.get("reference_seat")),
-                ValueDatasetJson.object(plan.get("candidate_seat")));
+                ValueDatasetJson.object(plan.get("candidate_seat")), valueComparison(plan));
         int rotations = Math.toIntExact(ValueDatasetJson.count(plan, "rotations"));
         List<Match> matches = schedule(rotations, Long.parseLong(ValueDatasetJson.text(plan, "first_pair_seed")));
         if (!same(plan.get("schedule"), matches.stream().map(match -> scheduled(plan, match)).toList()))
@@ -390,7 +445,7 @@ public final class PolicyMatchApp {
                     "cutoff_games", games.stream().filter(row -> "ARTIFICIAL_CUTOFF".equals(row.get("termination"))).count(),
                     "focal_solo_wins", games.stream().filter(row -> row.get("power").equals(row.get("winner"))).count()));
         }
-        return object("schema", SCHEMA, "complete", true, "evaluation_only", true,
+        Map<String, Object> result = object("schema", SCHEMA, "complete", true, "evaluation_only", true,
                 "rotations", rotations, "pairs", pairs, "games", rows.size(),
                 "score_semantics", "FINAL_SOS_INCLUDING_EXPLICIT_YEAR_LIMIT_CUTOFFS",
                 "uncertainty_unit", "COMPLETE_SEVEN_POWER_ROTATION",
@@ -398,6 +453,9 @@ public final class PolicyMatchApp {
                 "endings", endings, "comparisons", comparisons, "files", files,
                 "training_performed", false, "test_opened", false,
                 "cache_created", false, "promotion_performed", false);
+        if (valueComparison(plan))
+            result.put("comparison", "VALUE");
+        return result;
 
     }
 

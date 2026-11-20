@@ -2,9 +2,13 @@ package testing.selfcheck;
 
 import _app.PolicyMatchApp;
 import _app.PolicyMatchApp.*;
+import adjudication.Justice;
+import agents.evaluation.NeuralValueModel;
 import agents.execution.*;
 import agents.search.PolicyOutput;
 import domain.Nation;
+import game.GameState;
+import game.GameState_Adjustments;
 import io.training.*;
 import misc.scoring.ScoringSystem;
 import phase.movement.MovementProcessor;
@@ -15,6 +19,7 @@ import java.util.*;
 
 /**
  * Scheduling, rotation-level statistics and real A/A recording without models.
+ * Optional artifacts also exercise isolated value comparisons through the CLI.
  */
 public final class PolicyMatchSelfCheck {
 
@@ -22,8 +27,10 @@ public final class PolicyMatchSelfCheck {
 
     public static void main(String[] args) throws Exception {
 
-        if (args.length != 0)
-            throw new IllegalArgumentException("Usage: PolicyMatchSelfCheck");
+        if (args.length != 0 && args.length != 5)
+            throw new IllegalArgumentException("Usage: PolicyMatchSelfCheck"
+                    + " [<reference-value.bin> <candidate-value.bin> <anchor.bin>"
+                    + " <shared-gru.bin> <different-gru.bin>]");
         schedule();
         statistics();
         Path temporary = Files.createTempDirectory("jreferee-policy-match-");
@@ -32,6 +39,8 @@ public final class PolicyMatchSelfCheck {
             guards(temporary);
             interrupted(temporary);
             changedArchive(temporary);
+            if (args.length == 5)
+                values(temporary, args);
             System.out.println("PolicyMatchSelfCheck passed.");
         } finally {
             try (var paths = Files.walk(temporary)) {
@@ -107,6 +116,9 @@ public final class PolicyMatchSelfCheck {
                 PolicyMatchApp.run(output, options, agent(options), 1, message -> { }));
         require(ValueDatasetJson.count(report, "games") == 14 && ValueDatasetJson.count(report, "pairs") == 7
                 && Boolean.TRUE.equals(report.get("complete")), "Missing completed comparison");
+        require(!report.containsKey("comparison")
+                        && !ValueDatasetJson.parse(Files.readString(output.resolve("plan.json"))).containsKey("comparison"),
+                "Legacy policy comparison format changed");
         Map<String, Object> overall = ValueDatasetJson.object(report.get("overall"));
         close(((Number) overall.get("mean_delta")).doubleValue(), 0, "A/A comparison has a nonzero effect");
         require(overall.get("standard_error") == null, "Single rotation reports uncertainty");
@@ -199,6 +211,160 @@ public final class PolicyMatchSelfCheck {
         }));
         require(!Files.exists(output.resolve("manifest.json")), "Changed archive acquired a completion marker");
 
+    }
+
+    private static AgentSettings neural(AgentModels movement, NeuralValueModel value) {
+        return new AgentSettings(AgentSettings.Method.DIL_PIKL, 1, 1, 1, 1, PolicyOutput.AVERAGE,
+                AgentSettings.Generator.COHERENT_GRU_HYBRID, AgentSettings.Generator.UNIFORM,
+                Optional.of(movement), Optional.of(value));
+    }
+
+    private static void values(Path temporary, String[] args) throws Exception {
+
+        NeuralValueModel oldValue = NeuralValueModel.load(Path.of(args[0]));
+        NeuralValueModel newValue = NeuralValueModel.load(Path.of(args[1]));
+        AgentModels movement = AgentModels.load(Path.of(args[2]), Optional.of(Path.of(args[3])));
+        AgentModels different = AgentModels.load(Path.of(args[2]), Optional.of(Path.of(args[4])));
+        require(!oldValue.sha256().equals(newValue.sha256()), "Supply distinct value models for the fixture");
+        require(!movement.identities().equals(different.identities()), "Supply distinct GRUs for the guard fixture");
+        AgentSettings base = neural(movement, oldValue), candidate = base.withValueModel(newValue);
+        Map<Nation, AgentSettings> seats = new EnumMap<>(Nation.class);
+        for (Nation power : Nation.values())
+            seats.put(power, base);
+        GameRunner.Options reference = new GameRunner.Options(1902, 7, ScoringSystem.SUM_OF_SQUARES,
+                MovementProcessor.Policy.JUDGE, 1, Justice.SHUFFLE_SEED_DEFAULT, seats);
+        Path invalid = temporary.resolve("invalid-value");
+        expect(IllegalArgumentException.class,
+                () -> PolicyMatchApp.run(invalid, reference, candidate, 1, message -> { }));
+        expect(IllegalArgumentException.class, () -> PolicyMatchApp.runValue(
+                invalid, reference, neural(different, newValue), 1, message -> { }));
+        AgentSettings budget = new AgentSettings(base.method(), 2, base.iterations(), base.rolloutCount(),
+                base.rolloutLimit(), base.output(), base.rootGenerator(), base.rolloutGenerator(),
+                base.models(), candidate.valueModel());
+        expect(IllegalArgumentException.class,
+                () -> PolicyMatchApp.runValue(invalid, reference, budget, 1, message -> { }));
+        GameRunner.Options modelFree = options(7);
+        expect(IllegalArgumentException.class, () -> PolicyMatchApp.runValue(
+                invalid, modelFree, agent(modelFree).withValueModel(newValue), 1, message -> { }));
+        require(!Files.exists(invalid), "Value preflight failure created output");
+        IllegalStateException stop = new IllegalStateException("Loaded policy configuration accepted");
+        try {
+            PolicyMatchApp.run(temporary.resolve("policy-artifacts"), reference, neural(different, oldValue),
+                    1, message -> { throw stop; });
+            throw new AssertionError("Policy fixture did not reach its first game");
+        } catch (IllegalStateException exception) {
+            require(exception == stop, "Legacy loaded-policy comparison was rejected");
+        }
+
+        Path output = temporary.resolve("value");
+        PolicyMatchApp.main(new String[]{"--value", args[0], args[1], args[2], args[3],
+                "1902", "1", "1", "7", "1", output.toString()});
+        Map<String, Object> plan = ValueDatasetJson.parse(Files.readString(output.resolve("plan.json")));
+        Map<String, Object> report = ValueDatasetJson.parse(Files.readString(output.resolve("manifest.json")));
+        require("VALUE".equals(plan.get("comparison")) && "VALUE".equals(report.get("comparison")),
+                "Value comparison was not explicitly recorded");
+        require(same(plan.get("reference_seat"), SelfPlayRecorder.settings(base))
+                        && same(plan.get("candidate_seat"), SelfPlayRecorder.settings(candidate)),
+                "CLI changed a frozen artifact or common search setting");
+        require(ValueDatasetJson.count(report, "games") == 14
+                        && ValueDatasetJson.count(report, "pairs") == 7
+                        && !Files.exists(output.resolve("cache")),
+                "Value fixture is not a complete evaluation-only rotation");
+        List<Map<String, Object>> rows = Files.readAllLines(output.resolve("games.jsonl")).stream()
+                .map(ValueDatasetJson::parse).toList();
+        List<Match> schedule = PolicyMatchApp.schedule(1, 7);
+        GameState winter = null;
+        for (int index = 0; index < rows.size(); index++) {
+            Match match = schedule.get(index);
+            SelfPlayDataset.GameExample game = SelfPlayDataset.open(
+                    output.resolve(ValueDatasetJson.text(rows.get(index), "directory")));
+            require(game.configuration().seed() == match.seed() && game.configuration().lastYear() == 1902,
+                    "Value pair changed its seed or cutoff");
+            for (Nation power : Nation.values()) {
+                var actual = game.configuration().seats().get(power);
+                NeuralValueModel expected = match.side() == Side.CANDIDATE && power == match.power()
+                        ? newValue : oldValue;
+                var identity = actual.valueModel().orElseThrow();
+                require(actual.movementModels().equals(movement.identities())
+                                && identity.model().equals(expected.sha256())
+                                && identity.checkpoint().equals(expected.checkpointSha256())
+                                && identity.dataset().equals(expected.datasetFingerprint()),
+                        "Wrong value or movement artifacts for " + match + " seat=" + power);
+            }
+            if (winter == null)
+                winter = game.phases().stream().map(SelfPlayDataset.Phase::state)
+                        .filter(state -> state instanceof GameState_Adjustments && state.moment().year() == 1901)
+                        .findFirst().orElse(null);
+        }
+        require(winter != null, "Value fixture never reached a nonterminal winter");
+        require(base.createEvaluator(reference, 7).evaluate(winter).equals(
+                        oldValue.predict(winter.moment(), winter.board()))
+                        && candidate.createEvaluator(reference, 7).evaluate(winter).equals(
+                        newValue.predict(winter.moment(), winter.board())),
+                "A nonterminal leaf did not use its assigned value model");
+        require(report.equals(ValueDatasetJson.parse(PolicyMatchApp.verify(output, message -> { }))),
+                "Value readback differs");
+        expect(FileAlreadyExistsException.class,
+                () -> PolicyMatchApp.runValue(output, reference, candidate, 1, message -> { }));
+        comparisonMarker(output, false);
+        identicalValues(temporary, oldValue);
+        System.out.println("Value comparison passed: fixed movement artifacts, six reference opponents, "
+                + "nonterminal values and receipt guards.");
+
+    }
+
+    private static void identicalValues(Path temporary, NeuralValueModel model) throws Exception {
+
+        GameRunner.Options original = options(7);
+        AgentSettings base = agent(original).withValueModel(model);
+        Map<Nation, AgentSettings> seats = new EnumMap<>(Nation.class);
+        for (Nation power : Nation.values())
+            seats.put(power, base);
+        GameRunner.Options reference = new GameRunner.Options(
+                original.lastYear(), original.seed(), original.scoring(), original.movementPolicy(),
+                original.adjudicationTrials(), original.adjudicationSeed(), seats);
+        Path output = temporary.resolve("identical-values");
+        Map<String, Object> report = ValueDatasetJson.parse(
+                PolicyMatchApp.runValue(output, reference, base, 1, message -> { }));
+        close(((Number) ValueDatasetJson.object(report.get("overall")).get("mean_delta")).doubleValue(),
+                0, "Identical values produced an A/A effect");
+        comparisonMarker(output, true);
+
+    }
+
+    private static void comparisonMarker(Path output, boolean identicalValues) throws Exception {
+
+        Path planPath = output.resolve("plan.json"), manifestPath = output.resolve("manifest.json");
+        String originalPlan = Files.readString(planPath), originalManifest = Files.readString(manifestPath);
+        try {
+            for (boolean remove : new boolean[]{true, false}) {
+                Map<String, Object> plan = ValueDatasetJson.parse(originalPlan);
+                if (remove)
+                    plan.remove("comparison");
+                else
+                    plan.put("comparison", "UNKNOWN");
+                Files.writeString(planPath, SelfPlayFiles.json(plan) + "\n");
+                Map<String, Object> manifest = ValueDatasetJson.parse(originalManifest);
+                ValueDatasetJson.object(manifest.get("files")).put("plan.json", SelfPlayFiles.object(
+                        "bytes", Files.size(planPath), "sha256", ValueDatasetJson.hash(planPath)));
+                Files.writeString(manifestPath, SelfPlayFiles.json(manifest) + "\n");
+                expect(remove && identicalValues ? IOException.class : IllegalArgumentException.class,
+                        () -> PolicyMatchApp.verify(output, message -> { }));
+            }
+            Files.writeString(planPath, originalPlan);
+            Map<String, Object> manifest = ValueDatasetJson.parse(originalManifest);
+            manifest.remove("comparison");
+            Files.writeString(manifestPath, SelfPlayFiles.json(manifest) + "\n");
+            expect(IOException.class, () -> PolicyMatchApp.verify(output, message -> { }));
+        } finally {
+            Files.writeString(planPath, originalPlan);
+            Files.writeString(manifestPath, originalManifest);
+        }
+
+    }
+
+    private static boolean same(Object a, Object b) {
+        return ValueDatasetJson.parse(SelfPlayFiles.json(a)).equals(ValueDatasetJson.parse(SelfPlayFiles.json(b)));
     }
 
     private interface Checked { void run() throws Exception; }

@@ -51,8 +51,8 @@ public class NeuralValueModel {
     private final           double[][]              adjacency = new double[75][75];
     private final           int                     hidden, epoch;
     private final           String                  sha256, checkpointSha256, datasetFingerprint;
-    private final           Optional<String>        cacheManifestSha256;
-    private final           Optional<SelfPlay>      selfPlay;
+    private final           Optional<String>        cacheManifestSha256;        // TODO: Optional<> used as a field is apparently ill-advised,
+    private final           Optional<SelfPlay>      selfPlay;                   //      ... this is sensitive infrastructure, so it is probably best to heed this advice.
 
     private NeuralValueModel(
             Map<String, double[][]> weights, int hidden, int epoch,

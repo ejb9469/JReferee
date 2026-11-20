@@ -185,3 +185,17 @@ These test cases include:
 <u><b>See </b></u>`testing.selfcheck`<u><b> for unit tests.</b></u>
 
 ---
+
+## Credits
+
+- The late Allan B. Calhamer, who created Diplomacy
+
+- Lucas B. Kruijswijk et al's adjudication work - [Diplomacy Adjudicator Test Cases (DATC)](https://petermc.net/diplomacy/datc_v3_3.html) provide rule interpretations, edge cases, & reference scenarios
+
+- Diplodocus (precursor to Meta AI's *Cicero*) project - especially [this research paper](https://arxiv.org/abs/2210.05492)
+
+- The Diplomacy Broadcast Network (DiploBN) - https://diplobn.com/
+
+- Inspiration: [DipTool](https://www.hagenah.de/diptool/) and [ChessBase](https://chessbase.com)
+
+---

@@ -1,96 +1,136 @@
-PAIRED POLICY EVALUATION
+PAIRED POLICY OR VALUE EVALUATION
 
 Main class: _app.PolicyMatchApp
 Working directory: project root.
 The output directory must not exist; its parent must already exist.
-Both proposals must be Java exports, not Python checkpoints.
+Model arguments name Java binaries, not Python checkpoints.
+No mode trains, resumes, overwrites, promotes or creates a training cache.
 
-First run, with no arguments or model files:
+First run the extended self-check
+-------------------------------
+Main class: testing.selfcheck.PolicyMatchSelfCheck
+Program arguments for the current frozen artifacts:
 
-  testing.selfcheck.PolicyMatchSelfCheck
+  data/value-java-v1/model.bin data/value-self-play-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-self-play-java-v3/model.bin data/movement-self-play-java-v1/model.bin
 
-This checks scheduling, clustered statistics, matched real A/A games,
-configuration guards, replay/readback, interruption and changed artifacts.
-Its uniform 1901 games are fixtures, not playing-strength evidence.
+The five arguments are:
+  reference-value.bin, candidate-value.bin, anchor.bin, shared-gru.bin,
+  different-gru.bin
 
-Initial longer-horizon pilot, after that self-check passes:
+The final GRU is used only to prove that a simultaneous policy change is
+rejected. It is NOT an opponent in the value comparison.
+The check includes the original model-free tests and a temporary 14-game
+1902 CLI fixture with one candidate and one iteration. It checks the actual
+recorded seats, nonterminal value leaves, paired seeds, readback, isolation
+guards and changed comparison markers. A short uniform 1901 A/A rotation
+also checks identical values and comparison-domain separation.
+Temporary archives are deleted.
+These games are correctness fixtures, not strength evidence or new data.
+There is no requirement for different values to yield different scores in
+a fixture with only one available action.
 
-  data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-self-play-java-v1/model.bin data/movement-self-play-java-v2/model.bin 1930 4 8 106 2 data/policy-match-v2-v1-pilot
+With no arguments, the original model-free scheduling, statistics, A/A,
+interruption and corruption checks still run. That form does not exercise
+the new loaded-value path. Do not repeat the already-passed value parity
+and evaluator checks solely because this launcher changed.
 
+Policy comparison: existing command unchanged
+--------------------------------------------
 Arguments:
   value-model.bin|baseline, anchor.bin, reference-gru.bin, candidate-gru.bin,
   last-year, candidates, iterations, first-pair-seed, rotations, new-directory
 
-The example fixes two rotations: 14 pairs / 28 games, using pair seeds
-106..119. Each seed is deliberately used for both members of its pair.
-Reserve these seeds and archives for evaluation, not later training batches.
-Do not combine a rerun with its original as independent evidence. These
-paired games are not part of the earlier self-play TRAIN/VALIDATION split.
-The next unused game seed after this example is 120.
+Example of the ALREADY COMPLETED historical pilot; do not rerun it:
 
-The 1930 boundary is a declared safety horizon, not an agreed draw.
-GameRunner currently ends only at a solo or the final year's completed Fall.
-This launcher does not add draw voting, repetition draws or early stopping.
+  data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-self-play-java-v1/model.bin data/movement-self-play-java-v2/model.bin 1930 4 8 106 2 data/policy-match-v2-v1-pilot
+
+Both sides share the value, human anchor, generators and all search budgets.
+Only the proposal artifact may differ. The existing public run() API and
+unmarked jreferee-policy-match-v1 receipts retain this interpretation.
+The value-model argument may still be baseline in this policy-only mode.
+
+Value comparison: explicit new command
+-------------------------------------
+Arguments:
+  --value reference-value.bin candidate-value.bin anchor.bin shared-gru.bin
+  last-year candidates iterations first-pair-seed rotations new-directory
+
+For the current ablation, use these models in the first four positions:
+  reference value: data/value-java-v1/model.bin
+  candidate value: data/value-self-play-java-v1/model.bin
+  shared anchor:   data/movement-linear-v1/policy.bin
+  shared proposal: data/movement-self-play-java-v3/model.bin
+
+The reference value is the frozen supervised model. The candidate is the
+selected epoch-10 self-play value. Both use the same main typed-v3 movement
+proposal, not v3-smoke. Preserve these exports and their receipts.
+
+The reference game has seven shared-v3/old-value agents.
+The candidate game has one shared-v3/new-value focal agent and six actual
+shared-v3/old-value opponents. The movement model object is loaded once and
+shared; only the focal candidate gets the other neural value model.
+Search method, generators, anchor/proposal identities, AVERAGE output,
+candidates, iterations, rollouts, rules, year limit and seeds stay fixed.
+Changing both policy and value is rejected before an output is created.
+This mode requires two neural model files; baseline is not accepted.
+The public runValue() API applies the same guard. Identical values are
+permitted for A/A checks, but do not establish an improvement.
+
+This opponent population differs from the earlier policy-v3-versus-v1
+evaluation. Do not subtract or pool their deltas as the same experiment.
+Each searching agent still uses its own evaluator and proposal inside its
+search. Actual opponent seats use their recorded reference configuration.
+There is no new opponent-value modeling algorithm.
+
+The implementation does not start a strength match. After the extended
+self-check passes, freeze the new schedule before inspecting results.
+Retain 1930 and the 4-candidate/8-iteration budget for the planned comparison.
+At this handoff, 440 is the next unused production seed. Evaluation seeds
+106..119 and 384..439 remain permanently excluded from training.
+A run with R rotations reserves pair seeds first..first+7*R-1.
+Never reuse or count a rerun as independent evidence.
+
+Pairing and termination
+-----------------------
+One rotation visits each power in Nation order. Each power gets a fresh
+pair seed, shared between its REFERENCE and CANDIDATE games. Only the focal
+seat's final score is compared. The other six seats always remain reference.
+Each complete rotation costs fourteen games; the fixed range is 1..32.
+The first side alternates between successive pairs to balance execution order.
+Both games start from standard Spring 1901 with matching phase/power seed
+streams. Positions and random draws can diverge after different actions.
+Shared seeds do not force identical trajectories.
+
+The 1930 boundary remains an artificial cutoff, not an agreed draw.
+GameRunner ends at a solo or after the final year's complete Fall,
+including retreats and ownership updates, before winter adjustments.
+This launcher adds no draw voting, repetition draws or early stopping.
 Changing the horizon changes both the evaluation metric and exact-cutoff
 leaf handling. Keep it identical between sides and across compared runs.
-A full-game rollout is much more expensive than the earlier 1902 collection.
-The fixed 4-candidate/8-iteration budget is a pilot, not paper-strength search.
-
-Pairing and opponent population
-------------------------------
-One rotation visits each power in Nation order. Each power gets a fresh
-pair seed, shared between these two games:
-
-  REFERENCE: all seven seats use the reference proposal.
-  CANDIDATE: the focal seat uses the candidate; the other six use reference.
-
-Compare only the focal seat's final score across that pair. The two games
-start from standard Spring 1901, with matching phase/power random streams.
-Their positions may diverge after different actions. Shared seeds do not
-force identical trajectories or identical random draws after divergence.
-The first side alternates between successive pairs to balance execution order.
-Each complete rotation costs fourteen games; the count is fixed in advance.
-The accepted range is 1..32 rotations, not a runtime or memory guarantee.
-
-Models are loaded before play and are not reloaded between games.
-Both sides use the same frozen human anchor, value model, DiL configuration,
-candidate/iteration/rollout budgets, AVERAGE output, JUDGE rules and seeds.
-Only the proposal changes. Candidate root search still models opponents
-using its own proposal, as AgentSettings already does; the six actual
-opponents continue to act using the reference agent. This evaluates that
-complete existing agent configuration, not an isolated likelihood model.
-Retreat/adjustment fallbacks and UNIFORM continuation remain unchanged.
-The CLI shares SelfPlayGameApp's existing settings rather than creating
-another search recipe. Supervised or typed exports can be compared.
-
-The public run() API also permits identical model-free settings for A/A
-self-checks. The CLI always loads the named artifacts. An A/A run deliberately
-has duplicate logical games within each pair, with separate role IDs; its
-score deltas must be zero. It is not an independent self-play corpus.
+Retreat/adjustment proposals and UNIFORM continuation remain unchanged.
+The fixed search budget is a pilot setting, not paper-strength search.
 
 Scores and uncertainty
 ----------------------
 The primary metric is mean(candidate focal SoS - reference focal SoS).
-SoS uses the existing 0..1 reward scale, with a solo worth 1/0.
-Positive favors the candidate against this six-reference opponent population.
-It is not Elo, a win rate, or a universal ranking against other agents.
+SoS uses the existing 0..1 scale, with a solo worth 1/0.
+Positive favors the candidate against this particular reference population.
+It is not Elo, a win rate or a universal ranking.
 
 All planned games contribute, INCLUDING explicit year-limit cutoff scores.
-The report separately counts solo endings, cutoffs and focal solo wins
-for both sides. A cutoff score is not an eventual outcome or a draw label.
-If cutoffs dominate, the result mainly describes finite-horizon performance.
-Do not filter to only naturally terminated games: that changes the sample.
+The report separately counts solos, cutoffs and focal solo wins per side.
+A cutoff score is not an eventual outcome or a draw label. Do not filter
+to only naturally ended games, which would change the sample.
 
-Each seven-power rotation contributes one mean paired delta. The overall
-standard error uses those rotation means, not phases, seven seats from one
-game, or fourteen nominally independent legs. Per-power errors use one pair
-per rotation. One rotation reports null, not zero, standard error.
-Two rotations are only an operational pilot with very weak uncertainty
-evidence. No confidence threshold, automatic extension or promotion is used.
-Fix larger confirmation counts and fresh seeds before inspecting those runs.
+Each complete seven-power rotation contributes one mean paired delta.
+The overall standard error uses those rotation means, not phases, seats
+or nominally independent legs. Per-power errors use one pair per rotation.
+One rotation reports null, not zero, standard error. Two rotations are only
+an operational pilot with very weak uncertainty evidence.
+There is no automatic extension, confidence threshold or promotion.
 
-Artifacts and readback
----------------------
+Artifacts and compatibility
+---------------------------
   plan.json
   games.jsonl
   archives/pair-00000-reference/
@@ -98,32 +138,217 @@ Artifacts and readback
   ...
   manifest.json
 
-The plan is written before the first game. It includes the exact schedule,
-seat artifact identities, common rules and initial position.
-The journal is flushed after each complete, replay-verified game. Its rows
-bind the planned power/side/seed, role UUID, logical game key, archive hash,
-ending, final moment, focal centers and actual focal SoS.
+The plan precedes play and records exact seat artifacts, rules, initial
+position and schedule. The journal is flushed after each replay-verified
+game and binds its side, seed, UUID, logical key, archive hash and score.
+The final manifest is published atomically only after all planned games,
+a second replay/receipt pass and summary recomputation succeed.
+Missing manifest means incomplete. Preserve partial outputs for diagnosis.
 
-manifest.json is published atomically only after every planned game, a
-second replay/receipt pass and summary recomputation succeed. It contains
-paired deltas, per-power summaries, rotation-level uncertainty and endings,
-and binds the plan and journal. It is the match completion marker.
-Missing manifest means incomplete, even when some individual archives passed.
-No resume, overwrite, skipping failed seeds, replacement scores or deletion
-of partial output is performed. Preserve failures for diagnosis.
-Flushing is not an fsync/crash-durability guarantee; hashes are not signatures.
-Readback holds one game's archive/history at a time, not the entire batch.
-The existing 64 MiB per-archive-file limit still applies.
-The plan, journal and match manifest are each limited to 4 MiB on readback.
+The match-family schema remains jreferee-policy-match-v1. New value runs
+add comparison=VALUE to BOTH the plan and manifest. Absence means the old
+proposal-only contract; unknown or null comparison markers are rejected.
+Value-run role UUIDs use a separate domain. Removing a marker cannot
+reinterpret a value run as an old policy run, including an A/A comparison.
+Existing policy plans, game IDs and manifests are unchanged and readable.
+Older launcher code cannot verify the new value-mode receipts.
 
-To replay and recompute a completed evaluation without loading models:
+The existing ArchiveReplayApp accepts both modes through the updated
+PolicyMatchApp verifier. Its reference/candidate settings and per-seat
+model identities display the same recorded evidence. No UI change is needed.
 
-  _app.PolicyMatchApp --verify data/policy-match-v2-v1-pilot
+To replay/recompute any completed policy or value comparison without models:
 
-The existing self-play archive format and recorder are reused unchanged.
-Individual solo archives retain that format's ordinary outcome eligibility
-metadata; this does NOT authorize training on this evaluation cohort.
-Do not pass these directories to NeuralSelfPlayCache or any trainer.
-This launcher creates no training cache, opens no historical TEST data,
-updates no policy/value model and performs no promotion.
-Preserve both proposal exports and the common anchor/value artifacts.
+  _app.PolicyMatchApp --verify <completed-match-directory>
+
+Flushing is not an fsync guarantee; hashes are not signatures. Readback
+holds one game's history at a time. Existing limits remain 64 MiB per
+archive file and 4 MiB each for plan, journal and match manifest.
+
+Individual archives retain ordinary self-play outcome eligibility metadata.
+That does NOT authorize training on evaluation games, including reference
+legs or naturally ended solos. Never pass these cohorts to a cache builder
+or trainer. No historical TEST data is opened and no model is updated.
+
+neural/self-play-value.txt
+
+SELF-PLAY VALUE LEARNING
+
+This is a separate warm-started value update, not another policy fit.
+The supervised commands in value.txt and value-export.txt remain available.
+No dependency change, additional games, policy update or baseline overwrite
+is required. Use the existing NumPy/PyTorch environment.
+
+Admission and the current cohort
+-------------------------------
+Supply full SelfPlayCache directories, not their value/ children.
+The complete reader verifies policy and value receipts, game links, splits,
+boards, exact coasts, chronology and naturally completed solo targets.
+All supplied games must have homogeneous seven-seat COHERENT_GRU_HYBRID
+DiL configurations. Producer configurations are retained in training.json.
+Different self-play producers can be recorded in a cohort; they are not
+silently relabeled as the warm-start model or the latest movement policy.
+
+For the completed main collection, use exactly:
+  data/self-play-round3-main/batch-00/cache through batch-28/cache
+  data/self-play-round3-recovery/batch-29/cache through batch-31/cache
+
+Keep the interrupted original main/batch-29 excluded.
+Keep smoke and evaluation games excluded, including evaluation seeds 106-119
+and 384-439. Homogeneous seats alone cannot identify evaluation reference
+games; explicit cohort selection remains mandatory. Never glob data/*.
+The supplied command pins the previously audited 32 cache receipts.
+
+These are 256 games, seeds 128-383, split seed 7, produced by typed policy v2
+with the supervised value baseline and the unchanged 1930 cutoff.
+They were not produced by the subsequently fitted policy v3.
+
+Value positions come from 207 completed solos:
+  TRAIN:       191 games, 11272 positions
+  VALIDATION:   16 games,   995 positions
+All 49 cutoff games contribute zero eventual-value positions.
+The 17th validation policy game is a cutoff, not a value-validation game.
+Games retain their original splits. Empty individual value splits are allowed;
+the combined cohort must contain eligible TRAIN and VALIDATION positions.
+No TEST data is opened. Metadata, targets and outcomes are not input features.
+
+Objective and selection
+-----------------------
+The architecture is the existing seven-power ValueNetwork. Its hidden size
+comes from the initial checkpoint, not a separately chosen command argument.
+Movement and winter-adjustment positions retain the original board/year/phase
+encoding. Retreats and terminal boards are not training inputs.
+The observed solo target is winner=1 and every other power=0.
+There are no cutoff pseudo-labels, TD bootstraps or discounted targets.
+
+All TRAIN positions are shuffled once per epoch using the configured seed.
+The objective remains position-weighted MSE over seven powers. Longer games
+contribute more weight. Validation reports also include equal-game MSE/MAE,
+per-power errors and phase/communication subgroups. TRAIN-mean and current-SoS
+baselines use the existing supervised helpers.
+
+The initial checkpoint is epoch 0 and is eligible for selection.
+Only a strictly smaller validation-position MSE replaces it; ties retain the
+earlier checkpoint. The optimizer is fresh, never resumed. Later self-play
+value warm starts must use the same whole-game split seed.
+The selected checkpoint is reloaded and its validation MSE reproduced.
+Epoch 0 may therefore be the correct final result, not a failed run.
+
+These positions are correlated within games, and only completed solos supply
+targets. Lower MSE on 16 held-out completed games is not a strength claim.
+No model promotion or evaluation extension is performed.
+
+Windows PowerShell: run from the repository root
+------------------------------------------------
+The following block performs the focused self-checks, verification, fitting
+and export. It stops at the first failure and never resumes partial outputs.
+Keep partial directories for diagnosis; use new names for a deliberate rerun.
+
+$ErrorActionPreference = 'Stop'
+$Python = (Resolve-Path '.venv\Scripts\python.exe').Path
+$Initial = 'data/value-network-v1/best.pt'
+$Output = 'data/value-self-play-v1'
+$Export = 'data/value-self-play-java-v1'
+$Cohort = '641efbc7b8dcf796ddb8880b6f838e2b3c2ba867ae82989d4f24c4d8d09d6cf1'
+
+foreach ($directory in @($Output, $Export)) {
+    if (Test-Path -LiteralPath $directory) {
+        throw "Output already exists: $directory"
+    }
+}
+if ((Get-FileHash -LiteralPath $Initial -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+        'b70b22cf32b6d29e6d17cc06cf1df612ec038f9a1deaf9dca825a5d99ec1caf6') {
+    throw 'Initial supervised value checkpoint differs.'
+}
+$Caches = @(
+    for ($batch = 0; $batch -lt 32; $batch++) {
+        $root = if ($batch -lt 29) {
+            'data/self-play-round3-main'
+        } else {
+            'data/self-play-round3-recovery'
+        }
+        Join-Path $root ('batch-{0:D2}/cache' -f $batch)
+    }
+)
+foreach ($cache in $Caches) {
+    if (-not (Test-Path -LiteralPath (Join-Path $cache 'manifest.json') -PathType Leaf)) {
+        throw "Missing completed cache: $cache"
+    }
+}
+$Specification = Join-Path ($Caches[0]) 'value/specification.json'
+function Invoke-ValuePython {
+    param([string[]]$Arguments)
+    & $Python @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Python failed with exit code $LASTEXITCODE. Stop before continuing."
+    }
+}
+Invoke-ValuePython @('-B', '-m', 'neural.test_value', '--spec', $Specification)
+Invoke-ValuePython @('-B', '-m', 'neural.test_self_play_value', '--spec', $Specification)
+$Training = @(
+    '-B', '-m', 'neural.self_play_value_train',
+    '--initial-value', $Initial, '--expected-cohort', $Cohort,
+    '--epochs', '10', '--batch-size', '128', '--learning-rate', '0.0001',
+    '--seed', '7', '--threads', '4', '--verbose', '--cache'
+) + $Caches
+Invoke-ValuePython ($Training + @('--verify-only'))
+Invoke-ValuePython ($Training + @('--output', $Output))
+Invoke-ValuePython (@(
+    '-B', '-m', 'neural.self_play_value_export',
+    '--checkpoint', "$Output/best.pt", '--training', "$Output/training.json",
+    '--output', $Export, '--examples', '32', '--threads', '4', '--cache'
+) + $Caches)
+Write-Host 'Python stages finished. Build the Java project and run the checks below.'
+
+Artifacts and Java checks
+------------------------
+New training: data/value-self-play-v1/best.pt and training.json.
+New export: data/value-self-play-java-v1/model.bin, parity.bin and export.json.
+Incomplete training.json or missing export.json means the run is incomplete.
+Never replace data/value-network-v1 or data/value-java-v1.
+
+The checkpoint schema is jreferee-self-play-value-network-v1.
+The report schema is jreferee-self-play-value-training-v1.
+The Java export schema is jreferee-self-play-value-java-v1, magic JREFSVL1.
+The value cohort hashes the ASCII prefix
+  jreferee-self-play-value-cohort-v1\n
+then decimal split seed plus newline, then sorted raw dataset/manifest hashes.
+It intentionally differs from the policy cohort hash over the same caches.
+
+The new big-endian model header contains four UTF-8 strings (export/model/
+reward/exact specification), five raw SHA-256 identities (spec/checkpoint/
+cohort/training report/initial checkpoint), int64 split seed, int32 dataset
+count, sorted pairs of raw dataset/manifest hashes, int32 epoch and hidden size.
+The parameter count, named float32 tensors and trailing checksum then use the
+existing value format. Java recomputes the cohort identity while loading.
+Old JREFVAL1 exports still require epoch >= 1; only JREFSVL1 permits epoch 0.
+NeuralValueModel.selfPlay() exposes the new immutable provenance.
+cacheManifestSha256() is only for supervised models and rejects self-play
+models rather than pretending a training receipt is an old cache manifest.
+
+parity.bin retains JREFVCK1 and contains no targets or game identities.
+It contains ten synthetic boards plus up to 32 evenly spaced positions from
+the combined VALIDATION split. export.json records their source references.
+java_parity_verified=false is export-time metadata; do not edit it afterward.
+
+Build the project in IntelliJ, then run:
+  testing.selfcheck.NeuralValueParitySelfCheck
+    arguments: data/value-self-play-java-v1
+  testing.selfcheck.NeuralValueParitySelfCheck
+    arguments: data/value-java-v1
+  testing.selfcheck.NeuralEvaluatorSelfCheck
+    arguments: data/value-self-play-java-v1/model.bin
+
+The parity tolerance remains 2e-5 absolute error per reward share.
+Do not relax it. Existing exact terminal/cutoff scoring remains unchanged.
+These checks do not change app defaults or promote the new value network.
+PolicyMatchApp's original policy-comparison command still shares one value.
+Its explicit --value mode now accepts separate reference/candidate neural
+values and one fixed movement proposal. Only the focal candidate changes
+value; its six actual opponents keep the reference value.
+See src/_app/policy-match.txt for the extended self-check and isolated-value
+protocol. Do not replace both the movement policy and value in that comparison.
+Neither these value checks nor the match launcher promote the trained model.
+
+Send the self-check/verification console, training.json, export.json and Java
+check output. Keep best.pt, model.bin, parity.bin and all caches locally.
