@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 /**
- * Immutable inference weights for the supervised seven-power value network.
+ * Immutable inference weights for supervised and self-play seven-power values.
  * This class does not replace terminal scoring or implement search evaluation.
  */
 public class NeuralValueModel {
@@ -24,24 +24,40 @@ public class NeuralValueModel {
     // Architecture \\
 
     public static final String SCHEMA = "jreferee-value-java-v1";
+    public static final String SELF_PLAY_SCHEMA = "jreferee-self-play-value-java-v1";
+    public static final String SELF_PLAY_MODEL_SCHEMA = "jreferee-self-play-value-network-v1";
+
+    public record Dataset(String fingerprint, String manifestSha256) { }
+
+    public record SelfPlay(String trainingReportSha256, String initialCheckpointSha256,
+                           long splitSeed, List<Dataset> datasets) {
+        public SelfPlay {
+            datasets = List.copyOf(datasets);
+        }
+    }
+
     private static final JsonAccess JSON = new JsonAccess((path, message) ->
             new IllegalArgumentException(path + ": " + message));
     private static final Map<String, Object> SPEC =
             JSON.object(JsonReader.read(NeuralMovementSpec.toJson()), "$");
-    private static final int[] ROWS = integers("location_board_rows");
-    private static final int[] POSITIONS = integers("board_locations");
-    private static final int[] TERRAIN = integers("terrain");
-    private static final int[] HOMES = integers("home_owners");
-    private static final int[] CENTERS = integers("supply_centers");
 
-    private final Map<String, double[][]> weights;
-    private final double[][] adjacency = new double[75][75];
-    private final int hidden, epoch;
-    private final String sha256, checkpointSha256, datasetFingerprint, cacheManifestSha256;
+    private static final    int[] ROWS = integers("location_board_rows");
+    private static final    int[] POSITIONS = integers("board_locations");
+    private static final    int[] TERRAIN = integers("terrain");
+    private static final    int[] HOMES = integers("home_owners");
+    private static final    int[] CENTERS = integers("supply_centers");
+
+    private final           Map<String, double[][]> weights;
+    private final           double[][]              adjacency = new double[75][75];
+    private final           int                     hidden, epoch;
+    private final           String                  sha256, checkpointSha256, datasetFingerprint;
+    private final           Optional<String>        cacheManifestSha256;
+    private final           Optional<SelfPlay>      selfPlay;
 
     private NeuralValueModel(
             Map<String, double[][]> weights, int hidden, int epoch,
-            String sha256, String checkpoint, String dataset, String cache
+            String sha256, String checkpoint, String dataset,
+            Optional<String> cache, Optional<SelfPlay> selfPlay
     ) {
 
         this.weights = Map.copyOf(weights);
@@ -51,6 +67,7 @@ public class NeuralValueModel {
         this.checkpointSha256 = checkpoint;
         this.datasetFingerprint = dataset;
         this.cacheManifestSha256 = cache;
+        this.selfPlay = selfPlay;
 
         for (int row = 0; row < 75; row++)
             this.adjacency[row][row] = 1;
@@ -79,9 +96,12 @@ public class NeuralValueModel {
 
         try (DataInputStream input = NeuralValueFiles.payload(file)) {
 
-            if (!Arrays.equals(input.readNBytes(8), "JREFVAL1".getBytes(StandardCharsets.US_ASCII))
-                    || !NeuralValueFiles.text(input).equals(SCHEMA)
-                    || !NeuralValueFiles.text(input).equals("jreferee-value-network-v1")
+            String magic = new String(input.readNBytes(8), StandardCharsets.US_ASCII);
+            boolean learned = magic.equals("JREFSVL1");
+            if ((!learned && !magic.equals("JREFVAL1"))
+                    || !NeuralValueFiles.text(input).equals(learned ? SELF_PLAY_SCHEMA : SCHEMA)
+                    || !NeuralValueFiles.text(input).equals(
+                    learned ? SELF_PLAY_MODEL_SCHEMA : "jreferee-value-network-v1")
                     || !NeuralValueFiles.text(input).equals(ValueRewardContract.VERSION)
                     || !NeuralValueFiles.text(input).equals(NeuralValueEncoding.specificationJson())
                     || !NeuralValueFiles.identity(input).equals(specificationSha256()))
@@ -89,10 +109,11 @@ public class NeuralValueModel {
 
             String checkpoint = NeuralValueFiles.identity(input);
             String dataset = NeuralValueFiles.identity(input);
-            String cache = NeuralValueFiles.identity(input);
+            Optional<String> cache = learned ? Optional.empty() : Optional.of(NeuralValueFiles.identity(input));
+            Optional<SelfPlay> selfPlay = learned ? Optional.of(readSelfPlay(input, dataset)) : Optional.empty();
             int epoch = input.readInt(), hidden = input.readInt();
 
-            if (epoch < 1 || epoch > 10000 || hidden < 16 || hidden > 512)
+            if (epoch < (learned ? 0 : 1) || epoch > 10000 || hidden < 16 || hidden > 512)
                 throw new IOException("Invalid value epoch or hidden size");
 
             Map<String, int[]> shapes = shapes(hidden);
@@ -126,11 +147,40 @@ public class NeuralValueModel {
                 throw new IOException("Trailing value model data");
 
             return new NeuralValueModel(weights, hidden, epoch,
-                    NeuralValueFiles.sha256(file), checkpoint, dataset, cache);
+                    NeuralValueFiles.sha256(file), checkpoint, dataset, cache, selfPlay);
 
         } catch (EOFException exception) {
             throw new IOException("Truncated value model: " + path, exception);
         }
+
+    }
+
+    private static SelfPlay readSelfPlay(DataInputStream input, String cohort) throws IOException {
+
+        String training = NeuralValueFiles.identity(input);
+        String initial = NeuralValueFiles.identity(input);
+        long splitSeed = input.readLong();
+        int count = input.readInt();
+        if (count < 1 || count > 1024)
+            throw new IOException("Invalid self-play value dataset count");
+        ByteArrayOutputStream identity = new ByteArrayOutputStream();
+        identity.write(("jreferee-self-play-value-cohort-v1\n" + splitSeed + "\n")
+                .getBytes(StandardCharsets.US_ASCII));
+        List<Dataset> datasets = new ArrayList<>();
+        String previous = "";
+        for (int index = 0; index < count; index++) {
+            String fingerprint = NeuralValueFiles.identity(input);
+            String manifest = NeuralValueFiles.identity(input);
+            if (fingerprint.compareTo(previous) <= 0)
+                throw new IOException("Unsorted or repeated self-play value dataset");
+            previous = fingerprint;
+            datasets.add(new Dataset(fingerprint, manifest));
+            identity.write(HexFormat.of().parseHex(fingerprint));
+            identity.write(HexFormat.of().parseHex(manifest));
+        }
+        if (!NeuralValueFiles.sha256(identity.toByteArray()).equals(cohort))
+            throw new IOException("Self-play value cohort checksum mismatch");
+        return new SelfPlay(training, initial, splitSeed, datasets);
 
     }
 
@@ -268,7 +318,11 @@ public class NeuralValueModel {
     public String sha256() { return this.sha256; }
     public String checkpointSha256() { return this.checkpointSha256; }
     public String datasetFingerprint() { return this.datasetFingerprint; }
-    public String cacheManifestSha256() { return this.cacheManifestSha256; }
+    public String cacheManifestSha256() {
+        return this.cacheManifestSha256.orElseThrow(() ->
+                new IllegalStateException("Self-play values use cohort and training receipts"));
+    }
+    public Optional<SelfPlay> selfPlay() { return this.selfPlay; }
     public int epoch() { return this.epoch; }
     public int hidden() { return this.hidden; }
 

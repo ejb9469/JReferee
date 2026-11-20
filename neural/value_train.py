@@ -15,7 +15,7 @@ import torch
 
 from .cache import digest, integer, parse_json, require
 from .value_cache import REWARD, SPEC_HASH, ValueCache, checked_hash, current_sos
-from .value_model import MODEL_SCHEMA, ValueNetwork
+from .value_model import MODEL_SCHEMA, ValueNetwork, restore
 
 
 @dataclass(frozen=True)
@@ -133,19 +133,7 @@ def load_model(path, spec):
     checked_hash(payload["cache_manifest_sha256"])
     integer(payload["epoch"], 1, 10000, "checkpoint epoch")
     require(set(payload["config"]) == {"hidden"}, "Unknown model configuration")
-    model = ValueNetwork(spec, **payload["config"])
-    state = payload["state_dict"]
-    expected = model.state_dict()
-    require(state.keys() == expected.keys(), "Checkpoint tensor names differ")
-    for name, value in state.items():
-        require(isinstance(value, torch.Tensor) and value.shape == expected[name].shape
-                and value.dtype == expected[name].dtype and torch.isfinite(value).all().item(),
-                f"Invalid checkpoint tensor: {name}")
-    for name, value in model.named_buffers():
-        require(torch.equal(state[name], value), f"Checkpoint map differs: {name}")
-    model.load_state_dict(state, strict=True)
-    model.eval()
-    return model, payload
+    return restore(ValueNetwork(spec, **payload["config"]), payload["state_dict"]), payload
 
 
 def train(cache, output, settings):

@@ -1,0 +1,175 @@
+SELF-PLAY VALUE LEARNING
+
+This is a separate warm-started value update, not another policy fit.
+The supervised commands in value.txt and value-export.txt remain available.
+No dependency change, additional games, policy update or baseline overwrite
+is required. Use the existing NumPy/PyTorch environment.
+
+Admission and the current cohort
+-------------------------------
+Supply full SelfPlayCache directories, not their value/ children.
+The complete reader verifies policy and value receipts, game links, splits,
+boards, exact coasts, chronology and naturally completed solo targets.
+All supplied games must have homogeneous seven-seat COHERENT_GRU_HYBRID
+DiL configurations. Producer configurations are retained in training.json.
+Different self-play producers can be recorded in a cohort; they are not
+silently relabeled as the warm-start model or the latest movement policy.
+
+For the completed main collection, use exactly:
+  data/self-play-round3-main/batch-00/cache through batch-28/cache
+  data/self-play-round3-recovery/batch-29/cache through batch-31/cache
+
+Keep the interrupted original main/batch-29 excluded.
+Keep smoke and evaluation games excluded, including evaluation seeds 106-119
+and 384-439. Homogeneous seats alone cannot identify evaluation reference
+games; explicit cohort selection remains mandatory. Never glob data/*.
+The supplied command pins the previously audited 32 cache receipts.
+
+These are 256 games, seeds 128-383, split seed 7, produced by typed policy v2
+with the supervised value baseline and the unchanged 1930 cutoff.
+They were not produced by the subsequently fitted policy v3.
+
+Value positions come from 207 completed solos:
+  TRAIN:       191 games, 11272 positions
+  VALIDATION:   16 games,   995 positions
+All 49 cutoff games contribute zero eventual-value positions.
+The 17th validation policy game is a cutoff, not a value-validation game.
+Games retain their original splits. Empty individual value splits are allowed;
+the combined cohort must contain eligible TRAIN and VALIDATION positions.
+No TEST data is opened. Metadata, targets and outcomes are not input features.
+
+Objective and selection
+-----------------------
+The architecture is the existing seven-power ValueNetwork. Its hidden size
+comes from the initial checkpoint, not a separately chosen command argument.
+Movement and winter-adjustment positions retain the original board/year/phase
+encoding. Retreats and terminal boards are not training inputs.
+The observed solo target is winner=1 and every other power=0.
+There are no cutoff pseudo-labels, TD bootstraps or discounted targets.
+
+All TRAIN positions are shuffled once per epoch using the configured seed.
+The objective remains position-weighted MSE over seven powers. Longer games
+contribute more weight. Validation reports also include equal-game MSE/MAE,
+per-power errors and phase/communication subgroups. TRAIN-mean and current-SoS
+baselines use the existing supervised helpers.
+
+The initial checkpoint is epoch 0 and is eligible for selection.
+Only a strictly smaller validation-position MSE replaces it; ties retain the
+earlier checkpoint. The optimizer is fresh, never resumed. Later self-play
+value warm starts must use the same whole-game split seed.
+The selected checkpoint is reloaded and its validation MSE reproduced.
+Epoch 0 may therefore be the correct final result, not a failed run.
+
+These positions are correlated within games, and only completed solos supply
+targets. Lower MSE on 16 held-out completed games is not a strength claim.
+No model promotion or evaluation extension is performed.
+
+Windows PowerShell: run from the repository root
+------------------------------------------------
+The following block performs the focused self-checks, verification, fitting
+and export. It stops at the first failure and never resumes partial outputs.
+Keep partial directories for diagnosis; use new names for a deliberate rerun.
+
+$ErrorActionPreference = 'Stop'
+$Python = (Resolve-Path '.venv\Scripts\python.exe').Path
+$Initial = 'data/value-network-v1/best.pt'
+$Output = 'data/value-self-play-v1'
+$Export = 'data/value-self-play-java-v1'
+$Cohort = '641efbc7b8dcf796ddb8880b6f838e2b3c2ba867ae82989d4f24c4d8d09d6cf1'
+
+foreach ($directory in @($Output, $Export)) {
+    if (Test-Path -LiteralPath $directory) {
+        throw "Output already exists: $directory"
+    }
+}
+if ((Get-FileHash -LiteralPath $Initial -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+        'b70b22cf32b6d29e6d17cc06cf1df612ec038f9a1deaf9dca825a5d99ec1caf6') {
+    throw 'Initial supervised value checkpoint differs.'
+}
+$Caches = @(
+    for ($batch = 0; $batch -lt 32; $batch++) {
+        $root = if ($batch -lt 29) {
+            'data/self-play-round3-main'
+        } else {
+            'data/self-play-round3-recovery'
+        }
+        Join-Path $root ('batch-{0:D2}/cache' -f $batch)
+    }
+)
+foreach ($cache in $Caches) {
+    if (-not (Test-Path -LiteralPath (Join-Path $cache 'manifest.json') -PathType Leaf)) {
+        throw "Missing completed cache: $cache"
+    }
+}
+$Specification = Join-Path ($Caches[0]) 'value/specification.json'
+function Invoke-ValuePython {
+    param([string[]]$Arguments)
+    & $Python @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Python failed with exit code $LASTEXITCODE. Stop before continuing."
+    }
+}
+Invoke-ValuePython @('-B', '-m', 'neural.test_value', '--spec', $Specification)
+Invoke-ValuePython @('-B', '-m', 'neural.test_self_play_value', '--spec', $Specification)
+$Training = @(
+    '-B', '-m', 'neural.self_play_value_train',
+    '--initial-value', $Initial, '--expected-cohort', $Cohort,
+    '--epochs', '10', '--batch-size', '128', '--learning-rate', '0.0001',
+    '--seed', '7', '--threads', '4', '--verbose', '--cache'
+) + $Caches
+Invoke-ValuePython ($Training + @('--verify-only'))
+Invoke-ValuePython ($Training + @('--output', $Output))
+Invoke-ValuePython (@(
+    '-B', '-m', 'neural.self_play_value_export',
+    '--checkpoint', "$Output/best.pt", '--training', "$Output/training.json",
+    '--output', $Export, '--examples', '32', '--threads', '4', '--cache'
+) + $Caches)
+Write-Host 'Python stages finished. Build the Java project and run the checks below.'
+
+Artifacts and Java checks
+------------------------
+New training: data/value-self-play-v1/best.pt and training.json.
+New export: data/value-self-play-java-v1/model.bin, parity.bin and export.json.
+Incomplete training.json or missing export.json means the run is incomplete.
+Never replace data/value-network-v1 or data/value-java-v1.
+
+The checkpoint schema is jreferee-self-play-value-network-v1.
+The report schema is jreferee-self-play-value-training-v1.
+The Java export schema is jreferee-self-play-value-java-v1, magic JREFSVL1.
+The value cohort hashes the ASCII prefix
+  jreferee-self-play-value-cohort-v1\n
+then decimal split seed plus newline, then sorted raw dataset/manifest hashes.
+It intentionally differs from the policy cohort hash over the same caches.
+
+The new big-endian model header contains four UTF-8 strings (export/model/
+reward/exact specification), five raw SHA-256 identities (spec/checkpoint/
+cohort/training report/initial checkpoint), int64 split seed, int32 dataset
+count, sorted pairs of raw dataset/manifest hashes, int32 epoch and hidden size.
+The parameter count, named float32 tensors and trailing checksum then use the
+existing value format. Java recomputes the cohort identity while loading.
+Old JREFVAL1 exports still require epoch >= 1; only JREFSVL1 permits epoch 0.
+NeuralValueModel.selfPlay() exposes the new immutable provenance.
+cacheManifestSha256() is only for supervised models and rejects self-play
+models rather than pretending a training receipt is an old cache manifest.
+
+parity.bin retains JREFVCK1 and contains no targets or game identities.
+It contains ten synthetic boards plus up to 32 evenly spaced positions from
+the combined VALIDATION split. export.json records their source references.
+java_parity_verified=false is export-time metadata; do not edit it afterward.
+
+Build the project in IntelliJ, then run:
+  testing.selfcheck.NeuralValueParitySelfCheck
+    arguments: data/value-self-play-java-v1
+  testing.selfcheck.NeuralValueParitySelfCheck
+    arguments: data/value-java-v1
+  testing.selfcheck.NeuralEvaluatorSelfCheck
+    arguments: data/value-self-play-java-v1/model.bin
+
+The parity tolerance remains 2e-5 absolute error per reward share.
+Do not relax it. Existing exact terminal/cutoff scoring remains unchanged.
+These checks do not change app defaults or promote the new value network.
+PolicyMatchApp currently shares one value model between both sides, so simply
+changing its value argument is not an isolated old-versus-new value comparison.
+
+Send the self-check/verification console, training.json, export.json and Java
+check output. Keep best.pt, model.bin, parity.bin and all caches locally.

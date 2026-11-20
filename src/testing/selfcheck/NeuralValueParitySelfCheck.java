@@ -35,8 +35,10 @@ public final class NeuralValueParitySelfCheck {
         if (Files.size(receiptPath) > 1024 * 1024)
             throw new IOException("Export receipt exceeds 1 MiB");
         Map<String, Object> report = ValueDatasetJson.parse(Files.readString(receiptPath));
-        require(NeuralValueModel.SCHEMA.equals(report.get("schema"))
-                && "jreferee-value-network-v1".equals(report.get("model_schema"))
+        boolean learned = NeuralValueModel.SELF_PLAY_SCHEMA.equals(report.get("schema"));
+        require((learned ? NeuralValueModel.SELF_PLAY_SCHEMA : NeuralValueModel.SCHEMA).equals(report.get("schema"))
+                && (learned ? NeuralValueModel.SELF_PLAY_MODEL_SCHEMA : "jreferee-value-network-v1")
+                .equals(report.get("model_schema"))
                 && ValueRewardContract.VERSION.equals(report.get("reward_contract"))
                 && Boolean.TRUE.equals(report.get("complete"))
                 && Boolean.FALSE.equals(report.get("test_opened")), "Incomplete or incompatible export");
@@ -46,11 +48,15 @@ public final class NeuralValueParitySelfCheck {
                         && Files.size(modelPath) == ValueDatasetJson.count(fileInfo(report, "model.bin"), "bytes"),
                 "Model receipt mismatch");
         require(model.checkpointSha256().equals(report.get("checkpoint_sha256"))
-                && model.datasetFingerprint().equals(report.get("dataset_fingerprint"))
-                && model.cacheManifestSha256().equals(report.get("cache_manifest_sha256"))
+                && model.datasetFingerprint().equals(report.get(learned ? "dataset_cohort_sha256" : "dataset_fingerprint"))
+                && model.selfPlay().isPresent() == learned
                 && NeuralValueModel.specificationSha256().equals(report.get("specification_sha256"))
                 && model.epoch() == ValueDatasetJson.count(report, "epoch")
                 && model.hidden() == ValueDatasetJson.count(report, "hidden"), "Export identities disagree");
+        if (learned)
+            selfPlay(report, model);
+        else
+            require(model.cacheManifestSha256().equals(report.get("cache_manifest_sha256")), "Cache receipt differs");
 
         byte[] file = NeuralValueFiles.read(directory.resolve("parity.bin"));
         Map<String, Object> info = fileInfo(report, "parity.bin");
@@ -145,6 +151,45 @@ public final class NeuralValueParitySelfCheck {
         return ValueDatasetJson.object(ValueDatasetJson.object(report.get("files")).get(name));
     }
 
+    private static void selfPlay(Map<String, Object> report, NeuralValueModel model) {
+
+        NeuralValueModel.SelfPlay source = model.selfPlay().orElseThrow();
+        require(source.trainingReportSha256().equals(report.get("training_report_sha256"))
+                        && Long.toString(source.splitSeed()).equals(report.get("self_play_split_seed"))
+                        && Boolean.FALSE.equals(report.get("java_parity_verified")),
+                "Self-play value training receipt differs");
+        Map<String, Object> initial = ValueDatasetJson.object(report.get("initial_value"));
+        require(source.initialCheckpointSha256().equals(initial.get("sha256")), "Initial value checkpoint differs");
+        Object raw = report.get("datasets");
+        require(raw instanceof List<?>, "Missing self-play value datasets");
+        List<?> datasets = (List<?>) raw;
+        require(datasets.size() == source.datasets().size(), "Self-play value dataset count differs");
+        Set<String> fingerprints = new HashSet<>();
+        for (int index = 0; index < datasets.size(); index++) {
+            Map<String, Object> dataset = ValueDatasetJson.object(datasets.get(index));
+            NeuralValueModel.Dataset expected = source.datasets().get(index);
+            require(expected.fingerprint().equals(dataset.get("dataset_fingerprint"))
+                            && expected.manifestSha256().equals(dataset.get("cache_manifest_sha256")),
+                    "Self-play value dataset receipt differs");
+            fingerprints.add(expected.fingerprint());
+        }
+        Object references = report.get("validation_references");
+        require(references instanceof List<?>, "Missing held-out value references");
+        List<?> rows = (List<?>) references;
+        require(rows.size() == ValueDatasetJson.count(report, "validation_cases"), "Held-out value count differs");
+        Set<String> unique = new HashSet<>();
+        for (Object row : rows) {
+            Map<String, Object> reference = ValueDatasetJson.object(row);
+            Object fingerprint = reference.get("dataset_fingerprint");
+            long position = ValueDatasetJson.count(reference, "position");
+            require(fingerprints.contains(fingerprint)
+                    && reference.get("game_key") instanceof String key && UUID.fromString(key).toString().equals(key)
+                    && reference.get("payload_sha256") instanceof String hash && hash.matches("[0-9a-f]{64}")
+                    && unique.add(fingerprint + ":" + position), "Invalid held-out value reference");
+        }
+
+    }
+
     private static BoardState board(byte[] packed) {
 
         Map<UnitId, Province> units = new LinkedHashMap<>();
@@ -198,16 +243,24 @@ public final class NeuralValueParitySelfCheck {
             for (int index = 0; index < 4; index++)
                 header.position(header.position() + 4 + header.getInt(header.position()));
             int specHash = header.position();
-            int hidden = specHash + 128 + 4;
+            boolean learned = new String(original, 0, 8, StandardCharsets.US_ASCII).equals("JREFSVL1");
+            int epoch = learned ? specHash + 172 + 64 * header.getInt(specHash + 168) : specHash + 128;
+            int hidden = epoch + 4;
             int firstName = hidden + 8;
             int firstRank = firstName + 4 + header.getInt(firstName);
-            for (int offset : new int[]{specHash, hidden, firstRank + 4, original.length - 36}) {
+            for (int offset : new int[]{specHash, hidden, firstRank + 4, original.length - 36,
+                    learned ? specHash + 64 : specHash}) {
                 corrupt = original.clone();
                 ByteBuffer.wrap(corrupt).putInt(offset, 0x7fc00000);
                 reseal(corrupt);
                 Files.write(path, corrupt);
                 expect(IOException.class, () -> NeuralValueModel.load(path));
             }
+            corrupt = original.clone();
+            ByteBuffer.wrap(corrupt).putInt(epoch, learned ? -1 : 0);
+            reseal(corrupt);
+            Files.write(path, corrupt);
+            expect(IOException.class, () -> NeuralValueModel.load(path));
         } finally {
             Files.delete(path);
         }

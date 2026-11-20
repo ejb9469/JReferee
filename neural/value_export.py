@@ -48,6 +48,37 @@ def synthetic(spec):
     return cases
 
 
+def write_parameters(stream, model):
+    parameters = list(model.named_parameters())
+    i32(stream, len(parameters))
+    for name, parameter in parameters:
+        require(torch.isfinite(parameter).all().item(), f"Nonfinite parameter: {name}")
+        text(stream, name)
+        i32(stream, parameter.ndim)
+        for dimension in parameter.shape:
+            i32(stream, dimension)
+        stream.write(parameter.detach().cpu().numpy().astype(">f4").tobytes())
+
+
+@torch.no_grad()
+def write_parity(path, cases, model, model_hash):
+    stream = io.BytesIO()
+    stream.write(b"JREFVCK1")
+    stream.write(bytes.fromhex(SPEC_HASH))
+    stream.write(bytes.fromhex(model_hash))
+    i32(stream, len(cases))
+    for board, context in cases:
+        actual = model(torch.tensor(board.astype(np.int64))[None],
+                       torch.tensor(context.astype(np.int64))[None])[0]
+        require(torch.isfinite(actual).all().item()
+                and torch.all((actual >= 0) & (actual <= 1)).item()
+                and abs(actual.sum().item() - 1) <= 1e-6, "Invalid reference distribution")
+        stream.write(board.astype("u1").tobytes())
+        stream.write(context.astype(">i4").tobytes())
+        stream.write(actual.numpy().astype(">f4").tobytes())
+    checked_file(path, stream.getvalue())
+
+
 @torch.no_grad()
 def export(checkpoint, training_path, cache_path, output, examples=32):
     integer(examples, 1, 256, "validation parity cases")
@@ -91,32 +122,9 @@ def export(checkpoint, training_path, cache_path, output, examples=32):
         stream.write(bytes.fromhex(value))
     i32(stream, payload["epoch"])
     i32(stream, model.hidden)
-    parameters = list(model.named_parameters())
-    i32(stream, len(parameters))
-    for name, parameter in parameters:
-        require(torch.isfinite(parameter).all().item(), f"Nonfinite parameter: {name}")
-        text(stream, name)
-        i32(stream, parameter.ndim)
-        for dimension in parameter.shape:
-            i32(stream, dimension)
-        stream.write(parameter.detach().numpy().astype(">f4").tobytes())
+    write_parameters(stream, model)
     checked_file(output / "model.bin", stream.getvalue())
-
-    stream = io.BytesIO()
-    stream.write(b"JREFVCK1")
-    stream.write(bytes.fromhex(SPEC_HASH))
-    stream.write(bytes.fromhex(digest(output / "model.bin")))
-    i32(stream, len(cases))
-    for board, context in cases:
-        actual = model(torch.tensor(board.astype(np.int64))[None],
-                       torch.tensor(context.astype(np.int64))[None])[0]
-        require(torch.isfinite(actual).all().item()
-                and torch.all((actual >= 0) & (actual <= 1)).item()
-                and abs(actual.sum().item() - 1) <= 1e-6, "Invalid reference distribution")
-        stream.write(board.astype("u1").tobytes())
-        stream.write(context.astype(">i4").tobytes())
-        stream.write(actual.numpy().astype(">f4").tobytes())
-    checked_file(output / "parity.bin", stream.getvalue())
+    write_parity(output / "parity.bin", cases, model, digest(output / "model.bin"))
 
     report = {
         "schema": EXPORT_SCHEMA, "complete": True, "model_schema": MODEL_SCHEMA,

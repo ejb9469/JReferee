@@ -3,7 +3,7 @@
 import torch
 from torch import nn
 
-from .cache import integer
+from .cache import integer, require
 
 
 MODEL_SCHEMA = "jreferee-value-network-v1"
@@ -51,3 +51,17 @@ class ValueNetwork(nn.Module):
         for layer in self.layers:
             encoded = (encoded + layer(torch.cat((encoded, self.adjacency @ encoded), dim=2))).relu()
         return self.head(torch.cat((encoded.mean(1), global_features), dim=1)).softmax(dim=1)
+
+
+def restore(model, state):
+    expected = model.state_dict()
+    require(isinstance(state, dict) and state.keys() == expected.keys(), "Checkpoint tensor names differ")
+    for name, value in state.items():
+        require(isinstance(value, torch.Tensor) and value.layout == torch.strided
+                and value.shape == expected[name].shape and value.dtype == expected[name].dtype
+                and torch.isfinite(value).all().item(), f"Invalid checkpoint tensor: {name}")
+    for name, value in model.named_buffers():
+        require(torch.equal(state[name], value), f"Checkpoint map differs: {name}")
+    model.load_state_dict(state, strict=True)
+    model.eval()
+    return model
