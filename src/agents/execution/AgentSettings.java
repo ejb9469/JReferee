@@ -12,8 +12,10 @@ import game.Game;
 import game.GameState;
 import game.GameState_Movement;
 import misc.scoring.ScoringSystem;
+import performance.AgentPerformance;
 
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * Root proposals, continuation policy and optional neural winter values.
@@ -112,18 +114,28 @@ public record AgentSettings(
 
     public Evaluator createEvaluator(GameRunner.Options options, long seed) {
 
+        return createEvaluator(options, seed, AgentPerformance.disabled());
+
+    }
+
+    private Evaluator createEvaluator(
+            GameRunner.Options options, long seed, AgentPerformance performance
+    ) {
+
         Objects.requireNonNull(options, "options");
         if (this.method == Method.PRIOR)
             throw new IllegalStateException("PRIOR does not use a value evaluator");
+        ActionGenerator generator = performance.rolloutGenerator(this.rolloutGenerator.create());
+        Function<GameState, Game> factory = state -> options.createGame(state, performance.movement());
         if (this.valueModel.isPresent()) {
             if (options.scoring() != ScoringSystem.SUM_OF_SQUARES)
                 throw new IllegalArgumentException("The neural value model requires SUM_OF_SQUARES");
             return new NeuralRolloutEvaluator(this.valueModel.orElseThrow(), options.lastYear(),
-                    this.rolloutGenerator.create(), options::createGame,
-                    this.rolloutCount, this.rolloutLimit, seed);
+                    generator, factory, this.rolloutCount, this.rolloutLimit, seed,
+                    performance.timings());
         }
         return new RolloutEvaluator(new ScoringEvaluator(options.scoring()),
-                this.rolloutGenerator.create(), options::createGame,
+                generator, factory,
                 this.rolloutCount, this.rolloutLimit, seed);
 
     }
@@ -184,42 +196,71 @@ public record AgentSettings(
             long searchSeed, long rolloutSeed, long selectionSeed
     ) {
 
+        return decide(game, power, options, searchSeed, rolloutSeed, selectionSeed,
+                AgentPerformance.disabled());
+
+    }
+
+    /**
+     * Reuses the normal decision path with optional caller-owned diagnostics.
+     * The caller supplies an independent root game with the configured rules.
+     */
+    public AgentDecision decide(
+            Game game, Nation power, GameRunner.Options options,
+            long searchSeed, long rolloutSeed, long selectionSeed, AgentPerformance performance
+    ) {
+
+        Objects.requireNonNull(performance, "performance");
         long started = System.nanoTime();
-        GameState root = game.snapshot();
-        ActionGenerator generator = createRootGenerator();
-        Map<Nation, List<ActionCandidate>> pools = new EnumMap<>(Nation.class);
-        ActionGenerator recording = (request, catalog) -> {
-            List<ActionCandidate> candidates = List.copyOf(generator.generate(request, catalog));
-            if (pools.putIfAbsent(request.power(), candidates) != null)
-                throw new IllegalStateException("Root pool generated twice for " + request.power());
-            return candidates;
-        };
-        ActionDistribution distribution;
-        Optional<SearchResult> searchResult;
-
-        if (this.method == Method.PRIOR) {
-            LegalOrderCatalog catalog = new LegalOrderGenerator().generate(root, power);
-            distribution = ActionDistribution.fromPriors(recording.generate(
-                    new ActionGenerationRequest(root, power, this.candidateLimit, searchSeed), catalog));
-            searchResult = Optional.empty();
-        } else {
-            Evaluator evaluator = createEvaluator(options, rolloutSeed);
-            PolicySearch search = switch (this.method) {
-                case BEST_RESPONSE -> new BestResponseSearch(
-                        evaluator, recording, this.candidateLimit, this.iterations, searchSeed);
-                case DIL_PIKL -> PaperSearchProfile.forState(root).solver(
-                        evaluator, recording, this.candidateLimit, this.iterations, searchSeed, this.output);
-                case PRIOR -> throw new IllegalStateException("Prior sampling does not run a policy search");
+        try (var decision = performance.timings().measure("agent decision")) {
+            GameState root = game.snapshot();
+            ActionGenerator generator = createRootGenerator();
+            Map<Nation, List<ActionCandidate>> pools = new EnumMap<>(Nation.class);
+            ActionGenerator recording = (request, catalog) -> {
+                List<ActionCandidate> candidates = List.copyOf(generator.generate(request, catalog));
+                if (pools.putIfAbsent(request.power(), candidates) != null)
+                    throw new IllegalStateException("Root pool generated twice for " + request.power());
+                return candidates;
             };
-            SearchResult result = search.search(game, power);
-            distribution = result.distribution();
-            searchResult = Optional.of(result);
-        }
+            ActionDistribution distribution;
+            Optional<SearchResult> searchResult;
 
-        ActionCandidate selected = distribution.sample(new Random(selectionSeed));
-        return new AgentDecision(root, this, searchSeed, rolloutSeed, selectionSeed,
-                System.nanoTime() - started, pools, distribution, searchResult,
-                distribution.candidates().indexOf(selected));
+            if (this.method == Method.PRIOR) {
+                try (var generation = performance.timings().measure("candidate generation")) {
+                    LegalOrderCatalog catalog = new LegalOrderGenerator().generate(root, power);
+                    distribution = ActionDistribution.fromPriors(recording.generate(
+                            new ActionGenerationRequest(root, power, this.candidateLimit, searchSeed), catalog));
+                }
+                searchResult = Optional.empty();
+            } else {
+                Evaluator evaluator = createEvaluator(options, rolloutSeed, performance);
+                var trials = JointActionEvaluator.uncached(game, evaluator, performance.timings());
+                try (var searching = performance.timings().measure("search")) {
+                    SearchResult result = switch (this.method) {
+                        case BEST_RESPONSE -> new BestResponseSearch(
+                                evaluator, recording, this.candidateLimit, this.iterations, searchSeed)
+                                .search(game, power, trials);
+                        case DIL_PIKL -> PaperSearchProfile.forState(root).solver(
+                                        evaluator, recording, this.candidateLimit, this.iterations, searchSeed, this.output)
+                                .search(game, power, trials);
+                        case PRIOR -> throw new IllegalStateException("Prior sampling does not run a policy search");
+                    };
+                    distribution = result.distribution();
+                    searchResult = Optional.of(result);
+                } finally {
+                    if (performance.timings().isEnabled())
+                        performance.record(trials.counts());
+                }
+            }
+
+            ActionCandidate selected;
+            try (var selection = performance.timings().measure("action sampling")) {
+                selected = distribution.sample(new Random(selectionSeed));
+            }
+            return new AgentDecision(root, this, searchSeed, rolloutSeed, selectionSeed,
+                    System.nanoTime() - started, pools, distribution, searchResult,
+                    distribution.candidates().indexOf(selected));
+        }
 
     }
 

@@ -73,23 +73,35 @@ public final class MovementProcessor
 
         Judge producer = null;
         boolean completed = false;
-        try (var timing = diagnostics == null ? UNTIMED : diagnostics.timings.measure("movement")) {
-            Objects.requireNonNull(input, "input");
+        try (var timing = measure("movement")) {
+            Map<UnitId, Province> startingLocations;
+            List<NormalizedOrder> normalizedOrders;
 
-            Map<UnitId, Province> startingLocations = input.startingLocations();
-            List<NormalizedOrder> normalizedOrders =
-                    normalize(startingLocations, input.submittedOrders());
+            try (var preparation = measure("movement preparation")) {
+                Objects.requireNonNull(input, "input");
 
-            List<adjudication.Order> workOrders = new ArrayList<>(normalizedOrders.size());
+                startingLocations = input.startingLocations();
+                normalizedOrders = normalize(startingLocations, input.submittedOrders());
 
-            for (NormalizedOrder normalized : normalizedOrders) {
-                Province currentLocation = startingLocations.get(normalized.unit());
-                workOrders.add(new adjudication.Order(normalized, currentLocation));
+                List<adjudication.Order> workOrders = new ArrayList<>(normalizedOrders.size());
+
+                for (NormalizedOrder normalized : normalizedOrders) {
+                    Province currentLocation = startingLocations.get(normalized.unit());
+                    workOrders.add(new adjudication.Order(normalized, currentLocation));
+                }
+
+                producer = createJudge(workOrders);
             }
 
-            producer = createJudge(workOrders);
-            producer.judge();
-            MovementResult result = MovementResult.from(startingLocations, normalizedOrders, producer);
+            try (var adjudication = measure("movement adjudication")) {
+                producer.judge();
+            }
+
+            MovementResult result;
+            try (var conversion = measure("movement result conversion")) {
+                result = MovementResult.from(startingLocations, normalizedOrders, producer);
+            }
+
             completed = true;
             return result;
         } finally {
@@ -97,6 +109,10 @@ public final class MovementProcessor
                 diagnostics.record(producer, completed);
         }
 
+    }
+
+    private PerformanceStats.Scope measure(String name) {
+        return this.diagnostics == null ? UNTIMED : this.diagnostics.timings.measure(name);
     }
 
     private List<NormalizedOrder> normalize(
@@ -176,7 +192,7 @@ public final class MovementProcessor
 
     /**
      * Single-threaded movement counters, independent of Game's rollback.
-     * Calls count attempts.
+     * Calls count attempts. Stage timings are nested inside "movement".
      * Internal Judge passes are included in elapsed time,
      *      but only top-level adjudicator invocations receive separate counters.
      */

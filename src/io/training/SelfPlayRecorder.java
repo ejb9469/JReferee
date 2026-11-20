@@ -8,6 +8,7 @@ import domain.*;
 import game.*;
 import game.record.*;
 import misc.scoring.ScoringSystem;
+import performance.AgentPerformance;
 import phase.Order;
 import phase.UnitId;
 import phase.adjustments.*;
@@ -34,10 +35,20 @@ public final class SelfPlayRecorder {
             Consumer<AgentDecision> observer
     ) throws IOException {
 
+        return run(directory, id, initial, options, observer, AgentPerformance.disabled());
+
+    }
+
+    public static GameRunner.Result run(
+            Path directory, UUID id, GameState initial, GameRunner.Options options,
+            Consumer<AgentDecision> observer, AgentPerformance performance
+    ) throws IOException {
+
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(initial, "initial");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(observer, "observer");
+        Objects.requireNonNull(performance, "performance");  // TODO: This should probably be Optional<>
         if (options.scoring() != ScoringSystem.SUM_OF_SQUARES)
             throw new IllegalArgumentException("Self-play v1 requires SUM_OF_SQUARES");
         Map<String, Object> seats = new LinkedHashMap<>();
@@ -58,15 +69,14 @@ public final class SelfPlayRecorder {
 
         List<AgentDecision> pending = new ArrayList<>();
         int[] counts = {0, 0};
-        try (SelfPlayFiles files = new SelfPlayFiles(directory, header)) {
+        try (SelfPlayFiles files = open(directory, header, performance)) {
             GameRunner.Result result;
             try {
                 result = new GameRunner().run(id, initial, options, phase -> {
                     if (pending.isEmpty())
                         throw new IllegalStateException("Resolved phase has no decisions");
-                    Map<String, Object> row = phase(counts[0], phase, pending);
-                    try {
-                        files.append(row);
+                    try (var writing = performance.timings().measure("archive phase write")) {
+                        files.append(phase(counts[0], phase, pending));
                     } catch (IOException exception) {
                         throw new UncheckedIOException(exception);
                     }
@@ -78,7 +88,7 @@ public final class SelfPlayRecorder {
                         throw new IllegalStateException("Decision settings differ from the recorded seat");
                     pending.add(decision);
                     observer.accept(decision);
-                });
+                }, performance);
             } catch (UncheckedIOException exception) {
                 throw exception.getCause();
             }
@@ -92,16 +102,28 @@ public final class SelfPlayRecorder {
                 centers.put(power.name(), Collections.frequency(
                         new ArrayList<>(result.state().board().owners().values()), power));
             }
-            files.finish(object(
-                    "game_id", id.toString(), "runner_reason", result.reason().name(),
-                    "termination", solo ? "SOLO" : "ARTIFICIAL_CUTOFF",
-                    "value_target_eligible", solo,
-                    "eventual_sos_target", solo ? scores : null,
-                    "cutoff_scores", solo ? null : scores,
-                    "winner", result.winner().map(Enum::name).orElse(null),
-                    "final_state", state(result.state()), "center_counts", centers,
-                    "phase_count", counts[0], "decision_count", counts[1]));
+            try (var writing = performance.timings().measure("archive finish")) {
+                files.finish(object(
+                        "game_id", id.toString(), "runner_reason", result.reason().name(),
+                        "termination", solo ? "SOLO" : "ARTIFICIAL_CUTOFF",
+                        "value_target_eligible", solo,
+                        "eventual_sos_target", solo ? scores : null,
+                        "cutoff_scores", solo ? null : scores,
+                        "winner", result.winner().map(Enum::name).orElse(null),
+                        "final_state", state(result.state()), "center_counts", centers,
+                        "phase_count", counts[0], "decision_count", counts[1]));
+            }
             return result;
+        }
+
+    }
+
+    private static SelfPlayFiles open(
+            Path directory, Map<String, Object> header, AgentPerformance performance
+    ) throws IOException {
+
+        try (var writing = performance.timings().measure("archive open")) {
+            return new SelfPlayFiles(directory, header);
         }
 
     }

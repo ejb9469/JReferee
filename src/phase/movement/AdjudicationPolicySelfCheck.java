@@ -30,6 +30,13 @@ public final class AdjudicationPolicySelfCheck {
     }
 
     public static void main(String[] args) {
+        if (args.length == 1 && args[0].equals("--timings")) {
+            counters();
+            System.out.println("AdjudicationPolicySelfCheck timings passed: " + checks + " checks");
+            return;
+        }
+        if (args.length != 0)
+            throw new IllegalArgumentException("Usage: AdjudicationPolicySelfCheck [--timings]");
         referenceFixtures();
         counters();
         tacticalPositions();
@@ -117,29 +124,69 @@ public final class AdjudicationPolicySelfCheck {
         UnitId unit = new UnitId(Nation.FRANCE, UnitType.ARMY, Province.Par);
         MovementInput input = new MovementInput(Map.of(unit, Province.Par),
                 List.of(Order.move(unit, Province.Bur)));
+        MovementInput duplicate = new MovementInput(input.startingLocations(),
+                List.of(Order.move(unit, Province.Bur), Order.hold(unit)));
         for (MovementProcessor.Policy policy : MovementProcessor.Policy.values()) {
-            PerformanceStats timings = new PerformanceStats(true);
-            MovementProcessor.Diagnostics diagnostics = new MovementProcessor.Diagnostics(timings);
-            MovementProcessor processor = new MovementProcessor(policy, 3_000, 0L, diagnostics);
-            MovementResult result = processor.process(input);
-            require(result.finalLocations().get(unit) == Province.Bur, "Ordinary move failed");
-            MovementProcessor.Counts counts = diagnostics.snapshot();
-            require(counts.movements() == 1 && counts.failures() == 0, "Movement counts differ");
-            require(counts.shuffledTrials() == 0, "Ordinary connected move ran shuffled trials");
-            require(counts.plainCalls() == (policy == MovementProcessor.Policy.JUDGE ? 1 : 0),
-                    "Plain calls differ");
-            require(counts.baselineCalls() == (policy == MovementProcessor.Policy.JUDGE ? 0 : 1),
-                    "Baseline calls differ");
-            require(timings.snapshot().getFirst().calls() == 1, "Movement timing was omitted");
-            try {
-                processor.process(null);
-                throw new AssertionError("Null input was accepted");
-            } catch (NullPointerException expected) {
-                require(diagnostics.snapshot().failures() == 1, "Failed attempt was omitted");
+            MovementResult reference = new MovementProcessor(policy, 3_000, 0L).process(input);
+            require(reference.finalLocations().get(unit) == Province.Bur, "Ordinary move failed");
+            for (boolean enabled : new boolean[]{true, false}) {
+                PerformanceStats timings = new PerformanceStats(enabled);
+                MovementProcessor.Diagnostics diagnostics = new MovementProcessor.Diagnostics(timings);
+                MovementProcessor processor = new MovementProcessor(policy, 3_000, 0L, diagnostics);
+                require(signature(processor.process(input)).equals(signature(reference)),
+                        "Timing changed movement results");
+                timingCalls(timings, 1, 1);
+                try {
+                    processor.process(null);
+                    throw new AssertionError("Null input was accepted");
+                } catch (NullPointerException expected) {
+                    require("input".equals(expected.getMessage()), "Null-input exception changed");
+                }
+                timingCalls(timings, 2, 1);
+                try {
+                    processor.process(duplicate);
+                    throw new AssertionError("Duplicate orders were accepted");
+                } catch (IllegalArgumentException expected) {
+                    require(expected.getMessage().equals("Multiple orders submitted for unit: " + unit),
+                            "Duplicate-order exception changed");
+                }
+                timingCalls(timings, 3, 1);
+                require(signature(processor.process(input)).equals(signature(reference)),
+                        "A failed attempt affected later movement");
+                timingCalls(timings, 4, 2);
+                require(diagnostics.snapshot().equals(new MovementProcessor.Counts(
+                                4, 2, policy == MovementProcessor.Policy.JUDGE ? 2 : 0,
+                                policy == MovementProcessor.Policy.JUDGE ? 0 : 2, 0, 0, 0)),
+                        "Timing changed movement or adjudicator counters");
             }
         }
         require(new MovementProcessor().process(input).producer() instanceof adjudication.SzykmanJustice,
                 "The default adjudicator changed");
+    }
+
+    private static void timingCalls(PerformanceStats timings, long attempts, long adjudications) {
+        List<PerformanceStats.Measurement> snapshot = timings.snapshot();
+        if (!timings.isEnabled()) {
+            require(snapshot.isEmpty(), "Disabled timers retained measurements");
+            return;
+        }
+        Map<String, Long> calls = new LinkedHashMap<>();
+        long movementNanos = 0;
+        long stageNanos = 0;
+        for (var measurement : snapshot) {
+            calls.put(measurement.name(), measurement.calls());
+            if (measurement.name().equals("movement"))
+                movementNanos = measurement.totalNanos();
+            else
+                stageNanos += measurement.totalNanos();
+        }
+        require(calls.equals(Map.of(
+                        "movement", attempts,
+                        "movement preparation", attempts,
+                        "movement adjudication", adjudications,
+                        "movement result conversion", adjudications)),
+                "Movement timing stages or attempt counts differ: " + calls);
+        require(stageNanos <= movementNanos, "Movement stages are not contained in the outer timing");
     }
 
     private static void compare(GameState root, List<ActionCandidate> france, List<ActionCandidate> germany) {

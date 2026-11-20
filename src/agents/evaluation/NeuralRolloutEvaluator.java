@@ -5,6 +5,7 @@ import domain.Constants;
 import domain.Nation;
 import game.*;
 import misc.scoring.ScoringSystem;
+import performance.PerformanceStats;
 
 import java.util.*;
 import java.util.function.Function;
@@ -18,6 +19,7 @@ public final class NeuralRolloutEvaluator implements Evaluator {
     private final NeuralValueModel model;
     private final int lastYear;
     private final RolloutEvaluator rollout;
+    private final PerformanceStats timings;
     private final ScoringEvaluator scoring =
             new ScoringEvaluator(ScoringSystem.SUM_OF_SQUARES);
 
@@ -31,7 +33,24 @@ public final class NeuralRolloutEvaluator implements Evaluator {
             long seed
     ) {
 
+        this(model, lastYear, generator, gameFactory, rolloutCount, candidateLimit, seed,
+                new PerformanceStats(false));
+
+    }
+
+    public NeuralRolloutEvaluator(
+            NeuralValueModel model,
+            int lastYear,
+            ActionGenerator generator,
+            Function<GameState, Game> gameFactory,
+            int rolloutCount,
+            int candidateLimit,
+            long seed,
+            PerformanceStats timings
+    ) {
+
         this.model = Objects.requireNonNull(model, "model");
+        this.timings = Objects.requireNonNull(timings, "timings");
         if (lastYear < Constants.STARTING_YEAR || lastYear == Integer.MAX_VALUE)
             throw new IllegalArgumentException("Invalid final year");
         this.lastYear = lastYear;
@@ -58,7 +77,9 @@ public final class NeuralRolloutEvaluator implements Evaluator {
             throw new IllegalStateException("Neural rollout leaf must be a completed Fall turn");
         if (state.moment().year() == this.lastYear || solo(state))
             return this.scoring.evaluate(state);
-        return this.model.predict(state.moment(), state.board());
+        try (var timing = this.timings.measure("neural value inference")) {
+            return this.model.predict(state.moment(), state.board());
+        }
 
     }
 

@@ -10,6 +10,7 @@ import game.record.GameRecord;
 import game.record.GameRecordBuilder;
 import game.record.ResolvedPhaseRecord;
 import misc.scoring.ScoringSystem;
+import performance.AgentPerformance;
 import phase.adjustments.AdjustmentProcessor;
 import phase.movement.MovementProcessor;
 import phase.retreats.RetreatProcessor;
@@ -25,7 +26,7 @@ import java.util.function.Consumer;
  * position. The real game advances only after all actions are collected.
  * A solo takes precedence over the final-year cutoff.
  */
-public final class GameRunner {
+public class GameRunner {
 
 
     // Configuration and results \\
@@ -76,12 +77,17 @@ public final class GameRunner {
          * Creates fresh processors with identical real/speculative rules.
          */
         public Game createGame(GameState state) {
+            return createGame(state, null);
+        }
+
+        public Game createGame(GameState state, MovementProcessor.Diagnostics diagnostics) {
             return Game.fromState(
                     state,
                     new MovementProcessor(
                             this.movementPolicy,
                             this.adjudicationTrials,
-                            this.adjudicationSeed
+                            this.adjudicationSeed,
+                            diagnostics
                     ),
                     new RetreatProcessor(),
                     new AdjustmentProcessor()
@@ -183,11 +189,26 @@ public final class GameRunner {
             Consumer<AgentDecision> decisionObserver
     ) {
 
+        return this.run(id, initial, options, observer, decisionObserver, AgentPerformance.disabled());
+
+    }
+
+    /** Diagnostics remain outside the game configuration and record. */
+    public Result run(
+            UUID id,
+            GameState initial,
+            Options options,
+            Consumer<ResolvedPhaseRecord> observer,
+            Consumer<AgentDecision> decisionObserver,
+            AgentPerformance performance
+    ) {
+
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(initial, "initial");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(observer, "observer");
         Objects.requireNonNull(decisionObserver, "decisionObserver");
+        Objects.requireNonNull(performance, "performance");
 
         if (initial.moment().year() > options.lastYear())
             throw new IllegalArgumentException(
@@ -195,7 +216,7 @@ public final class GameRunner {
 
         new ScoringEvaluator(options.scoring()).evaluate(initial);
 
-        Game game = options.createGame(initial);
+        Game game = options.createGame(initial, performance.movement());
         GameRecordBuilder archive = new GameRecordBuilder(
                 id, options.rulesetId(), game);
 
@@ -221,7 +242,7 @@ public final class GameRunner {
 
             for (Nation nation : root.aliveNations()) {
 
-                Game simulation = options.createGame(root);
+                Game simulation = options.createGame(root, performance.movement());
                 AgentSettings settings = options.agents().get(nation);
 
                 AgentDecision decision = settings.decide(
@@ -230,7 +251,8 @@ public final class GameRunner {
                         options,
                         seed(options.seed(), root.moment(), nation, 0),
                         seed(options.seed(), root.moment(), nation, 1),
-                        seed(options.seed(), root.moment(), nation, 2)
+                        seed(options.seed(), root.moment(), nation, 2),
+                        performance
                 );
 
                 if (!simulation.snapshot().equals(root)
@@ -244,7 +266,9 @@ public final class GameRunner {
                             "Agent returned another nation's policy");
 
                 actions.put(nation, decision.selected());
-                decisionObserver.accept(decision);
+                try (var observation = performance.timings().measure("decision observer")) {
+                    decisionObserver.accept(decision);
+                }
 
             }
 
@@ -259,14 +283,19 @@ public final class GameRunner {
                     Instant.EPOCH.plusSeconds(tick)
             );
 
-            GameState next = simulator.advance(archive, actions, resolvedAt);
+            GameState next;
+            try (var resolution = performance.timings().measure("real phase resolution")) {
+                next = simulator.advance(archive, actions, resolvedAt);
+            }
 
             if (next.moment().compareTo(root.moment()) <= 0
                     || next.moment().year() > options.lastYear())
                 throw new IllegalStateException(
                         "Recorded game advanced outside its phase or year limits");
 
-            observer.accept(archive.resolvedPhases().getLast());
+            try (var observation = performance.timings().measure("phase observer")) {
+                observer.accept(archive.resolvedPhases().getLast());
+            }
             root = next;
 
         }

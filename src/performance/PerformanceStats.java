@@ -19,14 +19,14 @@ import java.util.function.LongSupplier;
  * Timings include exceptional exits. "Calls" means timed attempts,
  * not successful operations. Nested timings are inclusive.
  */
-public final class PerformanceStats {
+public class PerformanceStats {
 
 
     private static final Scope NOOP = () -> { };
 
-    private final boolean enabled;
-    private final LongSupplier clock;
-    private final Map<String, Aggregate> measurements = new LinkedHashMap<>();
+    private final           boolean                 enabled;
+    private final           LongSupplier            clock;
+    private final           Map<String, Aggregate>  measurements = new LinkedHashMap<>();
 
     public PerformanceStats(boolean enabled) {
         this(enabled, System::nanoTime);
