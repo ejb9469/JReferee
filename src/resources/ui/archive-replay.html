@@ -9,39 +9,51 @@
     <script type="module" src="/ui/archive-replay.js"></script>
 </head>
 <body>
-<header>
+<header class="toolbar">
     <h1>JReferee Archive Replay</h1>
-    <p>Saved evidence only. No models, new searches, training or archive writes.</p>
+    <p>Read-only saved evidence. No models, new searches, training or archive writes.</p>
 </header>
-<main>
-    <p id="status" role="status">Loading verified archives...</p>
-    <p id="overview"></p>
-    <fieldset id="selection" disabled>
-        <legend>Recorded game or matched pair</legend>
-        <label>Entry <select id="entry"></select></label>
-        <label>Power <select id="power"></select></label>
-        <label><input id="all-orders" type="checkbox"> Show all powers' orders</label>
-    </fieldset>
-    <fieldset id="navigation" disabled>
-        <legend>Shared year/phase timeline</legend>
-        <button id="previous" type="button">Previous</button>
-        <label>Moment <select id="moment"></select></label>
-        <button id="next" type="button">Next</button>
-        <label>Board <select id="board-mode">
-            <option value="before">Before orders</option>
-            <option value="after">After resolution</option>
-        </select></label>
-    </fieldset>
-    <p class="muted">Orders are submissions, not success annotations. After-resolution shows the actual successor.
-        Skipped phases are blank; an earlier ending is explicitly labelled.</p>
-    <section id="panels" aria-label="Recorded boards"></section>
-    <section class="charts" aria-label="Selected power histories">
-        <article><h2>Supply centers</h2><div id="center-chart"></div></article>
-        <article><h2>Stop-now SoS (%)</h2><div id="score-chart"></div></article>
+<div class="summary"><p id="status" role="status">Loading verified archives...</p></div>
+<main class="browser-layout">
+    <aside class="opening-panel" aria-label="Archive selection">
+        <h2>Archives</h2>
+        <p id="overview" class="muted"></p>
+        <fieldset id="selection" disabled>
+            <legend>Recorded game or matched pair</legend>
+            <label>Entry <select id="entry"></select></label>
+            <label>Power <select id="power"></select></label>
+            <label class="checkbox"><input id="all-orders" type="checkbox"> Show all powers' orders</label>
+        </fieldset>
+        <p class="muted">The selected power also controls the histories below.
+            Solid: reference/game; dashed: candidate.</p>
+        <details class="diagnostics">
+            <summary>Artifact identities and match settings</summary>
+            <pre id="metadata"></pre>
+        </details>
+    </aside>
+    <section class="map-panel" aria-label="Selected replay">
+        <h2>Recorded timeline</h2>
+        <fieldset id="navigation" class="phase-controls" disabled>
+            <legend>Shared year/phase timeline</legend>
+            <button id="previous" type="button">Previous</button>
+            <label>Moment <select id="moment"></select></label>
+            <button id="next" type="button">Next</button>
+            <label>Board <select id="board-mode">
+                <option value="before">Before orders</option>
+                <option value="after">After resolution</option>
+            </select></label>
+        </fieldset>
+        <p class="muted">Orders are submissions, not success annotations. After-resolution shows the actual successor.
+            Skipped phases are blank; an earlier ending is explicitly labelled.
+            Use Left/Right to step through the timeline, or Home/End to jump.</p>
+        <section id="panels" aria-label="Recorded boards"></section>
+        <section class="charts" aria-label="Selected power histories">
+            <article><h2>Supply centers</h2><div id="center-chart"></div></article>
+            <article><h2>Stop-now SoS (%)</h2><div id="score-chart"></div></article>
+        </section>
+        <p class="muted">Histories use recorded ownership, not neural predictions.
+            Lines end at each game's actual ending. Cutoff scores are not eventual outcomes.</p>
     </section>
-    <p class="muted">Histories use recorded ownership, not neural predictions. Solid: reference/game; dashed: candidate.
-        Lines end at each game's actual ending. Cutoff scores are not eventual outcomes.</p>
-    <details><summary>Artifact identities and match settings</summary><pre id="metadata"></pre></details>
 </main>
 <template id="panel">
     <article class="panel">
@@ -51,14 +63,25 @@
         <div class="map"></div>
         <p class="warning" role="status"></p>
         <p class="province-details" aria-live="polite"></p>
-        <p class="muted">Ring: hold; solid arrow: move; dashed: support/retreat; dotted: convoy.
-            +A/+F: build; X: disband; small A*/F*: dislodged unit. Non-center colors are static.</p>
-        <table><caption>Displayed board ownership</caption>
-            <thead><tr><th>Power</th><th>Centers</th><th>SoS %</th></tr></thead><tbody></tbody>
-        </table>
-        <h3>Recorded actions and omissions</h3>
-        <p class="empty-actions"></p>
-        <ul class="orders"></ul>
+        <p class="legend">Solid arrow: move; R + dashed arrow: retreat; ring: hold;
+            dashed: support; dotted line: convoy; dotted A/F circle: submitted build;
+            red X: disband; small offset A/F: dislodged unit.</p>
+        <p class="muted">Supply centers use their recorded owner's map color.
+            Non-center home colors become neutral for eliminated powers; they do not show occupation.</p>
+        <div class="game-records">
+            <section>
+                <h3>Displayed board ownership</h3>
+                <table><caption>Centers and stop-now SoS</caption>
+                    <thead><tr><th scope="col">Power</th><th scope="col">Centers</th><th scope="col">SoS %</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </section>
+            <section>
+                <h3>Recorded actions and omissions</h3>
+                <p class="empty-actions"></p>
+                <ul class="orders"></ul>
+            </section>
+        </div>
     </article>
 </template>
 </body>

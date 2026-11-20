@@ -13,3 +13,5 @@
 .blocker { color: #991b1b; font-weight: bold; }
 .dependency { color: #3730a3; }
 .caution { color: #854d0e; }
+.unit-token:focus-visible { outline: none; }
+.unit-token:focus-visible circle { stroke: #d97706; stroke-width: 0.8; }

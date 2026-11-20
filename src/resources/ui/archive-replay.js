@@ -164,21 +164,8 @@ function renderPanel({ element, map, game }) {
         : `Before ${momentName(frame)}.`;
     const all = $("#all-orders").checked;
     const orders = frame.orders.filter(order => all || order.nation === power);
-    map.show(boardFrame.board, power, []);
-    if (all)
-        for (const unit of map.unitLayer.children) unit.setAttribute("opacity", "1");
-    map.orders = orders;
-    const errors = [];
-    if (found.status === "BEFORE")
-        for (const order of orders) {
-            try { drawOrder(map, order); }
-            catch (error) { errors.push(`${order.text}: ${error.message}`); }
-        }
-    for (const unit of boardFrame.dislodged) {
-        try { dislodged(map, unit, all || unit.nation === power); }
-        catch (error) { errors.push(`Dislodged ${unit.province}: ${error.message}`); }
-    }
-    if (errors.length) element.querySelector(".warning").textContent = errors.join(" ");
+    map.show(boardFrame.board, all ? "" : power,
+        found.status === "BEFORE" ? frame.orders : [], boardFrame.dislodged);
     for (const nation of Object.keys(catalog.colors)) {
         const row = node("tr", null, { class: nation === power ? "focused" : "" });
         row.append(node("td", nation), node("td", boardFrame.centers[nation]),
@@ -191,46 +178,6 @@ function renderPanel({ element, map, game }) {
     for (const order of orders)
         list.append(node("li", `${order.nation}: ${order.text}${order.implicit ? " [omission]" : ""}`,
             { class: order.implicit ? "implicit" : "" }));
-}
-
-function drawOrder(map, order) {
-    const color = catalog.colors[order.nation];
-    if (["HOLD", "MOVE", "SUPPORT", "CONVOY"].includes(order.type)) {
-        map.drawOrder(order, color);
-        return;
-    }
-    if (order.type === "WAIVE") return;
-    const point = map.anchor(order.origin);
-    const group = node("g", null, { "pointer-events": "none" }, true);
-    group.append(node("title", order.text, {}, true));
-    if (order.type === "RETREAT") {
-        map.line(group, point, map.anchor(order.target), color, "1 1", true);
-    } else if (order.type === "BUILD" || order.type === "DESTROY") {
-        group.append(node("text", order.type === "BUILD"
-            ? `+${order.unitType === "ARMY" ? "A" : "F"}` : "X", {
-            x: point.x, y: point.y - 2.4, "text-anchor": "middle",
-            fill: color, stroke: "#ffffff", "stroke-width": 0.45,
-            "paint-order": "stroke", "font-size": 3.5, "font-weight": "bold"
-        }, true));
-    } else {
-        throw new Error(`Unsupported order type ${order.type}`);
-    }
-    map.orderLayer.append(group);
-}
-
-function dislodged(map, unit, focus) {
-    const point = map.anchor(unit.province);
-    const group = node("g", null, {
-        transform: `translate(${point.x + 2.4} ${point.y - 2.8})`, opacity: focus ? 1 : 0.4,
-        class: "dislodged", "pointer-events": "none"
-    }, true);
-    group.append(node("title", `Dislodged ${unit.nation} ${unit.type} from ${unit.province}`, {}, true),
-        node("circle", null, { r: 1.6, fill: catalog.colors[unit.nation], stroke: "#f97316",
-            "stroke-width": 0.5, "stroke-dasharray": "0.5 0.4" }, true),
-        node("text", unit.type === "ARMY" ? "A*" : "F*", {
-            "text-anchor": "middle", "dominant-baseline": "central", fill: "white", "font-size": 1.6
-        }, true));
-    map.unitLayer.append(group);
 }
 
 function chart(id, metric) {

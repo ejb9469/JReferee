@@ -38,6 +38,8 @@ public final class ArchiveReplayServer implements AutoCloseable {
             "archive-replay.css", "text/css",
             "archive-replay.js", "text/javascript",
             "archive-replay-model.mjs", "text/javascript",
+            "openings.css", "text/css",
+            "games.css", "text/css",
             "movement-map.js", "text/javascript",
             "maps/standard.svg", "image/svg+xml");
 

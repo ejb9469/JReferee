@@ -29,6 +29,7 @@ import java.util.concurrent.CountDownLatch;
  *
  * <p>Run without arguments to request an operating-system-selected port.</p>
  */
+@Deprecated
 public final class BoardViewerApp {
 
 

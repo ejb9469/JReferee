@@ -24,7 +24,24 @@ const COASTS = {
     BulEC: { x: 109, y: 84 }, BulSC: { x: 103, y: 88 }
 };
 
+const MAP_COLOR_SAMPLES = {
+    AUSTRIA: "Vie", ENGLAND: "Lon", FRANCE: "Par",
+    GERMANY: "Ber", ITALY: "Rom", RUSSIA: "Mos", TURKEY: "Ank"
+};
+
+// Map decoration, not ownership of occupied non-center provinces.
+const NON_CENTER_HOME_TERRITORIES = {
+    AUSTRIA: ["Boh", "Gal", "Tyr"],
+    ENGLAND: ["Cly", "Wal", "Yor"],
+    FRANCE: ["Bur", "Gas", "Pic"],
+    GERMANY: ["Pru", "Ruh", "Sil"],
+    ITALY: ["Apu", "Pie", "Tus"],
+    RUSSIA: ["Lvn", "Ukr"],
+    TURKEY: ["Arm", "Syr"]
+};
+
 const canonical = province => PARENTS[province] ?? province;
+const territoryKey = province => canonical(province).toLowerCase();
 
 function svg(name, attributes = {}) {
     const element = document.createElementNS(SVG_NS, name);
@@ -58,6 +75,20 @@ export class MovementMap {
         this.warning = warning;
         this.colors = colors;
         this.paintTerritories = paintTerritories;
+        this.mapColors = Object.fromEntries(Object.entries(MAP_COLOR_SAMPLES)
+            .map(([nation, province]) => [nation, getComputedStyle(this.path(province)).fill]));
+        this.neutralMapColor = getComputedStyle(this.path("Bel")).fill;
+        this.homeStyles = Object.entries(NON_CENTER_HOME_TERRITORIES)
+            .flatMap(([nation, provinces]) => provinces.map(province => {
+                const path = this.path(province);
+                return {
+                    nation, path,
+                    styles: ["fill", "fill-opacity"].map(name => ({
+                        name, value: path.style.getPropertyValue(name),
+                        priority: path.style.getPropertyPriority(name)
+                    }))
+                };
+            }));
 
         root.querySelector("#units")?.replaceChildren();
 
@@ -66,7 +97,9 @@ export class MovementMap {
             "pointer-events": "none"
         });
         this.unitLayer = svg("g", { id: "movement-units" });
-        root.append(this.orderLayer, this.unitLayer);
+        this.retreatLayer = svg("g", { id: "movement-retreats", "pointer-events": "none" });
+        this.adjustmentLayer = svg("g", { id: "movement-adjustments", "pointer-events": "none" });
+        root.append(this.orderLayer, this.unitLayer, this.retreatLayer, this.adjustmentLayer);
 
         for (const path of root.querySelectorAll("#provinces > path[id]")) {
             if (path.id === "path4603") continue;
@@ -90,84 +123,138 @@ export class MovementMap {
         }
     }
 
-    show(board, nation, orders = []) {
+    show(board, nation, orders = [], dislodged = []) {
         this.board = board;
-        this.orders = orders;
+        this.nation = nation;
+        this.orders = orders.map(order => ({ ...order, nation: order.nation ?? nation }));
+        this.units = [...board.units, ...dislodged.map(unit => ({ ...unit, dislodged: true }))];
         this.orderLayer.replaceChildren();
         this.unitLayer.replaceChildren();
+        this.retreatLayer.replaceChildren();
+        this.adjustmentLayer.replaceChildren();
         this.warning.textContent = "";
         this.details.textContent = "Select a province to inspect it.";
 
         for (const path of this.root.querySelectorAll(".province.selected"))
             path.classList.remove("selected");
 
+        this.paintBoard();
+        const errors = [];
+        for (const unit of this.units) {
+            try {
+                this.drawUnit(unit);
+            } catch (error) {
+                errors.push(`${unit.province}: ${error.message}`);
+            }
+        }
+        for (const order of this.orders) {
+            if (nation && order.nation !== nation) continue;
+            try {
+                this.drawOrder(order, this.colors[order.nation]);
+            } catch (error) {
+                errors.push(`${order.text}: ${error.message}`);
+            }
+        }
+        if (errors.length)
+            this.warning.textContent =
+                "Some map elements could not be drawn: " + errors.join("; ");
+    }
+
+    paintBoard() {
+        const owners = new Map(Object.entries(this.board.supplyCenterOwners)
+            .map(([province, owner]) => [territoryKey(province), owner]));
+
         for (const [province, id] of Object.entries(CENTERS)) {
-            const owner = board.supplyCenterOwners[province];
+            const owner = owners.get(territoryKey(province));
+            const color = owner ? this.mapColors[owner] : this.neutralMapColor;
             const circles = this.root.querySelector(
                 `#${CSS.escape(id)}`)?.querySelectorAll("circle");
 
             if (!circles || circles.length < 2)
                 throw new Error(`Missing supply-center marker: ${province}`);
 
-            circles[0].style.fill = owner ? this.colors[owner] : "#ffffff";
+            circles[0].style.fill = color;
             circles[0].style.stroke = "#111827";
-            circles[1].style.fill = "#ffffff";
+            circles[1].style.fill = owner ? this.colors[owner] : "#ffffff";
             circles[1].style.stroke = "none";
 
-            if (this.paintTerritories)
-                this.path(province).style.fill = owner ? this.colors[owner] : "#ffffff";
-        }
-
-        for (const unit of board.units) {
-            const point = this.anchor(unit.province);
-            const group = svg("g", {
-                class: "unit-token",
-                transform: `translate(${point.x} ${point.y})`,
-                opacity: unit.nation === nation ? 1 : 0.3
-            });
-
-            const title = svg("title");
-            title.textContent = `${unit.nation} ${unit.type} in ${unit.province}`;
-
-            const circle = svg("circle", {
-                r: 1.7,
-                fill: this.colors[unit.nation],
-                stroke: "#ffffff",
-                "stroke-width": 0.35
-            });
-
-            const label = svg("text", {
-                "text-anchor": "middle",
-                "dominant-baseline": "central",
-                "font-size": 1.9,
-                "font-weight": "bold",
-                fill: "#ffffff",
-                "pointer-events": "none"
-            });
-
-            label.textContent = unit.type === "ARMY" ? "A" : "F";
-            group.append(title, circle, label);
-            group.addEventListener("click", () => this.inspect(unit.province));
-            this.unitLayer.append(group);
-        }
-
-        const errors = [];
-        for (const order of orders) {
-            try {
-                this.drawOrder(order, this.colors[nation]);
-            } catch (error) {
-                errors.push(`${order.text}: ${error.message}`);
+            if (this.paintTerritories) {
+                this.path(province).style.fill = color;
+                this.path(province).style.fillOpacity = "1";
             }
         }
 
-        if (errors.length)
-            this.warning.textContent =
-                "Some orders could not be drawn: " + errors.join(" ");
+        if (!this.paintTerritories) return;
+        const active = new Set([
+            ...this.units.map(unit => unit.nation),
+            ...owners.values(),
+            ...this.orders.filter(order => order.type === "RETREAT").map(order => order.nation)
+        ]);
+        for (const { nation, path, styles } of this.homeStyles) {
+            for (const { name, value, priority } of styles) {
+                if (value) path.style.setProperty(name, value, priority);
+                else path.style.removeProperty(name);
+            }
+            if (!active.has(nation)) {
+                path.style.setProperty("fill", this.neutralMapColor);
+                path.style.setProperty("fill-opacity", "1");
+            }
+        }
+    }
+
+    drawUnit(unit) {
+        const point = this.anchor(unit.province);
+        const matching = this.orders.filter(order =>
+            !["BUILD", "WAIVE"].includes(order.type)
+            && order.nation === unit.nation
+            && (!order.unitType || order.unitType === unit.type)
+            && order.origin && territoryKey(order.origin) === territoryKey(unit.province));
+        const tooltip = `${unit.dislodged ? "Dislodged: " : ""}${unit.nation} ${unit.type} ${unit.province}\n`
+            + (matching.length ? matching.map(order => order.text).join("\n") : "No displayed order for this unit.");
+        const offset = unit.dislodged ? 2.6 : 0;
+        const group = svg("g", {
+            class: unit.dislodged ? "unit-token dislodged" : "unit-token",
+            transform: `translate(${point.x + offset} ${point.y - offset})`
+                + ` scale(${unit.dislodged ? 0.6 : 1})`,
+            opacity: !this.nation || unit.nation === this.nation ? 1 : 0.25,
+            tabindex: 0,
+            role: "button",
+            "aria-label": tooltip.replaceAll("\n", "; ")
+        });
+
+        const title = svg("title");
+        title.textContent = tooltip;
+        const circle = svg("circle", {
+            r: 1.7,
+            fill: this.colors[unit.nation],
+            stroke: "#ffffff",
+            "stroke-width": 0.35
+        });
+        const label = svg("text", {
+            "text-anchor": "middle",
+            "dominant-baseline": "central",
+            "font-size": 1.9,
+            "font-weight": "bold",
+            fill: "#ffffff",
+            "pointer-events": "none"
+        });
+
+        label.textContent = unit.type === "ARMY" ? "A" : "F";
+        group.append(title, circle, label);
+        group.addEventListener("click", () => this.inspect(unit.province));
+        group.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                this.inspect(unit.province);
+            }
+        });
+        this.unitLayer.append(group);
     }
 
     path(province) {
         const path = this.root.querySelector(
-            `#provinces > path#${CSS.escape(canonical(province).toLowerCase())}`);
+            `#provinces > path#${CSS.escape(territoryKey(province))}`);
 
         if (!path)
             throw new Error(`No map position for ${province}.`);
@@ -209,30 +296,35 @@ export class MovementMap {
     inspect(province) {
         if (!this.board) return;
 
-        const key = canonical(province).toLowerCase();
+        const key = territoryKey(province);
         for (const path of this.root.querySelectorAll(".province"))
             path.classList.toggle("selected", path.id === key);
 
         const owner = Object.entries(this.board.supplyCenterOwners)
-            .find(([location]) => location.toLowerCase() === key)?.[1];
+            .find(([location]) => territoryKey(location) === key)?.[1];
 
         this.details.textContent = [
             key.toUpperCase(),
             owner ? `Supply-center owner: ${owner}` : "No supply-center owner",
-            ...this.board.units
-                .filter(unit => canonical(unit.province).toLowerCase() === key)
-                .map(unit => `${unit.nation} ${unit.type} (${unit.province})`),
+            ...this.units
+                .filter(unit => territoryKey(unit.province) === key)
+                .map(unit => `${unit.dislodged ? "Dislodged: " : ""}${unit.nation} ${unit.type} (${unit.province})`),
             ...this.orders
                 .filter(order => [order.origin, order.target, order.auxiliaryTarget]
                     .filter(Boolean)
-                    .some(location => canonical(location).toLowerCase() === key))
+                    .some(location => territoryKey(location) === key))
                 .map(order => order.text)
         ].join(" · ");
     }
 
     drawOrder(order, color) {
+        if (order.type === "WAIVE") return;
+        if (!color) throw new Error("Order has no recognized power color.");
         const group = svg("g");
         const origin = this.anchor(order.origin);
+        const title = svg("title");
+        title.textContent = order.text;
+        group.append(title);
 
         if (order.type === "HOLD") {
             group.append(svg("circle", {
@@ -258,28 +350,71 @@ export class MovementMap {
                 this.line(group, target, this.anchor(order.auxiliaryTarget),
                     color, dash, true);
 
+            this.label(group, origin, convoy ? "C" : "S", color);
+
+        } else if (order.type === "RETREAT") {
+            group.append(svg("circle", {
+                cx: origin.x, cy: origin.y, r: 2.1, fill: "none",
+                stroke: "#ffffff", "stroke-width": 0.7
+            }), svg("circle", {
+                cx: origin.x, cy: origin.y, r: 2.1, fill: "none",
+                stroke: color, "stroke-width": 0.4, "stroke-dasharray": "0.9 0.6"
+            }));
+            this.line(group, origin, this.anchor(order.target), color, "0.9 0.6", true, 0.6);
+            this.label(group, origin, "R", color, 1.8);
+            this.retreatLayer.append(group);
+            return;
+
+        } else if (order.type === "BUILD") {
+            if (!["ARMY", "FLEET"].includes(order.unitType))
+                throw new Error("Build order has no recognized unit type.");
+            group.setAttribute("transform", `translate(${origin.x} ${origin.y})`);
+            group.append(svg("circle", {
+                r: 1.7, fill: color, "fill-opacity": 0.2, stroke: "none"
+            }), svg("circle", {
+                r: 2.5, fill: "none", stroke: "#ffffff", "stroke-width": 1.1
+            }), svg("circle", {
+                r: 2.5, fill: "none", stroke: color, "stroke-width": 0.65,
+                "stroke-dasharray": "0.05 1.15", "stroke-linecap": "round"
+            }));
             const label = svg("text", {
-                x: origin.x + 2,
-                y: origin.y - 2,
-                fill: color,
-                stroke: "#ffffff",
-                "stroke-width": 0.45,
-                "paint-order": "stroke",
-                "font-size": 2.5,
-                "font-weight": "bold"
+                "text-anchor": "middle", "dominant-baseline": "central",
+                "font-size": 1.9, "font-weight": "bold", fill: color,
+                stroke: "#ffffff", "stroke-width": 0.25, "paint-order": "stroke"
             });
-
-            label.textContent = convoy ? "C" : "S";
+            label.textContent = order.unitType === "ARMY" ? "A" : "F";
             group.append(label);
+            this.adjustmentLayer.append(group);
+            return;
 
+        } else if (order.type === "DESTROY") {
+            group.setAttribute("transform", `translate(${origin.x} ${origin.y})`);
+            for (const [stroke, width] of [["#ffffff", 1.35], ["#dc2626", 0.8]])
+                for (const direction of [-1, 1])
+                    group.append(svg("line", {
+                        x1: -2.1, y1: direction * -2.1, x2: 2.1, y2: direction * 2.1,
+                        stroke, "stroke-width": width, "stroke-linecap": "round"
+                    }));
+            this.adjustmentLayer.append(group);
+            return;
         } else {
-            throw new Error(`Unsupported movement order: ${order.type}`);
+            throw new Error(`Unsupported order type: ${order.type}`);
         }
 
         this.orderLayer.append(group);
     }
 
-    line(group, from, to, color, dash, arrow) {
+    label(group, point, text, color, size = 3) {
+        const label = svg("text", {
+            x: point.x + 2, y: point.y - 2, fill: color,
+            stroke: "#ffffff", "stroke-width": 0.15 * size,
+            "paint-order": "stroke", "font-size": size, "font-weight": "bold"
+        });
+        label.textContent = text;
+        group.append(label);
+    }
+
+    line(group, from, to, color, dash, arrow, scale = 1) {
         const dx = to.x - from.x;
         const dy = to.y - from.y;
         const distance = Math.hypot(dx, dy);
@@ -291,7 +426,7 @@ export class MovementMap {
                 r: 2.5,
                 fill: "none",
                 stroke: color,
-                "stroke-width": 0.7,
+                "stroke-width": 0.7 * scale,
                 "stroke-dasharray": dash
             }));
             return;
@@ -313,18 +448,18 @@ export class MovementMap {
         group.append(svg("line", {
             ...attributes,
             stroke: "#ffffff",
-            "stroke-width": 1.25
+            "stroke-width": 1.25 * scale
         }));
 
         group.append(svg("line", {
             ...attributes,
             stroke: color,
-            "stroke-width": 0.7,
+            "stroke-width": 0.7 * scale,
             "stroke-dasharray": dash
         }));
 
         if (arrow) {
-            const length = Math.min(2, distance / 3);
+            const length = Math.min(2 * scale, distance / 3);
             const width = length / 2;
             const baseX = end.x - ux * length;
             const baseY = end.y - uy * length;
@@ -335,7 +470,7 @@ export class MovementMap {
                     + `${baseX + uy * width},${baseY - ux * width}`,
                 fill: color,
                 stroke: "#ffffff",
-                "stroke-width": 0.2
+                "stroke-width": 0.2 * scale
             }));
         }
     }
