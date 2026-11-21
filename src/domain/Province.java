@@ -111,17 +111,17 @@ public enum Province {
     public static final char SUFFIX_DELIM = '/';  // e.g. "Bul/ec"
 
     // Reuse 1 call to `Enum.values()` to avoid constant calling (but check coast properties each time).
-    private static final    Province[]                   ENUM_VALUES  =   values();
+    private static final    Province[]                  ENUM_VALUES  =   values();
 
     // `adjacencyMap` and `aliasesMap` autopopulate at runtime, once for every new Province constant
-    private static          Map<Province, Province[]>    adjacencyMap;
-    private static          Map<String, Province>        aliasesMap;  // TODO: Flesh out, add secondary names & common misspellings (in `populateAliasesMap()`)
+    private static          Map<Province, Province[]>   adjacencyMap;
+    private static          Map<String, Province>       aliasesMap;  // TODO: Flesh out, add secondary names & common misspellings (in `populateAliasesMap()`)
 
 
     public final String     fullName;
 
     public boolean          supplyCenter;
-    public Nation homeowner;
+    public Nation           homeowner;
 
     public Geography        geography;
 
@@ -229,9 +229,9 @@ public enum Province {
         adjacencyMap = new HashMap<>();
 
         adjacencyMap.put(Province.Boh, new Province[]{Province.Mun, Province.Sil, Province.Gal, Province.Tyr, Province.Vie});
-        adjacencyMap.put(Province.Bud, new Province[]{Province.Vie, Province.Gal, Province.Rum, Province.Ser, Province.Tri});
-        adjacencyMap.put(Province.Gal, new Province[]{Province.Sil, Province.War, Province.Ukr, Province.Rum, Province.Bud, Province.Vie, Province.Boh});
-        adjacencyMap.put(Province.Tri, new Province[]{Province.Tyr, Province.Vie, Province.Bud, Province.Ser, Province.Alb, Province.ADR, Province.Ven});
+        adjacencyMap.put(Province.Bud, new Province[]{Province.Vie, Province.Gal, Province.Tri, Province.Ser, Province.Rum});
+        adjacencyMap.put(Province.Gal, new Province[]{Province.Sil, Province.Boh, Province.Vie, Province.Bud, Province.Rum, Province.Ukr, Province.War});
+        adjacencyMap.put(Province.Tri, new Province[]{Province.Tyr, Province.Ven, Province.ADR, Province.Alb, Province.Ser, Province.Bud, Province.Vie});
         adjacencyMap.put(Province.Tyr, new Province[]{Province.Mun, Province.Boh, Province.Vie, Province.Tri, Province.Ven, Province.Pie});
         adjacencyMap.put(Province.Vie, new Province[]{Province.Tyr, Province.Boh, Province.Gal, Province.Bud, Province.Tri});
         adjacencyMap.put(Province.Cly, new Province[]{Province.NAO, Province.NWG, Province.Edi, Province.Lvp});
@@ -239,7 +239,7 @@ public enum Province {
         adjacencyMap.put(Province.Lvp, new Province[]{Province.NAO, Province.Cly, Province.Edi, Province.Yor, Province.Wal, Province.IRI});
         adjacencyMap.put(Province.Lon, new Province[]{Province.Wal, Province.Yor, Province.NTH, Province.ENG});
         adjacencyMap.put(Province.Wal, new Province[]{Province.Lvp, Province.Yor, Province.Lon, Province.ENG, Province.IRI});
-        adjacencyMap.put(Province.Yor, new Province[]{Province.Lvp, Province.Edi, Province.NTH, Province.Lon, Province.Wal});
+        adjacencyMap.put(Province.Yor, new Province[]{Province.Edi, Province.NTH, Province.Lon, Province.Wal, Province.Lvp});
         adjacencyMap.put(Province.Bre, new Province[]{Province.ENG, Province.Pic, Province.Par, Province.Gas, Province.MAO});
         adjacencyMap.put(Province.Bur, new Province[]{Province.Bel, Province.Ruh, Province.Mun, Province.Mar, Province.Gas, Province.Par, Province.Pic});
         adjacencyMap.put(Province.Gas, new Province[]{Province.Bre, Province.Par, Province.Bur, Province.Mar, Province.Spa, Province.SpaNC, Province.MAO});
