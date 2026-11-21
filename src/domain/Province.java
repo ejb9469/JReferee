@@ -110,9 +110,12 @@ public enum Province {
 
     public static final char SUFFIX_DELIM = '/';  // e.g. "Bul/ec"
 
+    // Reuse 1 call to `Enum.values()` to avoid constant calling (but check coast properties each time).
+    private static final    Province[]                   ENUM_VALUES  =   values();
+
     // `adjacencyMap` and `aliasesMap` autopopulate at runtime, once for every new Province constant
-    private static Map<Province, Province[]>    adjacencyMap;
-    private static Map<String, Province>        aliasesMap;  // TODO: Flesh out, add secondary names & common misspellings (in `populateAliasesMap()`)
+    private static          Map<Province, Province[]>    adjacencyMap;
+    private static          Map<String, Province>        aliasesMap;  // TODO: Flesh out, add secondary names & common misspellings (in `populateAliasesMap()`)
 
 
     public final String     fullName;
@@ -226,9 +229,9 @@ public enum Province {
         adjacencyMap = new HashMap<>();
 
         adjacencyMap.put(Province.Boh, new Province[]{Province.Mun, Province.Sil, Province.Gal, Province.Tyr, Province.Vie});
-        adjacencyMap.put(Province.Bud, new Province[]{Province.Vie, Province.Gal, Province.Tri, Province.Ser, Province.Rum});
-        adjacencyMap.put(Province.Gal, new Province[]{Province.Sil, Province.Boh, Province.Vie, Province.Bud, Province.Rum, Province.Ukr, Province.War});
-        adjacencyMap.put(Province.Tri, new Province[]{Province.Tyr, Province.Ven, Province.ADR, Province.Alb, Province.Ser, Province.Bud, Province.Vie});
+        adjacencyMap.put(Province.Bud, new Province[]{Province.Vie, Province.Gal, Province.Rum, Province.Ser, Province.Tri});
+        adjacencyMap.put(Province.Gal, new Province[]{Province.Sil, Province.War, Province.Ukr, Province.Rum, Province.Bud, Province.Vie, Province.Boh});
+        adjacencyMap.put(Province.Tri, new Province[]{Province.Tyr, Province.Vie, Province.Bud, Province.Ser, Province.Alb, Province.ADR, Province.Ven});
         adjacencyMap.put(Province.Tyr, new Province[]{Province.Mun, Province.Boh, Province.Vie, Province.Tri, Province.Ven, Province.Pie});
         adjacencyMap.put(Province.Vie, new Province[]{Province.Tyr, Province.Boh, Province.Gal, Province.Bud, Province.Tri});
         adjacencyMap.put(Province.Cly, new Province[]{Province.NAO, Province.NWG, Province.Edi, Province.Lvp});
@@ -236,7 +239,7 @@ public enum Province {
         adjacencyMap.put(Province.Lvp, new Province[]{Province.NAO, Province.Cly, Province.Edi, Province.Yor, Province.Wal, Province.IRI});
         adjacencyMap.put(Province.Lon, new Province[]{Province.Wal, Province.Yor, Province.NTH, Province.ENG});
         adjacencyMap.put(Province.Wal, new Province[]{Province.Lvp, Province.Yor, Province.Lon, Province.ENG, Province.IRI});
-        adjacencyMap.put(Province.Yor, new Province[]{Province.Edi, Province.NTH, Province.Lon, Province.Wal, Province.Lvp});
+        adjacencyMap.put(Province.Yor, new Province[]{Province.Lvp, Province.Edi, Province.NTH, Province.Lon, Province.Wal});
         adjacencyMap.put(Province.Bre, new Province[]{Province.ENG, Province.Pic, Province.Par, Province.Gas, Province.MAO});
         adjacencyMap.put(Province.Bur, new Province[]{Province.Bel, Province.Ruh, Province.Mun, Province.Mar, Province.Gas, Province.Par, Province.Pic});
         adjacencyMap.put(Province.Gas, new Province[]{Province.Bre, Province.Par, Province.Bur, Province.Mar, Province.Spa, Province.SpaNC, Province.MAO});
@@ -364,6 +367,7 @@ public enum Province {
      * The function is very lenient, and tries all combinations of the 2 Provinces & their parents<br><br>
      *
      * <b>NOTE:</b> Orders such as "F Tus S Tri - Ven" will still fail; only <i>split</i> coast rules are bypassed. e.g "F BOT S BAR - Stp/nc"<br><br>
+     *
      * <b>NOTE:</b> However, orders such as "F Spa/nc S LYO" will fail, but moves like "F LYO S Spa/nc" will succeed -- in this regard, preference is given to `pos1` over `this`
      *
      * @param pos1 'Other' Province
@@ -424,7 +428,7 @@ public enum Province {
         // Cannot be adjacent by sea if not also adjacent by land
         if (!genericAdjacency)
             return false;
-        // Use generic adjacency (now `true`) if no coast-crawling is required
+            // Use generic adjacency (now `true`) if no coast-crawling is required
         else if (pos0.geography != Geography.COASTAL || pos1.geography != Geography.COASTAL)
             return true;
         else  // Handle coast-crawling -- coast IDs must be adjacent to sea neighbors
@@ -439,7 +443,7 @@ public enum Province {
         if (base.geography == Geography.COASTAL)
             return true;
 
-        for (Province coast : values())
+        for (Province coast : ENUM_VALUES)
             if (coast.parent == base
                     && coast.geography == Geography.COASTAL)
                 return true;
