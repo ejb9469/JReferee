@@ -2,8 +2,12 @@ package testing.selfcheck;
 
 import _app.AgentPerformanceApp;
 import agents.evaluation.NeuralValueModel;
+import agents.evaluation.ScoringEvaluator;
 import agents.execution.*;
+import agents.generation.*;
+import agents.search.JointActionEvaluator;
 import agents.search.PolicyOutput;
+import agents.simulation.Simulator;
 import domain.*;
 import game.*;
 import io.json.JsonAccess;
@@ -35,11 +39,14 @@ public final class AgentPerformanceSelfCheck {
             throw new IllegalArgumentException(
                     "Usage: AgentPerformanceSelfCheck [value-model.bin [anchor.bin gru-model.bin]]");
         GameState opening = StandardGameFactory.create1901().snapshot();
+        validationTimings(opening);
         GameState fall = new GameState_Movement(new GameMoment(1901, GamePhase.FALL_MOVEMENT), opening.board());
         Game winterGame = options(AgentSettings.paper(2, 2), 1903).createGame(fall);
         winterGame.resolveMovement(List.of());
         GameState winter = winterGame.snapshot();
         GameState retreat = retreat();
+        for (GameState state : List.of(opening, winter, retreat))
+            catalogReuse(state);
         for (AgentSettings.Method method : AgentSettings.Method.values()) {
             AgentSettings settings = new AgentSettings(method, 2, 2, 1, 2, PolicyOutput.AVERAGE);
             for (GameState state : List.of(opening, winter, retreat))
@@ -49,8 +56,10 @@ public final class AgentPerformanceSelfCheck {
         if (args.length > 0) {
             NeuralValueModel value = NeuralValueModel.load(Path.of(args[0]));
             AgentSettings settings = AgentSettings.paper(2, 2).withValueModel(value);
-            AgentPerformance performance = decisions(fall, settings);
+            AgentPerformance performance = decisions(opening, settings);
             require(calls(performance, "neural value inference") > 0, "Neural leaf was not timed");
+            require(calls(performance, "rollout legal catalogs") > 0,
+                    "Neural continuations did not share catalog timings");
             if (args.length == 3) {
                 AgentModels models = AgentModels.load(Path.of(args[1]), Optional.of(Path.of(args[2])));
                 decisions(fall, new AgentSettings(AgentSettings.Method.DIL_PIKL, 2, 2, 1, 2,
@@ -92,8 +101,204 @@ public final class AgentPerformanceSelfCheck {
                 "Search ran for PRIOR or was not measured");
         require(enabled.counters().get("movements") == calls(enabled, "movement"),
                 "Root/continuation movement diagnostics were not shared");
+        long validations = calls(enabled, "simulation validation");
+        require(validations >= requests && (validations > 0) == (requests > 0)
+                        && calls(enabled, "validation legal catalogs") == 0
+                        && calls(enabled, "root legal catalogs")
+                        == (requests == 0 ? 0 : state.aliveNations().size()),
+                "Root/continuation validation diagnostics were not shared");
+        require(calls(enabled, "rollout legal catalogs") == calls(enabled, "rollout generation"),
+                "Rollout catalogs and sampled pools differ");
+        require(nanos(enabled.timings(), "simulation validation")
+                        + nanos(enabled.timings(), "root legal catalogs")
+                        + nanos(enabled.timings(), "rollout legal catalogs")
+                        <= nanos(enabled.timings(), "root simulation")
+                        + nanos(enabled.timings(), "continuation evaluation"),
+                "Catalog or validation timing escaped its enclosing scopes");
         return enabled;
 
+    }
+
+    private static void validationTimings(GameState root) {
+
+        AgentSettings settings = new AgentSettings(AgentSettings.Method.PRIOR,
+                1, 1, 1, 1, PolicyOutput.AVERAGE);
+        GameRunner.Options options = options(settings, 1903);
+        Map<Nation, ActionCandidate> actions = new EnumMap<>(Nation.class);
+        for (Nation nation : root.aliveNations())
+            actions.put(nation, new ActionCandidate(nation,
+                    root.board().locations().keySet().stream()
+                            .filter(unit -> unit.owner() == nation).map(Order::hold).toList(),
+                    0.0, ActionCandidate.Source.HEURISTIC));
+
+        Nation first = Nation.values()[0];
+        ActionCandidate candidate = actions.get(first);
+        var orders = new ArrayList<>(candidate.orders());
+        orders.add(orders.getFirst());
+        Map<Nation, ActionCandidate> duplicate = new EnumMap<>(actions);
+        duplicate.put(first, new ActionCandidate(first, orders, candidate.logPrior(), candidate.source()));
+        Simulator baseline = new Simulator();
+        Game reference = options.createGame(root);
+        GameState expected = baseline.peek(reference, actions);
+
+        for (boolean enabled : new boolean[]{false, true}) {
+            PerformanceStats timings = new PerformanceStats(enabled);
+            Simulator simulator = new Simulator(timings);
+            Game game = options.createGame(root);
+            for (var rejected : List.of(Map.<Nation, ActionCandidate>of(), duplicate)) {
+                require(rejection(baseline, reference, rejected).equals(rejection(simulator, game, rejected)),
+                        "Validation profiling changed the original exception");
+                require(game.snapshot().equals(root) && game.getSnapshot() == null
+                                && game.processorHistory().isEmpty(),
+                        "Rejected validation changed its root or checkpoint");
+            }
+            GameState peeked = simulator.peek(game, actions);
+            require(peeked.moment().equals(expected.moment()) && peeked.board().equals(expected.board()),
+                    "Validation profiling changed the simulated result");
+            require(game.snapshot().equals(root) && game.getSnapshot() == null
+                            && game.processorHistory().isEmpty(),
+                    "Validation profiling changed root restoration");
+            GameState advanced = simulator.advance(game, actions);
+            require(advanced.moment().equals(expected.moment()) && advanced.board().equals(expected.board()),
+                    "Validation profiling changed the advanced result");
+            if (enabled) {
+                require(calls(timings, "simulation validation") == 4
+                                && calls(timings, "validation legal catalogs") == 2L * actions.size() + 1,
+                        "Successful or rejected validation attempts were not timed exactly once");
+                require(nanos(timings, "validation legal catalogs")
+                                <= nanos(timings, "simulation validation"),
+                        "Validation catalogs escaped the validation timer");
+            } else {
+                require(timings.snapshot().isEmpty(), "Disabled validation timings accumulated data");
+            }
+        }
+
+    }
+
+    private static String rejection(
+            Simulator simulator, Game game, Map<Nation, ActionCandidate> actions
+    ) {
+        return rejection(() -> simulator.peek(game, actions));
+    }
+
+    private static String rejection(Runnable operation) {
+        try {
+            operation.run();
+            throw new AssertionError("Invalid joint action was accepted");
+        } catch (IllegalArgumentException expected) {
+            return expected.getMessage();
+        }
+    }
+
+    private static void catalogReuse(GameState root) {
+
+        GameRunner.Options options = options(AgentSettings.paper(2, 2), 1903);
+        Map<Nation, LegalOrderCatalog> catalogs = new EnumMap<>(Nation.class);
+        Map<Nation, ActionCandidate> actions = new EnumMap<>(Nation.class);
+        LegalOrderGenerator legal = new LegalOrderGenerator();
+        for (Nation nation : root.aliveNations()) {
+            LegalOrderCatalog catalog = legal.generate(root, nation);
+            catalogs.put(nation, catalog);
+            actions.put(nation, new UniformActionGenerator().generate(
+                    new ActionGenerationRequest(root, nation, 1, 7), catalog).getFirst());
+        }
+        Simulator baseline = new Simulator();
+        Game reference = options.createGame(root);
+        GameState expected = baseline.peek(reference, actions);
+        Nation first = root.aliveNations().iterator().next();
+        Nation other = root.aliveNations().stream().filter(nation -> nation != first).findFirst().orElseThrow();
+        Map<Nation, LegalOrderCatalog> missing = new EnumMap<>(catalogs);
+        missing.remove(first);
+        Map<Nation, LegalOrderCatalog> wrongPower = new EnumMap<>(catalogs);
+        wrongPower.put(first, catalogs.get(other));
+
+        GameState incompatible;
+        if (root instanceof GameState_Retreats) {
+            incompatible = retreat();
+        } else if (root instanceof GameState_Adjustments) {
+            Game repeated = options.createGame(new GameState_Movement(
+                    new GameMoment(root.moment().year(), GamePhase.FALL_MOVEMENT), root.board()));
+            repeated.resolveMovement(List.of());
+            incompatible = repeated.snapshot();
+        } else {
+            incompatible = new GameState_Movement(
+                    new GameMoment(root.moment().year() + 1, root.moment().gamePhase()), root.board());
+        }
+        require(!root.equals(incompatible) && root.board().equals(incompatible.board()),
+                "Stale catalog fixture must retain the board but differ in phase context");
+        if (!(root instanceof GameState_Movement))
+            require(root.moment().equals(incompatible.moment()),
+                    "Pending-result fixture must retain the same moment");
+        Map<Nation, LegalOrderCatalog> stale = new EnumMap<>(catalogs);
+        stale.put(first, legal.generate(incompatible, first));
+        Set<UnitId> units = root instanceof GameState_Retreats retreats
+                ? retreats.movementResult().dislodgements().keySet()
+                : root.board().locations().keySet();
+        UnitId unit = units.stream()
+                .filter(value -> value.owner() == first).findFirst().orElseThrow();
+        Map<Nation, ActionCandidate> invalid = new EnumMap<>(actions);
+        invalid.put(first, new ActionCandidate(first, List.of(Order.hold(unit), Order.hold(unit)),
+                0.0, ActionCandidate.Source.HEURISTIC));
+
+        for (boolean enabled : new boolean[]{false, true}) {
+            PerformanceStats timings = new PerformanceStats(enabled);
+            Simulator simulator = new Simulator(timings);
+            Game game = options.createGame(root);
+            for (int repeat = 0; repeat < 2; repeat++)
+                samePosition(expected, simulator.peek(game, actions, catalogs));
+            for (var rejected : List.of(missing, wrongPower, stale)) {
+                rejection(() -> simulator.peek(game, actions, rejected));
+                require(game.snapshot().equals(root) && game.getSnapshot() == null
+                                && game.processorHistory().isEmpty(),
+                        "Rejected catalogs changed the simulation root");
+            }
+            require(rejection(baseline, reference, invalid).equals(
+                            rejection(() -> simulator.peek(game, invalid, catalogs))),
+                    "Reused catalogs bypassed candidate validation");
+            game.takeSnapshot();
+            try {
+                rejection(() -> simulator.advance(game, actions, stale));
+                require(game.snapshot().equals(root) && game.getSnapshot() != null
+                                && game.processorHistory().isEmpty(),
+                        "Rejected advance changed the caller's checkpoint");
+            } finally {
+                game.restoreFromSnapshot();
+            }
+            samePosition(expected, simulator.advance(game, actions, catalogs));
+            require(calls(timings, "validation legal catalogs") == 0,
+                    "Supplied catalogs were rebuilt during validation");
+            require(calls(timings, "simulation validation") == (enabled ? 8 : 0),
+                    "Catalog reuse skipped or repeated joint validation");
+            require(enabled || timings.snapshot().isEmpty(),
+                    "Disabled catalog reuse accumulated timings");
+
+            PerformanceStats rootTimings = new PerformanceStats(enabled);
+            ScoringEvaluator scoring = new ScoringEvaluator(ScoringSystem.SUM_OF_SQUARES);
+            Game searchGame = options.createGame(root);
+            JointActionEvaluator trials = JointActionEvaluator.uncached(searchGame, scoring, rootTimings);
+            for (int repeat = 0; repeat < 2; repeat++)
+                require(trials.evaluate(actions).equals(scoring.evaluate(expected)),
+                        "Root catalog reuse changed payoffs");
+            require(rejection(baseline, reference, invalid).equals(rejection(() -> trials.evaluate(invalid))),
+                    "A retained root catalog bypassed later candidate validation");
+            require(calls(rootTimings, "root legal catalogs") == (enabled ? actions.size() : 0)
+                            && calls(rootTimings, "validation legal catalogs") == 0
+                            && calls(rootTimings, "simulation validation") == (enabled ? 3 : 0)
+                            && trials.counts().simulations() == 3 && trials.counts().evaluations() == 2
+                            && trials.counts().failures() == 1 && trials.counts().hits() == 0
+                            && trials.counts().entries() == 0,
+                    "Root catalogs were rebuilt or payoff caching was enabled");
+            require(searchGame.snapshot().equals(root) && searchGame.getSnapshot() == null
+                            && searchGame.processorHistory().isEmpty(),
+                    "Root catalog reuse changed restoration");
+        }
+
+    }
+
+    private static void samePosition(GameState expected, GameState actual) {
+        require(expected.moment().equals(actual.moment()) && expected.board().equals(actual.board())
+                        && SelfPlayRecorder.state(expected).equals(SelfPlayRecorder.state(actual)),
+                "Catalog reuse changed the resolved position");
     }
 
     private static void archives(GameState initial) throws Exception {
@@ -127,6 +332,8 @@ public final class AgentPerformanceSelfCheck {
             require(decoded.phases().size() == result.record().resolvedPhases().size()
                             && calls(performance, "archive phase write") == decoded.phases().size()
                             && calls(performance, "real phase resolution") == decoded.phases().size()
+                            && calls(performance, "simulation validation") == decoded.phases().size()
+                            && calls(performance, "validation legal catalogs") == reference.size()
                             && calls(performance, "archive open") == 1
                             && calls(performance, "archive finish") == 1,
                     "Archive replay or timing coverage differs");
@@ -188,7 +395,11 @@ public final class AgentPerformanceSelfCheck {
         Game game = options(AgentSettings.paper(2, 2), 1903).createGame(state);
         game.resolveMovement(List.of(Order.hold(french), Order.move(german, Province.Bur),
                 Order.supportMove(support, Province.Mun, Province.Bur)));
-        require(game.snapshot() instanceof GameState_Retreats, "Retreat fixture was not reached");
+        require(game.snapshot() instanceof GameState_Retreats retreats
+                        && retreats.movementResult().dislodgements().containsKey(french)
+                        && !retreats.board().locations().containsKey(french)
+                        && retreats.aliveNations().contains(Nation.FRANCE),
+                "Retreat fixture must retain France with its only unit dislodged");
         return game.snapshot();
 
     }
@@ -204,8 +415,17 @@ public final class AgentPerformanceSelfCheck {
     }
 
     private static long calls(AgentPerformance performance, String name) {
-        return performance.timings().snapshot().stream().filter(value -> value.name().equals(name))
+        return calls(performance.timings(), name);
+    }
+
+    private static long calls(PerformanceStats timings, String name) {
+        return timings.snapshot().stream().filter(value -> value.name().equals(name))
                 .mapToLong(PerformanceStats.Measurement::calls).sum();
+    }
+
+    private static long nanos(PerformanceStats timings, String name) {
+        return timings.snapshot().stream().filter(value -> value.name().equals(name))
+                .mapToLong(PerformanceStats.Measurement::totalNanos).sum();
     }
 
     private static long sectionCalls(Object raw, String name) {

@@ -2,14 +2,16 @@ package agents.simulation;
 
 import agents.generation.ActionCandidate;
 import agents.generation.ActionValidationError;
-import agents.generation.ActionValidator;
 import agents.generation.CatalogActionValidator;
+import agents.generation.LegalOrderCatalog;
+import agents.generation.LegalOrderGenerator;
 import contracts.OrderForm;
 import domain.Nation;
 import game.Game;
 import game.GameState;
 import game.Moment;
 import game.record.GameRecordBuilder;
+import performance.PerformanceStats;
 import phase.Order;
 import phase.adjustments.AdjustmentOrder;
 import phase.retreats.RetreatOrder;
@@ -35,6 +37,19 @@ import java.util.*;
  */
 public class Simulator {
 
+    private static final PerformanceStats DISABLED_TIMINGS = new PerformanceStats(false);
+
+    private final PerformanceStats timings;
+
+    public Simulator() {
+        this(DISABLED_TIMINGS);
+    }
+
+    /** Shares optional validation timings with the caller's simulation scopes. */
+    public Simulator(PerformanceStats timings) {
+        this.timings = Objects.requireNonNull(timings, "timings");
+    }
+
     /**
      * Takes a "peek" at the next position without keeping the game's advance.
      *
@@ -56,6 +71,20 @@ public class Simulator {
      *         or its state cannot be resolved or restored
      */
     public GameState peek(Game game, Map<Nation, ActionCandidate> actions) {
+        return peekWithCatalogs(game, actions, null);
+    }
+
+    /**
+     * Reuses catalogs without skipping candidate validation. The non-null map
+     * must cover exactly the submitted nations and match the full current state.
+     */
+    public GameState peek(Game game, Map<Nation, ActionCandidate> actions,
+                          Map<Nation, LegalOrderCatalog> catalogs) {
+        return peekWithCatalogs(game, actions, Map.copyOf(Objects.requireNonNull(catalogs, "catalogs")));
+    }
+
+    private GameState peekWithCatalogs(Game game, Map<Nation, ActionCandidate> actions,
+                                       Map<Nation, LegalOrderCatalog> catalogs) {
 
         Objects.requireNonNull(game, "game");
         Objects.requireNonNull(actions, "actions");
@@ -64,7 +93,7 @@ public class Simulator {
 
         if (game.getSnapshot() != null)
             throw new IllegalStateException("Simulation requires a game without a saved checkpoint");
-        validate(game.snapshot(), submitted);
+        validate(game.snapshot(), submitted, catalogs);
 
         game.takeSnapshot();
         try {
@@ -93,9 +122,20 @@ public class Simulator {
      * @throws  IllegalArgumentException if a joint action is incomplete or invalid
      */
     public GameState advance(Game game, Map<Nation, ActionCandidate> actions) {
+        return advanceWithCatalogs(game, actions, null);
+    }
+
+    /** Same catalog contract as peek; checkpoint ownership remains with the caller. */
+    public GameState advance(Game game, Map<Nation, ActionCandidate> actions,
+                             Map<Nation, LegalOrderCatalog> catalogs) {
+        return advanceWithCatalogs(game, actions, Map.copyOf(Objects.requireNonNull(catalogs, "catalogs")));
+    }
+
+    private GameState advanceWithCatalogs(Game game, Map<Nation, ActionCandidate> actions,
+                                          Map<Nation, LegalOrderCatalog> catalogs) {
         Objects.requireNonNull(game, "game");
         Map<Nation, ActionCandidate> submitted = Map.copyOf(Objects.requireNonNull(actions, "actions"));
-        validate(game.snapshot(), submitted);
+        validate(game.snapshot(), submitted, catalogs);
         return resolveValidated(game, submitted);
     }
 
@@ -110,7 +150,7 @@ public class Simulator {
         Objects.requireNonNull(resolvedAt, "resolvedAt");
         Map<Nation, ActionCandidate> submitted = Map.copyOf(Objects.requireNonNull(actions, "actions"));
         GameState root = archive.snapshot();
-        validate(root, submitted);
+        validate(root, submitted, null);
         Orders orders = orders(submitted);
         switch (root.moment().gamePhase()) {
             case SPRING_MOVEMENT, FALL_MOVEMENT -> archive.resolveMovement(orders.movement(), resolvedAt);
@@ -120,24 +160,37 @@ public class Simulator {
         return archive.snapshot();
     }
 
-    private static void validate(GameState state, Map<Nation, ActionCandidate> submitted) {
-        Set<Nation> missing = EnumSet.noneOf(Nation.class);
-        missing.addAll(state.aliveNations());
-        missing.removeAll(submitted.keySet());
-        if (!missing.isEmpty())
-            throw new IllegalArgumentException("Missing candidates for living nations: " + missing);
+    private void validate(GameState state, Map<Nation, ActionCandidate> submitted,
+                          Map<Nation, LegalOrderCatalog> catalogs) {
+        try (var validation = this.timings.measure("simulation validation")) {
+            Set<Nation> missing = EnumSet.noneOf(Nation.class);
+            missing.addAll(state.aliveNations());
+            missing.removeAll(submitted.keySet());
+            if (!missing.isEmpty())
+                throw new IllegalArgumentException("Missing candidates for living nations: " + missing);
+            if (catalogs != null && !catalogs.keySet().equals(submitted.keySet()))
+                throw new IllegalArgumentException("Catalogs must cover exactly the submitted nations");
 
-        ActionValidator validator = new CatalogActionValidator();
-        for (Nation nation : Nation.values()) {
-            ActionCandidate candidate = submitted.get(nation);
-            if (candidate == null)
-                continue;
-            if (candidate.power() != nation)
-                throw new IllegalArgumentException("Candidate power does not match map key: " + nation);
+            CatalogActionValidator validator = new CatalogActionValidator();
+            for (Nation nation : Nation.values()) {
+                ActionCandidate candidate = submitted.get(nation);
+                if (candidate == null)
+                    continue;
+                if (candidate.power() != nation)
+                    throw new IllegalArgumentException("Candidate power does not match map key: " + nation);
 
-            List<ActionValidationError> errors = validator.validate(state, candidate);
-            if (!errors.isEmpty())
-                throw new IllegalArgumentException("Invalid action for " + nation + ": " + errors);
+                LegalOrderCatalog catalog;
+                if (catalogs == null) {
+                    try (var generation = this.timings.measure("validation legal catalogs")) {
+                        catalog = new LegalOrderGenerator().generate(state, candidate.power());
+                    }
+                } else {
+                    catalog = catalogs.get(nation);
+                }
+                List<ActionValidationError> errors = validator.validate(state, candidate, catalog);
+                if (!errors.isEmpty())
+                    throw new IllegalArgumentException("Invalid action for " + nation + ": " + errors);
+            }
         }
     }
 

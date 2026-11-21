@@ -6,6 +6,7 @@ import domain.Nation;
 import game.Game;
 import game.GameState;
 import game.GameState_Adjustments;
+import performance.PerformanceStats;
 
 import java.util.*;
 import java.util.function.Function;
@@ -43,12 +44,15 @@ import java.util.function.Function;
  */
 public class RolloutEvaluator implements Evaluator {
 
-    private final Evaluator leafEvaluator;
-    private final ActionGenerator generator;
-    private final Function<GameState, Game> gameFactory;
-    private final int rolloutCount;
-    private final int candidateLimit;
-    private final long seed;
+    private static final PerformanceStats DISABLED_TIMINGS = new PerformanceStats(false);
+
+    private final   Evaluator                   leafEvaluator;
+    private final   ActionGenerator             generator;
+    private final   Function<GameState, Game>   gameFactory;
+    private final   int                         rolloutCount;
+    private final   int                         candidateLimit;
+    private final   long                        seed;
+    private final   PerformanceStats            timings;
 
     /**
      * Uses PlausibleActionGenerator and Game.fromState's standard processors.
@@ -85,6 +89,19 @@ public class RolloutEvaluator implements Evaluator {
             int candidateLimit,
             long seed
     ) {
+        this(leafEvaluator, generator, gameFactory, rolloutCount, candidateLimit, seed, DISABLED_TIMINGS);
+    }
+
+    /** Shares catalog and simulation-validation timings without changing the continuation. */
+    public RolloutEvaluator(
+            Evaluator leafEvaluator,
+            ActionGenerator generator,
+            Function<GameState, Game> gameFactory,
+            int rolloutCount,
+            int candidateLimit,
+            long seed,
+            PerformanceStats timings
+    ) {
         this.leafEvaluator = Objects.requireNonNull(leafEvaluator, "leafEvaluator");
         this.generator = Objects.requireNonNull(generator, "generator");
         this.gameFactory = Objects.requireNonNull(gameFactory, "gameFactory");
@@ -93,6 +110,7 @@ public class RolloutEvaluator implements Evaluator {
         this.rolloutCount = rolloutCount;
         this.candidateLimit = candidateLimit;
         this.seed = seed;
+        this.timings = Objects.requireNonNull(timings, "timings");
     }
 
     /**
@@ -115,7 +133,7 @@ public class RolloutEvaluator implements Evaluator {
             throw new IllegalStateException("Rollout game does not match the supplied position");
 
         Random random = new Random(seed);
-        Simulator simulator = new Simulator();
+        Simulator simulator = new Simulator(this.timings);
         Map<Nation, Double> means = new EnumMap<>(Nation.class);
         for (Nation nation : Nation.values())
             means.put(nation, 0.0);
@@ -125,7 +143,8 @@ public class RolloutEvaluator implements Evaluator {
             try {
                 GameState current = state;
                 while (!(current instanceof GameState_Adjustments)) {
-                    GameState next = simulator.advance(game, sampleActions(current, random));
+                    SampledActions sampled = sampleActions(current, random);
+                    GameState next = simulator.advance(game, sampled.actions(), sampled.catalogs());
                     if (next.moment().year() != state.moment().year()
                             || next.moment().compareTo(current.moment()) <= 0)
                         throw new IllegalStateException("Rollout must advance within the current year");
@@ -145,11 +164,19 @@ public class RolloutEvaluator implements Evaluator {
         return Collections.unmodifiableMap(means);
     }
 
-    private Map<Nation, ActionCandidate> sampleActions(GameState state, Random random) {
+    private record SampledActions(Map<Nation, ActionCandidate> actions,
+                                  Map<Nation, LegalOrderCatalog> catalogs) { }
+
+    private SampledActions sampleActions(GameState state, Random random) {
         Map<Nation, ActionCandidate> actions = new EnumMap<>(Nation.class);
+        Map<Nation, LegalOrderCatalog> catalogs = new EnumMap<>(Nation.class);
         LegalOrderGenerator legalOrders = new LegalOrderGenerator();
         for (Nation nation : state.aliveNations()) {
-            LegalOrderCatalog catalog = legalOrders.generate(state, nation);
+            LegalOrderCatalog catalog;
+            try (var generation = this.timings.measure("rollout legal catalogs")) {
+                catalog = legalOrders.generate(state, nation);
+            }
+            catalogs.put(nation, catalog);
             List<ActionCandidate> candidates = List.copyOf(generator.generate(
                     new ActionGenerationRequest(state, nation, candidateLimit, random.nextLong()), catalog));
             if (candidates.isEmpty() || candidates.size() > candidateLimit)
@@ -159,7 +186,7 @@ public class RolloutEvaluator implements Evaluator {
                     throw new IllegalStateException("Generator returned an action for another nation");
             actions.put(nation, ActionDistribution.fromPriors(candidates).sample(random));
         }
-        return actions;
+        return new SampledActions(actions, catalogs);
     }
 
     private Map<Nation, Double> leafValues(GameState state) {

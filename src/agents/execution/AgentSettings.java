@@ -136,7 +136,7 @@ public record AgentSettings(
         }
         return new RolloutEvaluator(new ScoringEvaluator(options.scoring()),
                 generator, factory,
-                this.rolloutCount, this.rolloutLimit, seed);
+                this.rolloutCount, this.rolloutLimit, seed, performance.timings());
 
     }
 

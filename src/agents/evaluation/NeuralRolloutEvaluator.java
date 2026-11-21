@@ -55,7 +55,7 @@ public final class NeuralRolloutEvaluator implements Evaluator {
             throw new IllegalArgumentException("Invalid final year");
         this.lastYear = lastYear;
         this.rollout = new RolloutEvaluator(this::leaf, generator, gameFactory,
-                rolloutCount, candidateLimit, seed);
+                rolloutCount, candidateLimit, seed, this.timings);
 
     }
 

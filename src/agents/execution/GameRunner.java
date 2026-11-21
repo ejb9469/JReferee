@@ -26,7 +26,7 @@ import java.util.function.Consumer;
  * position. The real game advances only after all actions are collected.
  * A solo takes precedence over the final-year cutoff.
  */
-public class GameRunner {
+public final class GameRunner {
 
 
     // Configuration and results \\
@@ -220,7 +220,7 @@ public class GameRunner {
         GameRecordBuilder archive = new GameRecordBuilder(
                 id, options.rulesetId(), game);
 
-        Simulator simulator = new Simulator();
+        Simulator simulator = new Simulator(performance.timings());
         GameState root = initial;
 
         while (true) {

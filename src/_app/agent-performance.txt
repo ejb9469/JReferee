@@ -14,6 +14,11 @@ Main classes, without arguments:
 The last check uses small synthetic/model-free fixtures and temporary files.
 It covers movement, retreat and adjustment decisions, all three agent methods,
 root restoration, recorder readback, warm-up separation and report rejection.
+It also checks catalog/validation timings with diagnostics enabled and disabled,
+including missing nations, duplicate orders, peek/advance and real recording.
+Catalog-reuse checks cover movement, retreats and adjustments; wrong-power,
+missing and stale catalogs; unchanged legality failures and checkpoints; and
+one retained root catalog per living power without payoff caching.
 
 To include the actual neural value and coherent typed movement path:
   testing.selfcheck.AgentPerformanceSelfCheck
@@ -149,12 +154,181 @@ attempts are counted. Internal Judge passes do not get separate counters.
 The profiler prints measured counters and timings; detailed warm-up data is
 available in the files. Report writing itself is outside the timing sections.
 
+SIMULATION VALIDATION AND CATALOGS
+
+Four scopes distinguish construction from validation:
+  simulation validation:
+    One complete joint-submission validation in Simulator.peek or any
+    Simulator.advance overload. Includes nation coverage, power checks,
+    catalog matching and the existing candidate validation. Legacy calls
+    without supplied catalogs also include catalog construction.
+  validation legal catalogs:
+    Fresh catalog construction for legacy calls without supplied catalogs,
+    nested inside simulation validation. Fixed-decision search/rollout paths
+    now reuse catalogs and do not enter this row.
+  root legal catalogs:
+    One catalog per living power, built on the first uncached joint trial
+    and retained by that fixed-root JointActionEvaluator only. Nested inside
+    root simulation, outside simulation validation.
+  rollout legal catalogs:
+    Catalog construction for each living nation's continuation pool, before
+    its generator is called. The same catalog then validates that phase's
+    sampled action; no second construction occurs in Simulator.
+
+Root simulations, both scoring and neural continuations, and actual recorded
+phases share the caller's timings. The real-phase validation scopes are inside
+real phase resolution, not inside a focal agent decision.
+Simulation validation counts joint submissions; the catalog rows count
+per-nation constructions, including empty actions when they are submitted.
+Scopes count entered attempts, including exceptions. Missing nations fail
+before legacy validation builds a catalog. Argument/checkpoint failures
+before validation do not enter these scopes.
+
+These are not application-wide catalog totals. Root-pool preparation, proposal
+encodings, and validators called outside Simulator are not separately covered
+by these rows. Root candidate generation retains its existing inclusive timer.
+The supplied-catalog validator overload retains every legality check.
+
+In a fixed-decision report, simulation validation is nested within root
+simulation or continuation evaluation. Do not add validation legal catalogs
+to simulation validation. Rollout legal catalogs is inside continuation
+evaluation, but outside rollout generation and simulation validation. Root
+legal catalogs is a separate child of root simulation, not an extra total.
+Existing work counters and report schemas are unchanged.
+
+Legacy constructors remain untimed. Disabled timings use shared no-op scopes:
+no timer allocation, clock reads or timing-map updates. Enabled execution adds
+one scope per joint validation and one per instrumented catalog construction,
+not per order, option, validator rule or recursive resolver call.
+
 For before/after comparisons use the same archive, phase, power, models,
 budgets, seeds, JVM/heap settings and repetition counts. Compare decision
 SHA-256 and work counters as well as elapsed time. One position is not a
 representative whole-game speed estimate. Sample several completed positions
 separately before choosing an optimization; do not aggregate nested rows.
 Evaluation archives remain excluded from training.
+
+BOUNDED CATALOG REUSE
+
+JointActionEvaluator retains only its own root catalogs, at most seven.
+It still rejects a changed root or an existing checkpoint before a trial.
+RolloutEvaluator keeps catalogs only for the current sampled phase and passes
+them into Simulator.advance. Nothing is retained globally or across games.
+Joint-payoff caching remains disabled in normal agent execution.
+
+Simulator's existing overloads still construct fresh catalogs. New peek and
+advance overloads take a non-null Map<Nation, LegalOrderCatalog> covering
+exactly the submitted nations, including any explicitly submitted eliminated
+nations. Partial maps, extra keys, wrong powers and stale states are rejected.
+There is no fallback to skip validation or silently fill a missing catalog.
+CatalogActionValidator checks the full state and power as before. Matching
+only the year/phase and board is insufficient for pending retreat or winter
+results; their original state matching is retained.
+
+The optimization does not remove candidate validation, model inference,
+joint trials, phase resolution or any random draw. No candidate pool, anchor,
+payoff, order ordering, seed, budget or stopping rule is intentionally changed.
+Catalog matching remains active even after a catalog has been reused.
+
+BEFORE/AFTER POSITIONS: CATALOG REUSE (v2 TO v3)
+
+Before applying the catalog-reuse replacements, preserve the v2 opening
+report and collect Spring 1910 and Spring 1925 baselines from the same
+pair-00000-reference archive. Phase indices depend on skipped retreats.
+Do not calculate them from a year formula or use the match viewer's merged
+timeline index.
+
+From PowerShell at the project root, this read-only command prints the exact
+AgentPerformanceApp arguments for the two baseline positions:
+
+  $archive = 'data/value-match-v1-vs-supervised/archives/pair-00000-reference'
+  $indices = @{}
+  Get-Content "$archive/phases.jsonl" -ErrorAction Stop | ForEach-Object {
+      $phase = $_ | ConvertFrom-Json -ErrorAction Stop
+      $year = [int]$phase.state.moment.year
+      if (($year -in @(1910, 1925)) -and
+          $phase.state.moment.phase -eq 'SPRING_MOVEMENT' -and
+          $phase.decisions.power -contains 'ENGLAND') {
+          if ($indices.ContainsKey($year)) { throw "Duplicate Spring $year" }
+          $indices[$year] = [int]$phase.index
+      }
+  }
+  foreach ($year in 1910, 1925) {
+      if (-not $indices.ContainsKey($year)) {
+          throw "No recorded England decision in Spring $year"
+      }
+      "$archive $($indices[$year]) ENGLAND data/value-java-v1/model.bin data/movement-linear-v1/policy.bin data/movement-self-play-java-v3/model.bin 1 3 data/agent-performance-reference-s$year-v2"
+  }
+
+Run _app.AgentPerformanceApp once per printed argument line using the current
+pre-reuse build. The two output directories must not already exist. These
+reports are small local baselines, not new games or training data.
+
+After applying the replacements and passing AgentPerformanceSelfCheck,
+repeat those exact two commands with only the output suffix changed from
+-v2 to -v3. Also repeat the opening with:
+  data/value-match-v1-vs-supervised/archives/pair-00000-reference
+  0 ENGLAND
+  data/value-java-v1/model.bin
+  data/movement-linear-v1/policy.bin
+  data/movement-self-play-java-v3/model.bin
+  1 3 data/agent-performance-reference-opening-v3
+
+For the known opening with three measured repetitions, expect:
+  recorded_decision_reproduced: true
+  decision_sha256:
+    98d73630e792353786d99539ad144ad02519088f59115d7c053e46746ec800e5
+  joint_requests/root_simulations/continuation_evaluations: 528 each
+  movements/plain_adjudicator_calls: 1056 each
+  simulation validation calls: 1140
+  root legal catalogs calls: 21
+  rollout legal catalogs calls: 4284
+  validation legal catalogs calls: 0 (row absent)
+
+The named catalog construction count falls from 12264 to 4305 across three
+decisions. Root-proposal catalogs outside these rows are not included.
+The expected count reduction is not a measured runtime improvement. Compare
+the same positions and their exact decision hashes before interpreting times.
+Keep all baseline reports; more repetitions may be needed for stable timing.
+
+COAST ENUMERATION REUSE (v4)
+
+Province.hasCoast now iterates a private Province[] initialized once after
+the enum constants. The array is not exposed and is not used by constructors.
+Only enum membership/order is retained. Geography and parent fields are still
+read on every lookup; coast answers and adjacency are not cached.
+
+This removes the values() array copy from hasCoast, not its coast scan.
+Other Province.values() calls, catalog options, ordering, validation, models,
+random draws and work counters remain unchanged. No new timing scopes.
+
+Rebuild and run AgentPerformanceSelfCheck before profiling. Use
+data/value-java-v1/model.bin as the value argument for the reference model.
+Preserve the ordinary v3 report and the v3 JFR recording.
+
+For ordinary before/after timing, remove the StartFlightRecording VM option
+and run _app.AgentPerformanceApp with:
+  data/value-match-v1-vs-supervised/archives/pair-00000-reference
+  0 ENGLAND
+  data/value-java-v1/model.bin
+  data/movement-linear-v1/policy.bin
+  data/movement-self-play-java-v3/model.bin
+  1 3 data/agent-performance-reference-opening-v4
+
+For an allocation comparison with the existing v3 JFR run, use this VM option:
+  -XX:StartFlightRecording=filename=data/agent-performance-reference-opening-v4.jfr,settings=profile,dumponexit=true
+
+Keep the archive, phase, power and models unchanged, but replace the final
+three program arguments with:
+  5 20 data/agent-performance-reference-opening-v4-jfr
+
+Use new output paths. The .jfr file is directly under data, not inside the
+report directory. Compare ordinary timing with ordinary timing, and the
+JFR run with its identically configured JFR baseline. Reproduction, decision
+SHA-256 and per-decision work must stay unchanged. Expect no recurring
+Province[] allocation stack through hasCoast; allocations at other values()
+calls remain. JFR allocation weights estimate bytes, not retained heap size
+or elapsed-time percentages. No whole-game speedup is inferred.
 
 OPTIONAL WHOLE-GAME INTEGRATION
 
@@ -177,6 +351,8 @@ The standalone app separately times SelfPlayDataset.open for full read/replay.
 Archive fingerprints can differ because their existing elapsed_nanos fields
 are diagnostic; settings, decisions, rules, seeds and outcomes are unchanged.
 
-This slice changes no generation/filtering, search algorithm, continuation
-horizon, adjudication policy, cache policy, training, model promotion or match
-protocol. Existing proposal/search-budget benchmarks remain unchanged.
+These changes reuse state-bound catalogs and the internal province enumeration.
+They change no
+generation/filtering, search algorithm, continuation horizon, adjudication
+policy, joint-payoff cache policy, training, model promotion or match protocol.
+Existing proposal/search-budget benchmark settings remain unchanged.

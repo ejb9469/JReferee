@@ -2,6 +2,8 @@ package agents.search;
 
 import agents.evaluation.Evaluator;
 import agents.generation.ActionCandidate;
+import agents.generation.LegalOrderCatalog;
+import agents.generation.LegalOrderGenerator;
 import agents.simulation.Simulator;
 import contracts.OrderForm;
 import domain.Nation;
@@ -23,31 +25,39 @@ import java.util.*;
  * Repeated orders retain their multiplicity. Only successful, finite, complete
  * payoff maps are cached. Hits do not invoke processors or the evaluator.</p>
  *
+ * <p>Legal catalogs are retained only for this fixed root, independently of
+ * payoff caching. Every simulated submission is still validated against them.</p>
+ *
  * <p>Single-threaded. Custom processor state and external records are outside
  * Game's rollback and must not affect a cached evaluation.</p>
+ *
+ * @author Evan B.
  */
 public final class JointActionEvaluator {
 
-    private final Game game;
-    private final GameState root;
-    private final Evaluator evaluator;
-    private final PerformanceStats timings;
-    private final int capacity;
-    private final Simulator simulator = new Simulator();
-    private final Map<Map<Nation, Map<OrderForm, Integer>>, Map<Nation, Double>> cache =
-            new LinkedHashMap<>(16, 0.75f, true);
-    private long requests;
-    private long hits;
-    private long simulations;
-    private long evaluations;
-    private long failures;
-    private long evictions;
+    private final       Game                game;
+    private final       GameState           root;
+    private final       Evaluator           evaluator;
+    private final       PerformanceStats    timings;
+    private final       int                 capacity;
+    private final       Simulator           simulator;
+    private             Map<Nation, LegalOrderCatalog> catalogs;
+    private final       Map<Map<Nation, Map<OrderForm, Integer>>, Map<Nation, Double>>
+                                            cache =
+                                                new LinkedHashMap<>(16, 0.75f, true);
+    private             long                requests;
+    private             long                hits;
+    private             long                simulations;
+    private             long                evaluations;
+    private             long                failures;
+    private             long                evictions;
 
     private JointActionEvaluator(Game game, Evaluator evaluator, int capacity, PerformanceStats timings) {
         this.game = Objects.requireNonNull(game, "game");
         this.root = SearchSupport.root(game);
         this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
         this.timings = Objects.requireNonNull(timings, "timings");
+        this.simulator = new Simulator(this.timings);
         this.capacity = capacity;
     }
 
@@ -100,7 +110,7 @@ public final class JointActionEvaluator {
             GameState successor;
             try (var simulation = measure("root simulation")) {
                 simulations++;
-                successor = simulator.peek(game, submitted);
+                successor = simulator.peek(game, submitted, rootCatalogs());
             }
             Map<Nation, Double> values;
             try (var evaluation = measure("continuation evaluation")) {
@@ -121,6 +131,20 @@ public final class JointActionEvaluator {
             if (!completed)
                 failures++;
         }
+    }
+
+    private Map<Nation, LegalOrderCatalog> rootCatalogs() {
+        if (catalogs == null) {
+            Map<Nation, LegalOrderCatalog> generated = new EnumMap<>(Nation.class);
+            LegalOrderGenerator generator = new LegalOrderGenerator();
+            for (Nation nation : root.aliveNations()) {
+                try (var generation = measure("root legal catalogs")) {
+                    generated.put(nation, generator.generate(root, nation));
+                }
+            }
+            catalogs = Map.copyOf(generated);
+        }
+        return catalogs;
     }
 
     void requireContext(Game game, Evaluator evaluator) {
