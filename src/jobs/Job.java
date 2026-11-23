@@ -10,11 +10,13 @@ import java.util.concurrent.Future;
  * A cancelled handle can be done before its worker finishes cleaning up.
  */
 public interface Job<O extends JobResult> extends Future<O> {
+    // TODO: Decide whether strict, stating typing is appropriate, i.e. if we should drop "extends JobResult"
 
     UUID id();
 
     /**
-     * The latest progress message, not the complete job log.
+     * The latest progress message.
+     * This is not a log.
      */
     Optional<String> progress();
 

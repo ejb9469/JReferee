@@ -10,7 +10,8 @@ import java.util.concurrent.ExecutionException;
 import static _app.WorkerAppSupport.*;
 
 /**
- * Runs one explicitly configured self-play job, without retries or seed allocation.
+ * Runs one explicitly configured self-play job,
+ *  without retries or seed allocation.
  */
 public final class SelfPlayWorkerApp {
 
@@ -30,8 +31,12 @@ public final class SelfPlayWorkerApp {
     static Configuration read(Path file) throws IOException {
 
         file = file.toAbsolutePath().normalize();
-        Path base = file.getParent();
-        Properties properties = load(file);
+        return read(load(file), file.getParent());
+
+    }
+
+    static Configuration read(Properties properties, Path base) throws IOException {
+
         Path java = base.resolve(take(properties, "java"));
         int heap = Integer.parseInt(take(properties, "heap_mib"));
         int count = Integer.parseInt(take(properties, "classpath.count"));
