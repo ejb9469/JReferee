@@ -1,11 +1,9 @@
 package parsing;
 
 
-import parsing.diplobn.DiploBNParser;
-
 /**
  * Indicates malformed JSON or a value that does not conform to the DiploBN
- * game JSON schema supported by {@link DiploBNParser}.
+ * game JSON schema supported by {@link parsing.diplobn.DiploBNParser}.
  */
 public final class ParseException extends IllegalArgumentException {
 

@@ -1,0 +1,138 @@
+SELF-PLAY WORKER
+
+Use a separate project copy while collection or evaluation is running.
+Do not rebuild its live class directory, change its models or reuse reserved
+seeds. Nothing in this implementation automatically schedules games.
+
+Keep the existing Worker, Workplace, Job, Workforce, LocalWorkforce and
+FileVerificationWorker files. Add ChildProcess, JavaProcessWorker, SelfPlayWorker,
+SelfPlayReceipts and SelfPlayWorkerSelfCheck to package jobs.
+
+Replace parsing/ParseException.java with the supplied version. Its only
+change is a qualified Javadoc link instead of a parser import. The shared
+JSON reader can then compile without pulling in the game engine.
+
+Build the separate copy, then run:
+
+  jobs.SelfPlayWorkerSelfCheck
+
+No arguments or models are required. The check launches real tiny child JVMs
+and verifies synthetic file receipts. Those fixtures are not Diplomacy games
+or valid numeric training caches. This is not a full real-model batch test.
+
+Runtime
+-------
+JavaProcessWorker.Runtime holds the Java executable, an ordered list of
+hash-pinned classpath JARs, and the child heap size in MiB.
+Use Java 25 or later. Start with a 2048 MiB child heap and LocalWorkforce(1, 8).
+The parent has its own memory use; the heap bound is per child.
+
+Use a frozen application JAR instead of out/production/JReferee. This avoids
+later IDE rebuilds silently changing classes loaded by a long-running child.
+After building the separate project, run this block in PowerShell from that
+copy's project root. It rejects existing runtime output:
+
+  & {
+      $ErrorActionPreference = 'Stop'
+      if (Test-Path -LiteralPath 'data/worker-runtime-v1') {
+          throw 'Runtime directory already exists.'
+      }
+      New-Item -ItemType Directory -Path data/worker-runtime-v1 | Out-Null
+      & 'C:\Program Files\Java\jdk-25\bin\jar.exe' --create --file data/worker-runtime-v1/jreferee.jar -C out/production/JReferee .
+      if ($LASTEXITCODE -ne 0) { throw 'JAR creation failed' }
+      Get-FileHash data/worker-runtime-v1/jreferee.jar -Algorithm SHA256
+  }
+
+Use that recorded hash when constructing its FileVerificationWorker.Request.
+Pin any additional dependency JARs the same way and list them explicitly.
+Do not overwrite a runtime directory or recompute expected hashes on retry.
+JAR manifest Class-Path entries are rejected so dependencies cannot escape
+the pinned list. JAVA_TOOL_OPTIONS, JDK_JAVA_OPTIONS and _JAVA_OPTIONS must
+be unset. The child receives explicit heap, UTF-8 and classpath arguments,
+no shell, inherited debugger agent or JFR options.
+
+Submission
+----------
+Construct SelfPlayWorker(runtime), then submit a SelfPlayWorker.Request:
+
+  value:      Optional<FileVerificationWorker.Request>; empty means baseline
+  anchor:     pinned movement anchor
+  policy:     pinned Java movement GRU export, not its Python .pt checkpoint
+  lastYear:   1930
+  candidates: 4
+  iterations: 8
+  firstSeed:  a deliberately reserved, unused seed
+  games:      8 recommended; 1 through 128 supported
+  splitSeed:  7
+  directory:  NEW attempt directory with an existing parent
+
+The request keeps exact settings and model hashes. A worker instance can be
+reused for different jobs; submitted requests are immutable.
+
+  try (Workforce workforce = new LocalWorkforce(1, 8)) {
+      Job<SelfPlayWorker.Result> job =
+              workforce.submit(new SelfPlayWorker(runtime), request);
+      SelfPlayWorker.Result result = job.get();
+      System.out.println(result);
+  }
+
+Imports for this example: jobs.*. Runtime and request are constructed as
+described above. Future failures keep their original cause; inspect
+ExecutionException.getCause() and the process log.
+
+One request executes the existing _app.SelfPlayBatchApp exactly once.
+Its standard-start, seven-seat, JUDGE, SUM_OF_SQUARES, AVERAGE, one-rollout,
+COHERENT_GRU_HYBRID/UNIFORM configuration is unchanged.
+
+Output and completion
+---------------------
+Each attempt creates:
+
+  request.properties
+  process.pid
+  process.log
+  batch/plan.json
+  batch/games.jsonl
+  batch/archives/...
+  batch/cache/...
+  batch/manifest.json
+  worker-complete.properties
+
+The child creates batch/; the worker owns the surrounding attempt directory.
+Supply batch/cache to a later training preflight, not the attempt directory.
+Properties files describe the launcher; existing batch/cache formats are
+unchanged. The worker completion receipt is published atomically last.
+
+Success requires exit code zero, unchanged runtime/model hashes, matching
+seed/settings/model metadata, archive file receipts, and all declared cache
+file receipts. Missing, changed or mismatched outputs fail explicitly.
+Metadata documents are limited to 16 MiB; payload hashes stream in 64 KiB
+chunks. The worker does not replay adjudication or interpret numeric arrays:
+the batch's replay checks and the later full training-cache preflight remain
+necessary. Keep inputs and completed outputs immutable.
+
+process.log receives stdout and stderr directly, so a quiet or noisy child
+cannot fill an unread output pipe. The workplace receives the latest complete
+line from a bounded log tail, not every message. Preserve the full log.
+
+Both cancel(false) and cancel(true) stop the child. The worker checks every
+250 ms while waiting, requests termination, and forces termination after
+two seconds if necessary. It waits for exit before releasing its execution
+slot. Partial output is preserved, never overwritten, resumed or deleted.
+JavaProcessWorker is only for trusted mains that do not spawn further
+processes; SelfPlayBatchApp satisfies that restriction.
+ChildProcess provides the shared lifecycle; Python training uses it too.
+See policy-training-worker.txt for that separate, explicitly submitted job.
+
+get(timeout) only limits the caller's wait; it does not cancel the job.
+close drains accepted work. A cancelled Future is not proof of usable
+training data, even if the child had already written its own manifest.
+The worker receipt records artifact verification, not training admission.
+Abruptly killing the parent can bypass cleanup. process.pid records the
+owned child; confirm its command and attempt directory before acting on it,
+because operating systems reuse PIDs. There is no crash recovery or retry.
+
+Any deliberate retry needs identical settings/seeds, a fresh attempt
+directory, and confirmation that the previous child has stopped. Admit only
+one successful attempt. Seed reservations and training/evaluation separation
+remain the caller's responsibility; there is no global seed registry here.

@@ -1,0 +1,106 @@
+SELF-PLAY WORKER LAUNCHER
+
+Main class: _app.SelfPlayWorkerApp
+Program arguments: one UTF-8 .properties configuration file
+Working directory: project root is convenient but not required.
+All relative paths INSIDE the file resolve against that file's directory.
+Use forward slashes in Windows property paths; backslashes are escape characters.
+Do not quote property values containing spaces.
+
+Use a separate project copy. Do not rebuild the running collection's project.
+After building the copy, run this main class with no arguments:
+
+  _app.SelfPlayWorkerAppSelfCheck
+
+It checks the launcher with synthetic workers and a real JVM shutdown fixture.
+It does not play a game or require model binaries. Existing checks remain:
+
+  testing.selfcheck.WorkforceSelfCheck
+  jobs.SelfPlayWorkerSelfCheck
+
+The launcher runs exactly one SelfPlayWorker through LocalWorkforce(1, 1).
+It displays the job ID, output/log locations, changing progress messages,
+dataset fingerprint and final manifest hashes. Failure exits nonzero with
+the original cause; partial files and the process log remain for diagnosis.
+
+Graceful JVM shutdown, including a normal terminal Ctrl+C, cancels the active
+job and waits for its child-process cleanup. Interrupting the launcher thread
+also cancels, waits, and restores interruption. Force-killing the JVM, some
+IDE stop actions, power loss or OS termination may bypass shutdown hooks.
+Do not assume a missing parent means its child has stopped.
+
+Runtime setup
+-------------
+First package a frozen application JAR using jobs/self-play-worker.txt.
+Keep the expected hash recorded at packaging; do not recompute it on retry.
+Include each required dependency JAR explicitly with its own pinned hash.
+The child does not inherit IntelliJ's classpath. A JAR manifest Class-Path
+cannot supply extra dependencies. The launcher itself uses the project's
+normal classpath, which may differ from the pinned child runtime.
+
+There are no implicit settings or hash defaults. Unknown or missing keys,
+invalid hashes/budgets and existing output fail. Hash contents are checked by
+the worker before launching. For baseline scoring use value.file=baseline
+and OMIT value.sha256; the supervised example below retains the value model.
+
+First real-model smoke, AFTER the current collection finishes
+-----------------------------------------------------------
+Save the following as worker-smoke.properties in the separate project root.
+Replace every REPLACE_... value with its actual, previously recorded SHA-256.
+The model hashes below identify the existing supervised value, fixed anchor
+and typed-v3 movement exports. Do not substitute newly trained value weights.
+If paths differ in the separate copy, change paths, not expected hashes.
+
+  java=C:/Program Files/Java/jdk-25/bin/java.exe
+  heap_mib=2048
+  classpath.count=3
+  classpath.0.file=data/worker-runtime-v1/jreferee.jar
+  classpath.0.sha256=REPLACE_WITH_APPLICATION_JAR_SHA256
+  classpath.1.file=C:/sqlite-jdbc-3.53.4.0.jar
+  classpath.1.sha256=REPLACE_WITH_SQLITE_JAR_SHA256
+  classpath.2.file=C:/Users/tort/.m2/repository/org/jetbrains/annotations/26.0.2/annotations-26.0.2.jar
+  classpath.2.sha256=REPLACE_WITH_ANNOTATIONS_JAR_SHA256
+  value.file=data/value-java-v1/model.bin
+  value.sha256=bbb9cb3dfe60a0b472a63d4e9015307f86d224748396feee3f99e8752a36ed41
+  anchor.file=data/movement-linear-v1/policy.bin
+  anchor.sha256=21bf9b056079632fa91930d5746f7a7e89b6f278d8cd732a3575e3f212fca153
+  policy.file=data/movement-self-play-java-v3/model.bin
+  policy.sha256=3a9495b6dd7868995671a7ad16a4cb137691b90bdfd22c1e67df190e8d881b58
+  last_year=1902
+  candidates=4
+  iterations=8
+  first_seed=752
+  games=1
+  split_seed=7
+  output=data/self-play-worker-smoke-v1
+
+Use Get-FileHash -Algorithm SHA256 on the exact two dependency JAR paths to
+record their hashes, and preserve those receipts alongside the application
+JAR receipt. These are identity checks, not downloads or trust verification.
+All placeholders must be replaced before the configuration can run.
+
+In IntelliJ:
+  Main class:        _app.SelfPlayWorkerApp
+  Program arguments: worker-smoke.properties
+  Working directory: separate project root
+
+This example reserves seed 752 for a one-game, 1902-limited smoke only.
+Keep it out of training and strength evaluation. Seeds 496-751 remain the
+running production collection; do not repeat or interrupt them.
+No real smoke game has been run merely by creating these files.
+
+Successful output is under data/self-play-worker-smoke-v1, with:
+  process.log
+  process.pid
+  worker-complete.properties
+  batch/manifest.json
+  batch/cache/manifest.json
+
+The worker validates file receipts, not playing strength. A one-game batch
+may lack VALIDATION data and still be a successful smoke. Do not change its
+split seed or collect extra games just to make that warning disappear.
+
+Keep request.properties and all completed/partial output. If something fails,
+inspect the exception and process.log. Confirm any old child has stopped
+before a deliberate retry with the same settings/seeds in a NEW directory.
+Do not overwrite output or include both attempts in a later corpus.

@@ -1,0 +1,220 @@
+POLICY TRAINING WORKER
+
+This is a manager around the existing Python policy trainer, not a new trainer.
+One job checks explicitly approved inputs, verifies them with Python, runs a
+CPU fit, and checks the saved result before publishing a completion receipt.
+It keeps logs and stops its child on cancellation. It does not make fitting
+inherently faster or change the training algorithm.
+
+Install and build in a separate project copy while the v4-versus-v1 match is
+running. Do not rebuild that match's live classes or alter its models.
+Do not launch another production fit as part of installing this worker.
+
+Keep the existing workforce, self-play workers and JSON helpers.
+Add ChildProcess, PythonProcessWorker, PolicyTrainingWorker,
+PolicyTrainingReceipts and PolicyTrainingWorkerSelfCheck to package jobs.
+Replace JavaProcessWorker with the supplied version: its public API is
+unchanged, but Java and Python now share child cleanup and log handling.
+The earlier parsing/ParseException.java correction remains required.
+
+In the separate copy, build and run:
+
+  Main class: jobs.PolicyTrainingWorkerSelfCheck
+  Argument:   C:\Users\tort\Desktop\DipAdjudicator25\.venv\Scripts\python.exe
+
+The argument is one existing Python executable; quote it if it contains spaces.
+This check uses real Python children and synthetic files in temporary
+directories. It needs only Python's standard library, not NumPy, PyTorch,
+models or production caches. It does not train or assess playing strength.
+It also exercises single and nested waiting launchers with a separate interpreter,
+including both cancellation modes and interpreter exit-code propagation.
+Also run the existing WorkforceSelfCheck, SelfPlayWorkerSelfCheck and
+SelfPlayWorkerAppSelfCheck because the shared process lifecycle changed.
+
+For the properties-file entrypoint, progress display and graceful cancellation,
+use _app.PolicyTrainingWorkerApp as described in
+_app/policy-training-worker-app.txt. Installing that launcher does not start a fit.
+
+Frozen Python runtime
+---------------------
+PythonProcessWorker.Runtime contains the existing Python executable and one
+SHA-256-pinned ZIP of application Python sources. Use the existing training
+environment; do not install packages into it while another job uses it.
+Do not copy or relocate a virtual environment.
+
+When preparing a future training job, run this PowerShell block from the
+SEPARATE COPY's project root. It packages neural/*.py only, not data, weights
+or site-packages. Existing runtime output is rejected.
+
+  & {
+      $ErrorActionPreference = 'Stop'
+      & 'C:\Users\tort\Desktop\DipAdjudicator25\.venv\Scripts\python.exe' -I -B -X utf8 -c @'
+from pathlib import Path
+import hashlib
+import zipfile
+
+source = Path('neural')
+files = sorted(source.glob('*.py'))
+if not (source / 'self_play_train.py').is_file() or any(p.is_symlink() for p in files):
+    raise RuntimeError('Expected regular neural Python sources in the project root')
+directory = Path('data/policy-training-runtime-v1')
+directory.mkdir()
+archive = directory / 'neural-sources.zip'
+with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED) as output:
+    if not (source / '__init__.py').is_file():
+        output.writestr('neural/__init__.py', '')
+    for path in files:
+        output.write(path, 'neural/' + path.name)
+with zipfile.ZipFile(archive) as frozen:
+    bad = frozen.testzip()
+    if bad is not None:
+        raise RuntimeError('ZIP readback failed: ' + bad)
+digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+with (directory / 'sources.sha256').open('x', encoding='utf-8') as receipt:
+    receipt.write(digest + '  neural-sources.zip\n')
+print('Source ZIP:', archive.resolve())
+print('SHA-256:', digest)
+'@
+      if ($LASTEXITCODE -ne 0) { throw 'Python source packaging failed; preserve the output.' }
+  }
+
+Keep the ZIP and its recorded hash. Never overwrite it or refresh an expected
+hash merely to make a failed job pass. If neural has no __init__.py, the block
+adds an empty one INSIDE THE ZIP only, so it is an explicit frozen package.
+It does not edit neural/. The worker requires the requested module's .py and
+each parent package's __init__.py to exist in the archive.
+It also checks the resolved entrypoint's origin; a preloaded or frozen module
+outside that ZIP is rejected rather than substituted.
+
+The child runs directly, without a shell, using -I -B -u -X utf8 and a fixed
+module bootstrap. This isolates application imports from the working directory,
+PYTHONPATH and user-site packages, prevents bytecode writes and keeps UTF-8
+output unbuffered. The ZIP is verified before and after each child.
+The interpreter and installed NumPy/PyTorch binaries are NOT frozen by this
+ZIP. Keep that environment unchanged; training.json records their versions.
+Source hashes do not lock files or prevent transient edits: inputs must remain
+immutable throughout the job.
+
+Request and submission
+----------------------
+The request contains:
+
+  cacheManifests: explicit cache/manifest.json paths with approved SHA-256s
+  initialPolicy: pinned Python policy.pt, NOT a Java model.bin
+  anchor:        pinned frozen human-anchor policy.bin
+  splitSeed:     existing whole-game split seed; keep 7 for this pipeline
+  settings:      immutable CPU training settings
+  directory:     NEW attempt directory, with an existing parent
+
+Do not glob for caches or admit every completed job. The caller owns training
+admission and must exclude evaluation games, smoke games and duplicate retries.
+The worker verifies identities; it cannot infer why a game was generated.
+No output may be inside an input cache, and existing attempts are never reused.
+Both combined TRAIN and VALIDATION must be nonempty; games are not reassigned.
+
+Settings.standard() uses 3 epochs, 8 roots per update, 32 candidates per
+microbatch, 16384 options, learning rate 0.0001, weight decay 0.0001,
+gradient clip 1.0, training seed 7 and 4 CPU threads.
+The training seed is separate from the whole-game split seed.
+
+Example method for a FUTURE, deliberately approved job. It is not a request
+to refit v4 now. Supply hashes from preserved receipts, not hashes refreshed
+automatically at submission.
+
+  static PolicyTrainingWorker.Result trainPolicy(
+          Path pythonExecutable,
+          FileVerificationWorker.Request frozenSources,
+          List<FileVerificationWorker.Request> approvedCacheManifests,
+          FileVerificationWorker.Request initialPolicy,
+          FileVerificationWorker.Request anchor,
+          Path newAttempt
+  ) throws InterruptedException, ExecutionException {
+      var runtime = new PythonProcessWorker.Runtime(pythonExecutable, frozenSources);
+      var request = new PolicyTrainingWorker.Request(
+              approvedCacheManifests, initialPolicy, anchor, 7,
+              PolicyTrainingWorker.Settings.standard(), newAttempt);
+      try (Workforce workforce = new LocalWorkforce(1, 1)) {
+          Job<PolicyTrainingWorker.Result> job =
+                  workforce.submit(new PolicyTrainingWorker(runtime), request);
+          return job.get();
+      }
+  }
+
+Imports: jobs.*, java.nio.file.Path, java.util.List,
+java.util.concurrent.ExecutionException. This is the lower-level programmatic
+API; its caller owns cancellation, and close() drains rather than cancels work.
+The separate PolicyTrainingWorkerApp manages that lifecycle for one configured
+job. Neither is a scheduler. Start with one heavy job at a time; concurrent fits
+compete for CPU and memory.
+
+Artifacts and completion
+------------------------
+The attempt contains:
+
+  request.properties
+  verify/process.log
+  verify/process.pid
+  fit/process.log
+  fit/process.pid
+  model/policy.pt
+  model/training.json
+  worker-complete.properties
+
+process.pid and PythonProcessWorker.Result.pid identify the process Java
+launched. On Windows, a venv's python.exe can be a launcher that starts a
+separate interpreter. Their PIDs need not match. The self-check requires the
+interpreter to be that process or its descendant, not an unrelated process.
+
+First, neural.self_play_train runs with --verify-only and no output.
+Only successful verification and unchanged pinned inputs permit the fitting
+stage, which uses the same arguments plus --output <attempt>/model.
+Each stage is a separate child within the SAME job, not a nested queue job.
+
+Python retains responsibility for cache payloads, game disjointness, tensor
+validation, optimization and checkpoint reload. Java checks manifest hashes,
+root counts, initial/anchor identities, requested settings, completed epoch
+history, strict validation selection, readback score and saved file hashes.
+Epoch 0 is a legitimate result if no trained epoch improves validation;
+ties retain the earlier checkpoint. Completion does not imply stronger play.
+
+Success requires two zero exit codes, unchanged pins and a matching completed
+training report. worker-complete.properties is published atomically last.
+Result contains checkpoint/report receipts, selected epoch, validation
+cross-entropy and both log paths. The normal Python artifacts remain in model/
+for later explicit export and Java parity. No export is launched automatically.
+
+The full stdout and stderr are in each process.log. Job.progress() holds only
+the latest message, including a bounded tail of complete child log lines.
+Inspect ExecutionException.getCause() and the logs on failure. Failed attempts
+retain their request, logs and any partial model output, without a worker
+completion receipt. Metadata is bounded to 16 MiB, checkpoints to 64 MiB.
+
+Cancellation and limits
+-----------------------
+Both cancel(false) and cancel(true) signal cancellation. The supervisor checks
+every 250 ms. Before terminating the launched process, it captures its owned
+process tree. It stops descendants first, keeping their launchers alive to
+reap them, then stops the launched process. There is a shared two-second
+grace period before forced termination, and every captured process must exit
+before the workforce slot is released.
+Cancellation never rolls back or deletes output. A Future can become cancelled
+before cleanup finishes; get(timeout) does not itself cancel anything.
+close() drains accepted jobs rather than cancelling them.
+
+Only trusted modules that do not spawn further processes are supported.
+The environment may use a launcher that waits for its interpreter, as the
+Windows venv launcher does. Detached/background subprocesses and launchers
+that abandon their children are unsupported. The current trainer uses
+threads, not child-process data loaders.
+Abrupt parent/JVM/OS termination can bypass cleanup. PID receipts are diagnostic,
+not a recovery mechanism; confirm the command and attempt before acting on a
+PID because operating systems reuse them.
+
+A cancellation arriving after completion publication can still cancel the
+Future. The receipt records verified artifacts, not the Future's terminal state.
+After any cancellation, do not admit outputs automatically.
+
+There is no GPU mode in this minimal worker, no automatic retry/resume,
+distributed queue, value training, TEST access, export, evaluation or promotion.
+A later real job needs an explicitly chosen cohort, warm start and fresh output.
+The current v4 evaluation remains separate and excluded from training.

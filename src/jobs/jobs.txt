@@ -1,0 +1,75 @@
+LOCAL WORKFORCE
+
+Keep package jobs. Rename WorkerContext.java to Workplace.java and
+WorkerService.java to Workforce.java, replacing their contents and Worker.java.
+Do not leave duplicate old contracts behind. Job retains the Future API.
+No existing application is connected to this infrastructure automatically.
+
+Worker<I, O> executes a typed request and returns a typed result.
+Workplace supplies this job's identity, latest progress and cancellation.
+Job<O> is the caller's Future handle.
+Workforce schedules work; LocalWorkforce uses bounded platform threads.
+
+new LocalWorkforce(1, 8) allows one executing job and eight waiting jobs.
+Both constructor arguments must be positive. Start with one heavy job at a
+time; more threads do not create more CPU or memory. Worker instances can be
+shared concurrently, so keep them stateless or synchronize their own state.
+Use immutable request records. Request validation belongs to the worker.
+
+submit rejects a full or closed workforce with RejectedExecutionException.
+It never silently drops work or runs it on the submitting thread.
+Worker exceptions appear as the original cause of ExecutionException from
+Job.get(). Null requests/results are allowed when supported by the worker.
+Progress is only the latest non-null message, not a persistent event log.
+
+cancel(false) signals cooperative cancellation without interrupting a running
+thread. cancel(true) also attempts interruption. Workers must call
+Workplace.checkCancelled() between meaningful chunks of work and clean up in
+finally or try-with-resources. The check does not clear thread interruption.
+Cancelled waiting jobs promptly release their queue position.
+
+A cancelled Job can report isDone() before its worker has stopped. The actual
+execution slot remains occupied until execute and its cleanup finish.
+Cancellation does not roll back writes. Future process-running workers must
+terminate and wait for their child processes before execute returns.
+
+close rejects new submissions, drains accepted work and waits for actual
+cleanup. Interrupting the closing thread does not abandon jobs: the interrupt
+flag is restored after waiting. An uncooperative worker can therefore delay
+close indefinitely. A worker cannot close its own workforce, and should not
+block waiting for another job on the same fully occupied workforce.
+
+FileVerificationWorker is the first concrete worker. It reads regular files
+in 64 KiB chunks, checks cancellation between reads, and compares SHA-256 with
+the expected hash. It returns the normalized path, bytes read and actual hash.
+Use a hash from an existing trusted artifact receipt. This checks one file,
+not archive replay, game legality, a whole directory or a trained model's
+quality. It neither locks the file nor prevents subsequent changes.
+The explicit read loop permits cancellation and byte progress; the existing
+ValueDatasetJson.hash helper has neither and is tied to training code.
+
+Example inside a Java method that can propagate checked exceptions:
+
+  try (Workforce workforce = new LocalWorkforce(1, 8)) {
+      var request = new FileVerificationWorker.Request(
+              Path.of("data/value-java-v1/model.bin"),
+              "bbb9cb3dfe60a0b472a63d4e9015307f86d224748396feee3f99e8752a36ed41");
+      Job<FileVerificationWorker.Result> job =
+              workforce.submit(new FileVerificationWorker(), request);
+      System.out.println(job.get());
+  }
+
+The example needs imports for jobs.* and java.nio.file.Path.
+New task types implement Worker with their own request/result records; the
+scheduler does not need a switch or a new subclass for each task.
+
+After the active collection finishes, rebuild and run this main class:
+
+  testing.selfcheck.WorkforceSelfCheck
+
+No arguments, external libraries, models or archives are required.
+Fixtures use temporary files and bounded waits; they do not touch data/.
+
+This is local execution only: no database, HTTP, retries, seed allocation,
+remote workers, model promotion or persistent job history is added.
+Keep the current round-four collection and its seeds 496-751 untouched.
