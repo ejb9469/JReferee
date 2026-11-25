@@ -22,8 +22,8 @@ import static io.training.SelfPlayFiles.object;
 
 /**
  * Paired one-candidate/six-reference games with an all-reference control.
- * A match changes either the proposal or the neural value, never both.
- * Complete power rotations, not turns or seats, supply uncertainty estimates.
+ * A match changes one model at a time.
+ * Uncertainty uses complete power rotations.
  */
 public final class PolicyMatchApp {
 
@@ -107,6 +107,18 @@ public final class PolicyMatchApp {
             print(verify(Path.of(args[1]), System.out::println));
             return;
         }
+        if (args.length > 0 && args[0].equals("--pair")) {
+            if (args.length != 13)
+                throw new IllegalArgumentException(
+                        "Usage: PolicyMatchApp --pair <pair-index> <plan-sha256> <10 policy-match arguments>");
+            int pair = Integer.parseInt(args[1]);
+            String hash = args[2];
+            args = Arrays.copyOfRange(args, 3, args.length);
+            GameRunner.Options reference = reference(args, false);
+            runPair(Path.of(args[9]), reference, candidate(args, false, reference),
+                    Integer.parseInt(args[8]), pair, hash, System.out::println);
+            return;
+        }
         boolean values = args.length > 0 && args[0].equals("--value");
         if (args.length != (values ? 11 : 10))
             throw new IllegalArgumentException(
@@ -123,17 +135,9 @@ public final class PolicyMatchApp {
         int rotations = Integer.parseInt(args[8]);
         Path directory = Path.of(args[9]);
         preflight(directory, rotations, seed);
-        GameRunner.Options reference = SelfPlayGameApp.options(
-                args[0], Path.of(args[values ? 2 : 1]), Path.of(args[values ? 3 : 2]),
-                Integer.parseInt(args[4]), Integer.parseInt(args[5]), Integer.parseInt(args[6]), seed);
+        GameRunner.Options reference = reference(args, values);
         AgentSettings base = reference.agents().get(Nation.ENGLAND);
-        AgentSettings candidate = values
-                ? base.withValueModel(NeuralValueModel.load(Path.of(args[1])))
-                : new AgentSettings(
-                base.method(), base.candidateLimit(), base.iterations(), base.rolloutCount(),
-                base.rolloutLimit(), base.output(), base.rootGenerator(), base.rolloutGenerator(),
-                Optional.of(AgentModels.load(Path.of(args[1]), Optional.of(Path.of(args[3])))),
-                base.valueModel());
+        AgentSettings candidate = candidate(args, values, reference);
 
         String kind = values ? "VALUE" : "POLICY";
         System.out.println("BEGIN PAIRED " + kind + " MATCH");
@@ -150,7 +154,25 @@ public final class PolicyMatchApp {
 
     }
 
-    private static void print(String text) {
+    static GameRunner.Options reference(String[] args, boolean values) throws IOException {
+        return SelfPlayGameApp.options(
+                args[0], Path.of(args[values ? 2 : 1]), Path.of(args[values ? 3 : 2]),
+                Integer.parseInt(args[4]), Integer.parseInt(args[5]), Integer.parseInt(args[6]),
+                Long.parseLong(args[7]));
+    }
+
+    static AgentSettings candidate(String[] args, boolean values, GameRunner.Options reference)
+            throws IOException {
+        AgentSettings base = reference.agents().get(Nation.ENGLAND);
+        return values ? base.withValueModel(NeuralValueModel.load(Path.of(args[1])))
+                : new AgentSettings(
+                base.method(), base.candidateLimit(), base.iterations(), base.rolloutCount(),
+                base.rolloutLimit(), base.output(), base.rootGenerator(), base.rolloutGenerator(),
+                Optional.of(AgentModels.load(Path.of(args[1]), Optional.of(Path.of(args[3])))),
+                base.valueModel());
+    }
+
+    static void print(String text) {
         Map<String, Object> report = ValueDatasetJson.parse(text);
         Map<String, Object> overall = ValueDatasetJson.object(report.get("overall"));
         System.out.println("Paired final SoS: " + SelfPlayFiles.json(overall));
@@ -184,7 +206,41 @@ public final class PolicyMatchApp {
         Objects.requireNonNull(reference, "reference");
         Objects.requireNonNull(candidate, "candidate");
         Objects.requireNonNull(progress, "progress");
+        Map<String, Object> plan = prepare(directory, reference, candidate, rotations, values);
+        Map<String, Object> planReceipt = receipt(directory.resolve("plan.json"));
+        List<Match> matches = schedule(rotations, reference.seed());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        try (BufferedWriter journal = Files.newBufferedWriter(directory.resolve("games.jsonl"),
+                StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW)) {
+            for (Match match : matches) {
+                Map<String, Object> row = play(directory, reference, candidate, plan, match,
+                        rows.size(), matches.size(), progress);
+                rows.add(row);
+                journal.write(SelfPlayFiles.json(row) + "\n");
+                journal.flush();
+                verified(match, row, rows.size(), matches.size(), progress);
+            }
+        }
+        return publish(directory, pending(directory, plan, rows, planReceipt, progress));
+
+    }
+
+    static Map<String, Object> prepare(
+            Path directory, GameRunner.Options reference, AgentSettings candidate, int rotations, boolean values
+    ) throws IOException {
         preflight(directory, rotations, reference.seed());
+        Map<String, Object> plan = plan(reference, candidate, rotations, values);
+        Files.createDirectory(directory);
+        Files.createDirectory(directory.resolve("archives"));
+        write(directory.resolve("plan.json"), plan);
+        return plan;
+    }
+
+    private static Map<String, Object> plan(
+            GameRunner.Options reference, AgentSettings candidate, int rotations, boolean values
+    ) {
+        Objects.requireNonNull(reference, "reference");
+        Objects.requireNonNull(candidate, "candidate");
         AgentSettings base = reference.agents().get(Nation.ENGLAND);
         if (reference.scoring() != ScoringSystem.SUM_OF_SQUARES
                 || reference.movementPolicy() != MovementProcessor.Policy.JUDGE
@@ -209,47 +265,136 @@ public final class PolicyMatchApp {
         if (values)
             plan.put("comparison", "VALUE");
         plan.put("schedule", matches.stream().map(match -> scheduled(plan, match)).toList());
-        Files.createDirectory(directory);
-        Files.createDirectory(directory.resolve("archives"));
-        write(directory.resolve("plan.json"), plan);
-        Map<String, Object> planReceipt = receipt(directory.resolve("plan.json"));
+        return plan;
+    }
+
+    private static Map<String, Object> play(
+            Path directory, GameRunner.Options reference, AgentSettings candidate,
+            Map<String, Object> plan, Match match, int index, int count, Consumer<String> progress
+    ) throws IOException {
+        Map<String, Object> scheduled = scheduled(plan, match);
+        Path archive = directory.resolve(ValueDatasetJson.text(scheduled, "directory"));
+        Map<Nation, AgentSettings> seats = new EnumMap<>(reference.agents());
+        if (match.side() == Side.CANDIDATE)
+            seats.put(match.power(), candidate);
+        GameRunner.Options options = new GameRunner.Options(
+                reference.lastYear(), match.seed(), reference.scoring(), reference.movementPolicy(),
+                reference.adjudicationTrials(), reference.adjudicationSeed(), seats);
+        String label = label(match, index + 1, count);
+        progress.accept(label + " seed=" + match.seed());
+        GameMoment[] moment = {null};
+        SelfPlayRecorder.run(archive, UUID.fromString(ValueDatasetJson.text(scheduled, "game_id")),
+                StandardGameFactory.create1901().snapshot(), options, decision -> {
+                    if (!decision.state().moment().equals(moment[0])) {
+                        moment[0] = decision.state().moment();
+                        progress.accept(label + ": " + moment[0]);
+                    }
+                });
+        return audit(directory, plan, match);
+    }
+
+    private static String label(Match match, int ordinal, int count) {
+        return "Game " + ordinal + "/" + count + " pair=" + match.pair()
+                + " power=" + match.power() + " side=" + match.side();
+    }
+
+    private static void verified(
+            Match match, Map<String, Object> row, int ordinal, int count, Consumer<String> progress
+    ) {
+        progress.accept("Replay verified: " + label(match, ordinal, count)
+                + " ending=" + row.get("termination") + " focal_sos=" + row.get("focal_sos"));
+    }
+
+
+    // Pair jobs use the complete experiment's schedule and role identities. \\
+
+    static Path pairDirectory(Path directory, int pair) {
+        if (pair < 0 || pair >= MAX_ROTATIONS * Nation.values().length)
+            throw new IllegalArgumentException("Invalid pair index: " + pair);
+        return directory.resolve(String.format(Locale.ROOT, "workers/pair-%05d", pair));
+    }
+
+    static void runPair(
+            Path directory, GameRunner.Options reference, AgentSettings candidate,
+            int rotations, int pair, String planHash, Consumer<String> progress
+    ) throws IOException {
+        Objects.requireNonNull(progress, "progress");
+        Map<String, Object> expected = plan(reference, candidate, rotations, false);
+        List<Match> matches = schedule(rotations, reference.seed());
+        if (pair < 0 || pair >= matches.size() / 2)
+            throw new IllegalArgumentException("Pair is outside the planned schedule");
+        Map<String, Object> plan = pinnedPlan(directory, planHash);
+        if (!same(plan, expected))
+            throw new IOException("Pair inputs differ from the fixed match plan");
+        Path worker = pairDirectory(directory, pair);
+        if (!Files.isDirectory(worker) || !Files.isDirectory(directory.resolve("archives")))
+            throw new NoSuchFileException("Pair output parents are missing: " + worker);
+        if (Files.exists(worker.resolve("pair.json"), LinkOption.NOFOLLOW_LINKS)
+                || Files.exists(worker.resolve("pair.pending"), LinkOption.NOFOLLOW_LINKS))
+            throw new FileAlreadyExistsException(worker.toString());
         List<Map<String, Object>> rows = new ArrayList<>();
-        try (BufferedWriter journal = Files.newBufferedWriter(directory.resolve("games.jsonl"),
-                StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW)) {
-            for (Match match : matches) {
-                Map<String, Object> scheduled = scheduled(plan, match);
-                Path archive = directory.resolve(ValueDatasetJson.text(scheduled, "directory"));
-                Map<Nation, AgentSettings> seats = new EnumMap<>(reference.agents());
-                if (match.side() == Side.CANDIDATE)
-                    seats.put(match.power(), candidate);
-                GameRunner.Options options = new GameRunner.Options(
-                        reference.lastYear(), match.seed(), reference.scoring(), reference.movementPolicy(),
-                        reference.adjudicationTrials(), reference.adjudicationSeed(), seats);
-                String label = "Game " + (rows.size() + 1) + "/" + matches.size()
-                        + " pair=" + match.pair() + " power=" + match.power() + " side=" + match.side();
-                progress.accept(label + " seed=" + match.seed());
-                GameMoment[] moment = {null};
-                SelfPlayRecorder.run(archive, UUID.fromString(ValueDatasetJson.text(scheduled, "game_id")),
-                        StandardGameFactory.create1901().snapshot(), options, decision -> {
-                            if (!decision.state().moment().equals(moment[0])) {
-                                moment[0] = decision.state().moment();
-                                progress.accept(label + ": " + moment[0]);
-                            }
-                        });
-                Map<String, Object> row = audit(directory, plan, match);
-                rows.add(row);
-                journal.write(SelfPlayFiles.json(row) + "\n");
-                journal.flush();
-                progress.accept("Replay verified: " + label + " ending=" + row.get("termination")
-                        + " focal_sos=" + row.get("focal_sos"));
-            }
+        for (int index = pair * 2; index < pair * 2 + 2; index++) {
+            Match match = matches.get(index);
+            Map<String, Object> row = play(directory, reference, candidate, plan, match,
+                    index, matches.size(), progress);
+            rows.add(row);
+            verified(match, row, index + 1, matches.size(), progress);
         }
+        pinnedPlan(directory, planHash);
+        write(worker.resolve("pair.pending"), pairReport(pair, planHash, rows));
+        Files.move(worker.resolve("pair.pending"), worker.resolve("pair.json"),
+                StandardCopyOption.ATOMIC_MOVE);
+        progress.accept("Completed pair " + pair);
+    }
+
+    private static Map<String, Object> pinnedPlan(Path directory, String hash) throws IOException {
+        if (hash == null || !hash.matches("[0-9a-f]{64}"))
+            throw new IllegalArgumentException("Expected a plan SHA-256");
+        return ValueDatasetJson.parse(read(directory, "plan.json", object(
+                "plan.json", object("bytes", Files.size(directory.resolve("plan.json")), "sha256", hash))));
+    }
+
+    private static Map<String, Object> pairReport(int pair, String hash, List<Map<String, Object>> rows) {
+        return object("schema", "jreferee-policy-match-pair-v1", "complete", true,
+                "pair", pair, "plan_sha256", hash, "games", rows);
+    }
+
+    static List<Map<String, Object>> pairRows(
+            byte[] bytes, Map<String, Object> plan, int pair, String planHash
+    ) throws IOException {
+        Map<String, Object> result = ValueDatasetJson.parse(text(bytes));
+        if (!(result.get("games") instanceof List<?> games) || games.size() != 2)
+            throw new IOException("Expected two completed games for pair " + pair);
+        List<Map<String, Object>> rows = games.stream().map(ValueDatasetJson::object).toList();
+        if (!same(result, pairReport(pair, planHash, rows)))
+            throw new IOException("Pair completion receipt differs: " + pair);
+        List<Match> matches = schedule(Math.toIntExact(ValueDatasetJson.count(plan, "rotations")),
+                Long.parseLong(ValueDatasetJson.text(plan, "first_pair_seed")));
+        if (pair < 0 || pair >= matches.size() / 2)
+            throw new IOException("Pair is outside the fixed schedule");
+        for (int leg = 0; leg < 2; leg++) {
+            Map<String, Object> row = rows.get(leg);
+            for (var field : scheduled(plan, matches.get(pair * 2 + leg)).entrySet())
+                if (!same(row.get(field.getKey()), field.getValue()))
+                    throw new IOException("Pair game differs from planned " + field.getKey());
+        }
+        return rows;
+    }
+
+    static Map<String, Object> pending(
+            Path directory, Map<String, Object> plan, List<Map<String, Object>> rows,
+            Map<String, Object> planReceipt, Consumer<String> progress
+    ) throws IOException {
         Map<String, Object> files = object(
                 "plan.json", planReceipt, "games.jsonl", receipt(directory.resolve("games.jsonl")));
         Map<String, Object> report = report(plan, rows, files);
         write(directory.resolve("manifest.pending"), report);
         progress.accept("Checking the complete plan, journal and replay receipts before publication.");
         check(directory, report, progress);
+        return report;
+    }
+
+    static String publish(Path directory, Map<String, Object> report) throws IOException {
         if (!same(report, ValueDatasetJson.parse(text(bytes(directory.resolve("manifest.pending"))))))
             throw new IOException("Pending completion marker changed during readback");
         Files.move(directory.resolve("manifest.pending"), directory.resolve("manifest.json"),
@@ -469,7 +614,7 @@ public final class PolicyMatchApp {
 
     // Small-file handoff \\
 
-    private static boolean same(Object a, Object b) {
+    static boolean same(Object a, Object b) {
         return Objects.equals(JsonReader.read(SelfPlayFiles.json(a)), JsonReader.read(SelfPlayFiles.json(b)));
     }
 
@@ -479,7 +624,7 @@ public final class PolicyMatchApp {
         return value.doubleValue();
     }
 
-    private static Map<String, Object> receipt(Path path) throws IOException {
+    static Map<String, Object> receipt(Path path) throws IOException {
         return object("bytes", Files.size(path), "sha256", ValueDatasetJson.hash(path));
     }
 
@@ -497,7 +642,7 @@ public final class PolicyMatchApp {
         return text(bytes);
     }
 
-    private static byte[] bytes(Path path) throws IOException {
+    static byte[] bytes(Path path) throws IOException {
         try (InputStream input = Files.newInputStream(path)) {
             byte[] bytes = input.readNBytes(4 * 1024 * 1024 + 1);
             if (bytes.length > 4 * 1024 * 1024)
@@ -506,11 +651,11 @@ public final class PolicyMatchApp {
         }
     }
 
-    private static String text(byte[] bytes) throws IOException {
+    static String text(byte[] bytes) throws IOException {
         return StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
     }
 
-    private static void write(Path path, Map<String, Object> value) throws IOException {
+    static void write(Path path, Map<String, Object> value) throws IOException {
         Files.writeString(path, SelfPlayFiles.json(value) + "\n",
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
     }

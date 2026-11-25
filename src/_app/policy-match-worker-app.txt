@@ -1,0 +1,161 @@
+POLICY TRAINING WORKER APPLICATION
+
+PolicyTrainingWorkerApp reads one configuration file and submits one
+PolicyTrainingWorker to LocalWorkforce(1, 1). The existing worker verifies
+explicit inputs, runs the existing CPU policy trainer, checks its result,
+and publishes its completion receipt. The application displays progress
+and manages cancellation. It does not change training mathematics or
+automatically choose datasets, warm starts or promoted models.
+
+Use a separate project copy when installing changes alongside a running
+match. Keep that match's live classes and models unchanged. Installing this
+application does not require another production fit.
+
+Files and checks
+----------------
+Keep the current jobs package, including the Windows launcher cleanup fix.
+Add WorkerAppSupport, PolicyTrainingWorkerApp and
+PolicyTrainingWorkerAppSelfCheck to package _app.
+Replace SelfPlayWorkerApp with the supplied version. Its configuration and
+job behavior remain the same; both applications now use WorkerAppSupport
+for properties parsing, progress and single-job cleanup.
+
+Build with JDK 25, then run these main classes with NO program arguments:
+
+  _app.PolicyTrainingWorkerAppSelfCheck
+  _app.SelfPlayWorkerAppSelfCheck
+
+The new check uses synthetic workers and temporary files. It checks
+configuration mapping and rejection, progress, success including epoch 0,
+failure, caller interruption and real child-JVM graceful shutdown.
+It also launches the real application with a deliberately missing Python
+executable to check its failure exit. It needs no Python, NumPy, PyTorch,
+models or training caches, and performs no fit.
+
+The jobs.PolicyTrainingWorkerSelfCheck is a DIFFERENT check: it still takes
+one existing Python executable argument.
+
+Related paired-policy evaluation
+--------------------------------
+The paired-evaluation launcher is _app.PolicyMatchWorkerApp. Its
+no-argument self-check is _app.PolicyMatchWorkerAppSelfCheck.
+
+It submits pair jobs to jobs.JavaProcessWorker through a bounded
+LocalWorkforce. Each child JVM runs both games of one pair sequentially
+through PolicyMatchApp --pair. Shared seeds, focal powers and leg order
+come from the complete match plan.
+
+PolicyTrainingWorkerApp continues to run CPU policy fitting through
+jobs.PolicyTrainingWorker. The two applications use separate properties
+formats. The template in this file configures PolicyTrainingWorkerApp.
+
+Preparing a future approved job
+------------------------------
+Use the source-ZIP packaging instructions in jobs/policy-training-worker.txt.
+Preserve that ZIP, its recorded hash and the existing Python environment.
+Use a pinned Python policy.pt as initial.file, NOT a Java model.bin.
+Supply preserved receipt hashes for each explicitly approved cache manifest
+and the fixed human anchor. Hashes are never filled in automatically.
+
+Do not glob for caches, reuse evaluation or smoke games, or include duplicate
+retries. A complete cache is not proof of training admission. Both aggregate
+TRAIN and VALIDATION must contain policy roots. The split seed remains 7
+for this pipeline; the optimizer/randomization seed is a separate setting.
+
+Save a UTF-8 properties file WITHOUT a BOM. Relative paths are resolved
+against the properties file's directory, not IntelliJ's working directory.
+Use forward slashes in Windows path values. Do not surround values with
+quotes, even when paths contain spaces; quotes would become part of the path.
+Normal Java properties escaping applies. Write each key once.
+
+Every key shown below is required. No training or hash defaults are applied.
+cache.count must be 1..1024; number entries consecutively from cache.0.
+There must be exactly that many .file/.sha256 pairs. Missing, blank, unknown,
+malformed or out-of-range settings are rejected. Only device=cpu is accepted.
+
+TEMPLATE ONLY. The uppercase placeholders deliberately make this non-runnable.
+Choose the cohort, warm start and NEW attempt deliberately before replacing
+them. This template does not authorize a production fit.
+For this example, place the properties file in the project's root.
+
+  python=C:/Users/tort/Desktop/DipAdjudicator25/.venv/Scripts/python.exe
+  sources.file=data/policy-training-runtime-v1/neural-sources.zip
+  sources.sha256=REPLACE_WITH_PRESERVED_SOURCE_ZIP_SHA256
+  cache.count=2
+  cache.0.file=data/APPROVED_BATCH_0/cache/manifest.json
+  cache.0.sha256=REPLACE_WITH_APPROVED_CACHE_0_SHA256
+  cache.1.file=data/APPROVED_BATCH_1/cache/manifest.json
+  cache.1.sha256=REPLACE_WITH_APPROVED_CACHE_1_SHA256
+  initial.file=data/APPROVED_WARM_START/policy.pt
+  initial.sha256=REPLACE_WITH_APPROVED_INITIAL_POLICY_SHA256
+  anchor.file=data/movement-linear-v1/policy.bin
+  anchor.sha256=21bf9b056079632fa91930d5746f7a7e89b6f278d8cd732a3575e3f212fca153
+  split_seed=7
+  device=cpu
+  epochs=3
+  batch_size=8
+  candidate_batch_size=32
+  max_options=16384
+  learning_rate=0.0001
+  weight_decay=0.0001
+  gradient_clip=1.0
+  seed=7
+  threads=4
+  output=data/NEW_POLICY_TRAINING_ATTEMPT
+
+The output's parent must already exist. The attempt itself must not exist
+and must be outside the input caches. Parsing does not hash input files or
+create an attempt; the worker performs input verification before creating it.
+If another process claims the output after parsing, the worker still refuses
+to reuse it. OS command-line and resource limits also apply.
+
+Launching and results
+---------------------
+Only AFTER approving and pinning a real job, use IntelliJ's normal project
+classpath with:
+
+  Main class:        _app.PolicyTrainingWorkerApp
+  Program arguments: training-worker.properties
+
+There is exactly one argument: the configuration file path. Quote that
+argument if its path contains spaces. The Java controller uses the normal
+project classpath; its Python child imports the frozen source ZIP.
+Keep the controller classes, ZIP, inputs and Python environment unchanged
+while the job runs. Start with one heavy fit at a time.
+
+WARNING: This main class is not a configuration check or verify-only command.
+Valid inputs trigger Python verification AND then an actual fit.
+
+The console shows the attempt, input count, seeds, log locations and job ID,
+then changed progress messages. The 500 ms polling interval is a refresh
+cadence, not a time limit. Full Python output remains in:
+
+  <attempt>/verify/process.log
+  <attempt>/fit/process.log
+
+Only successful worker completion prints the selected epoch, validation
+cross-entropy, checkpoint/report hashes and completed attempt location.
+Epoch 0 is valid if no trained epoch improves validation. Completion is not
+proof of stronger play. Artifacts and worker-complete.properties have the
+existing worker contract described in jobs/policy-training-worker.txt.
+
+Worker failures retain their original cause in ExecutionException and make
+main exit unsuccessfully. No retry, alternate input or success fallback is
+used. Any created diagnostics and partial outputs remain; an early runtime
+or input failure can happen before the attempt or log files exist.
+
+Cancellation
+------------
+Caller interruption cancels the job and waits for actual cleanup before
+returning with interruption restored. A graceful JVM shutdown hook also
+cancels and waits; it handles shutdown racing with job-handle publication.
+
+Ctrl+C can request graceful shutdown, but forced termination and some IDE
+Stop actions may bypass hooks. No launcher can guarantee cleanup after a
+JVM/OS kill or power loss. Child-process ownership and Windows venv launcher
+limitations are unchanged; see jobs/policy-training-worker.txt.
+
+Partial output is retained, never resumed or automatically admitted. A
+completion receipt records verified artifacts, not the Future's state if
+cancellation races with publication. This launcher adds no scheduler,
+recovery, GPU mode, value fitting, TEST access, export, evaluation or promotion.
