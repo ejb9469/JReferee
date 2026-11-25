@@ -1,0 +1,68 @@
+SUPERVISED TRAINING-DATA LEARNING CURVE
+
+Run neural.learning_curve from the project root. It reuses neural.cache and
+neural.train unchanged. No Java changes, new games or cache copies are needed.
+
+Experiment
+----------
+Use nested 25%, 50% and 100% subsets of TRAIN games. A game is identified by
+(source, game_key); all of its power/phase examples are kept together.
+Within each (source, communication_type) stratum, games are ranked by a
+seeded SHA-256. Each percentage takes a prefix, rounding upward per stratum.
+Unknown labels and the literal no-press label "None" remain distinct.
+The percentages describe game counts; example/order fractions can differ.
+
+Every run sees the complete original VALIDATION split in its original order.
+TEST payloads are never opened. The cache manifest, including TEST metadata,
+is checked by the existing reader. No split assignments are changed.
+
+All three models start fresh with seed 7, hidden size 128, batch size 32,
+16384 maximum options, bucket window 256, learning rate 0.001, weight decay
+0.0001, gradient clip 1.0, four validation samples, and ten epochs.
+The existing minimum validation NLL selects among trained epochs.
+Selected checkpoint validation is rerun and must reproduce its metrics.
+
+Runs are sequential in one Python process. PyTorch uses eight CPU threads.
+There is no jobs pool, concurrent fitting or GPU execution. The 100% control
+is fitted again so all sizes use the same thread setting.
+
+This is a first-pass, fixed-epoch curve with one subset seed and one model
+seed. Larger subsets receive more optimizer updates. Check the epoch curves
+for continued improvement before interpreting a difference as data-limited.
+A curve within the current dataset cannot prove how unseen additional games
+would help or establish playing strength. Promising results need replication.
+
+Files and safety
+----------------
+The output directory must be new, with an existing parent outside the cache.
+The expected cache SHA-256 must come from the reviewed input receipt.
+Keep the cache, Python sources and environment unchanged throughout the run.
+
+plan.json records the full schedule before fitting: exact game membership,
+counts, unchanged validation membership, settings, versions and source hashes.
+curve.json is complete only after every run and final receipt check succeeds.
+p025/, p050/ and p100/ each contain training.json and policy.pt.
+
+The original training/checkpoint schemas retain parent-cache identities.
+The plan and curve receipts bind each subset to its report and checkpoint.
+Keep those files together; a checkpoint alone does not identify its subset.
+These are separate experimental artifacts. No Java export, policy match,
+model replacement or promotion is performed.
+
+Failures propagate and leave incomplete output for diagnosis. Existing
+attempts are never overwritten or resumed. The reader retains its normal
+two-shard limit and verifies file signatures while examples are read.
+
+Commands
+--------
+First run the synthetic check with the existing movement specification:
+
+  python -m neural.test_learning_curve --spec data/movement-neural-cache-v1/specification.json
+
+Then launch neural.learning_curve with explicit --cache, --cache-sha256 and
+--output, plus --percentages 25 50 100 --epochs 10 --threads 8 --seed 7
+--subset-seed 7 -v. Use the project's existing .venv Python on Windows.
+
+Send plan.json, curve.json and all three training.json files, preserving
+their relative paths, plus the final console summary. Keep policy.pt files
+locally. Do not run another heavy fit or match concurrently for this timing.
