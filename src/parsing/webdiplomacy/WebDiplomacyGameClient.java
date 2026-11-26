@@ -220,11 +220,14 @@ public final class WebDiplomacyGameClient implements AutoCloseable {
                 "Unexpected game-file header: " + document.uri());
     }
 
-    private static int checkHistory(Map<String, Object> root, int finalTurn) throws IOException {
+    private static int checkHistory(Map<String, Object> root, int gameTurn) throws IOException {
 
+        String context = "GameID=" + integer(root, "gameID");
+        require(gameTurn >= 0, context + " has invalid game turn=" + gameTurn);
         List<Object> phases = JSON.array(root.get("phases"), "history.phases");
         require(phases.size() >= 2, "History has no played phase and final position");
         long previous = -1;
+        int previousTurn = -1;
         for (int index = 0; index < phases.size(); index++) {
             Map<String, Object> phase = JSON.object(phases.get(index), "history.phases[" + index + "]");
             int turn = integer(phase, "turn");
@@ -237,16 +240,25 @@ public final class WebDiplomacyGameClient implements AutoCloseable {
                 default -> throw new IOException("Unknown history phase: " + name);
             };
             long position = 4L * turn + rank;
-            require(turn >= 0 && position > previous, "History phases are repeated or out of order");
+            require(turn >= 0 && turn <= gameTurn,
+                    context + " has invalid history turn=" + turn + "; game turn=" + gameTurn);
+            require(position > previous, "History phases are repeated or out of order");
             require(index != 0 || turn == 0 && name.equals("Diplomacy"),
                     "History does not start in Spring 1901");
             require(name.equals("Finished") == (index == phases.size() - 1),
                     "History must end with exactly one Finished position");
-            if (index == phases.size() - 1)
-                require(turn == finalTurn, "Game and history final turns differ");
-            for (String field : List.of("units", "centers", "orders"))
+            for (String field : List.of("units", "centers"))
                 JSON.array(phase.get(field), "history.phases[" + index + "]." + field);
+            List<Object> orders = JSON.array(phase.get("orders"), "history.phases[" + index + "].orders");
+            if (index == phases.size() - 1) {
+                // The source appends Finished with the preceding history phase's turn.
+                require(turn == previousTurn,
+                        context + " Finished turn=" + turn
+                                + " differs from preceding history turn=" + previousTurn);
+                require(orders.isEmpty(), context + " Finished position contains orders");
+            }
             previous = position;
+            previousTurn = turn;
         }
         return phases.size();
 
