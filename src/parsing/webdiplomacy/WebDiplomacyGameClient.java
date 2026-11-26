@@ -39,7 +39,7 @@ public final class WebDiplomacyGameClient implements AutoCloseable {
 
 
     public enum SkipReason {
-        NOT_FOUND, NOT_FINISHED, NON_CLASSIC, NON_MEMBER_GAME, SANDBOX
+        NOT_FOUND, NOT_FINISHED, NON_CLASSIC, NON_MEMBER_GAME, SANDBOX, INSUFFICIENT_HISTORY
     }
 
     public static final class SkippedGameException extends Exception {
@@ -156,15 +156,19 @@ public final class WebDiplomacyGameClient implements AutoCloseable {
     }
 
 
-    private Document read(URI uri, URI fallback, boolean missingGameAllowed)
+    private Document read(URI uri, URI fallback, boolean gameLookup)
             throws IOException, InterruptedException, SkippedGameException {
 
         HttpResponse<String> response = get(uri);
         if (response.statusCode() == 404) {
             response = get(fallback);
-            if (missingGameAllowed && response.statusCode() == 404
+            if (gameLookup && response.statusCode() == 404
                     && response.body().strip().equals("Unknown game."))
                 throw new SkippedGameException(SkipReason.NOT_FOUND);
+            if (gameLookup && response.statusCode() == 403
+                    && response.body().strip().equals(
+                    "You can't view this game, it is a sandbox game which you didn't create."))
+                throw new SkippedGameException(SkipReason.SANDBOX);
             if (response.statusCode() != 302)
                 throw httpFailure(response);
 
@@ -220,12 +224,14 @@ public final class WebDiplomacyGameClient implements AutoCloseable {
                 "Unexpected game-file header: " + document.uri());
     }
 
-    private static int checkHistory(Map<String, Object> root, int gameTurn) throws IOException {
+    private static int checkHistory(Map<String, Object> root, int gameTurn)
+            throws IOException, SkippedGameException {
 
         String context = "GameID=" + integer(root, "gameID");
         require(gameTurn >= 0, context + " has invalid game turn=" + gameTurn);
         List<Object> phases = JSON.array(root.get("phases"), "history.phases");
-        require(phases.size() >= 2, "History has no played phase and final position");
+        if (phases.size() < 2)
+            throw new SkippedGameException(SkipReason.INSUFFICIENT_HISTORY);
         long previous = -1;
         int previousTurn = -1;
         for (int index = 0; index < phases.size(); index++) {

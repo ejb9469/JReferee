@@ -31,6 +31,11 @@ Variant/player-type exclusions run before outcome/history validation.
 A blank or unknown gameOver still aborts an otherwise selected game.
 All pressType labels are retained literally. No message files are downloaded.
 
+A phases array with fewer than two entries is skipped as INSUFFICIENT_HISTORY.
+No catalog entry is written and no variant download is made for that game.
+The count alone does not show whether the game was played. Missing/non-array
+phases and invalid histories with two or more entries still abort.
+
 Schema: jreferee-webdiplomacy-raw-v1. Includes gameID and game/history/variant
 objects containing URL, SHA-256 and exact decoded UTF-8 JSON text. The catalog
 hash covers this envelope. Public member metadata is retained; keep it local.
@@ -49,7 +54,13 @@ A static 404 uses gamefile.php; redirects must target the expected same-site
 HTTPS file. NOT_FOUND requires the game bootstrap's explicit 404 response
 "Unknown game.". Classic variant data is reused by its advertised version.
 
-HTTP refusals, unexpected redirects, malformed data, inconsistent history and
+An initial game bootstrap HTTP 403 is a SANDBOX skip only when its trimmed
+response body exactly matches:
+  You can't view this game, it is a sandbox game which you didn't create.
+The game remains unimported, with no further requests for it during that run.
+Other 403s, including static-file and history/variant responses, still abort.
+
+Other HTTP refusals, unexpected redirects, malformed data, inconsistent history and
 persistence errors abort. Retry-After is reported when supplied. Preserve the
 error before retrying. Completion requires Complete=true and exit code 0.
 Ctrl+C stops the run; already committed imports remain available.
