@@ -97,25 +97,37 @@ public final class SelfPlayDataset {
     }
 
     public static List<GameExample> openAll(List<Path> directories) throws IOException {
+        return openAll(directories, 1);
+    }
 
-        List<GameExample> result = new ArrayList<>();
+    /**
+     * Replays independent games with bounded concurrency and preserves input order.
+     * Duplicate checks cover the complete batch before any games are returned.
+     */
+    public static List<GameExample> openAll(List<Path> directories, int workers) throws IOException {
+
+        List<Path> inputs = List.copyOf(directories);
+        List<GameExample> result = GameWorkerTasks.map(inputs, workers, SelfPlayDataset::open);
         Set<UUID> ids = new HashSet<>();
         Set<String> logicalKeys = new HashSet<>();
-        for (Path directory : directories) {
-            GameExample game = open(directory);
+        for (int index = 0; index < result.size(); index++) {
+            GameWorkerTasks.checkInterrupted();
+            GameExample game = result.get(index);
             require(ids.add(game.id()), "Duplicate game ID: " + game.id());
             require(logicalKeys.add(game.logicalKey()),
-                    "Duplicate configuration, seed and initial position: " + directory);
-            result.add(game);
+                    "Duplicate configuration, seed and initial position: " + inputs.get(index));
         }
-        return List.copyOf(result);
+        return result;
 
     }
 
     public static GameExample open(Path directory) throws IOException {
 
         try {
-            return decode(SelfPlayFiles.snapshot(directory));
+            GameWorkerTasks.checkInterrupted();
+            GameExample game = decode(SelfPlayFiles.snapshot(directory));
+            GameWorkerTasks.checkInterrupted();
+            return game;
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException(directory + ": " + exception.getMessage(), exception);
         }
@@ -161,6 +173,7 @@ public final class SelfPlayDataset {
         try (BufferedReader input = new BufferedReader(new StringReader(snapshot.phases()))) {
             String line;
             while ((line = input.readLine()) != null) {
+                GameWorkerTasks.checkInterrupted();
                 Map<String, Object> row = parse(line);
                 fields(row, "index", "state", "decisions", "board_after");
                 require(integer(row, "index") == phases.size(), "Phase index differs");

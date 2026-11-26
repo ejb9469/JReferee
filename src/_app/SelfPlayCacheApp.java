@@ -15,19 +15,32 @@ public final class SelfPlayCacheApp {
 
     public static void main(String[] args) throws Exception {
 
-        if (args.length < 3)
-            throw new IllegalArgumentException(
-                    "Usage: SelfPlayCacheApp <new-output> <split-seed> <archive> [archive ...]");
+        String usage = "Usage: SelfPlayCacheApp [--workers <positive-int>] "
+                + "<new-output> <split-seed> <archive> [archive ...]";
+        if (args.length == 1 && args[0].equals("--help")) {
+            System.out.println(usage);
+            return;
+        }
+        int first = 0, workers = 1;
+        if (args.length > 0 && args[0].equals("--workers")) {
+            if (args.length < 5)
+                throw new IllegalArgumentException(usage);
+            workers = Integer.parseInt(args[1]);
+            first = 2;
+        }
+        if (args.length - first < 3 || workers < 1 || args[first].startsWith("--"))
+            throw new IllegalArgumentException(usage);
 
-        Path output = Path.of(args[0]);
-        long seed = Long.parseLong(args[1]);
-        var archives = Arrays.stream(args).skip(2).map(Path::of).toList();
+        Path output = Path.of(args[first]);
+        long seed = Long.parseLong(args[first + 1]);
+        var archives = Arrays.stream(args).skip(first + 2L).map(Path::of).toList();
 
         System.out.println("BEGIN SELF-PLAY CACHE");
         System.out.println("Output: " + output.toAbsolutePath().normalize());
+        System.out.println("Replay/cache workers: " + workers);
         System.out.println("Derived data only. No training or TEST access.");
         var report = ValueDatasetJson.parse(
-                NeuralSelfPlayCache.write(archives, output, seed, System.out::println));
+                NeuralSelfPlayCache.write(archives, output, seed, workers, System.out::println));
         System.out.println("Games=" + ValueDatasetJson.count(report, "games")
                 + " policy_examples=" + ValueDatasetJson.count(report, "policy_examples")
                 + " value_positions=" + ValueDatasetJson.count(report, "value_positions"));

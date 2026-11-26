@@ -61,16 +61,82 @@ public final class SelfPlayCacheSelfCheck {
                     temporary.resolve("reordered"), 7, message -> { });
             require(ValueDatasetJson.parse(repeated).equals(manifest),
                     "Input order changed cache membership or bytes");
+            for (int workers : List.of(2, 8)) {
+                Path parallel = temporary.resolve("parallel-" + workers);
+                String report = NeuralSelfPlayCache.write(List.of(terminal, source, solo),
+                        parallel, 7, workers, message -> { });
+                require(ValueDatasetJson.parse(report).equals(manifest),
+                        "Worker count changed the manifest");
+                equalFiles(output, parallel);
+            }
+            String sourceKey = games.stream().filter(game -> game.id().equals(new UUID(0, 91)))
+                    .findFirst().orElseThrow().logicalKey();
+            String soloKey = games.stream().filter(game -> game.id().equals(new UUID(0, 92)))
+                    .findFirst().orElseThrow().logicalKey();
+            long mixedSeed = java.util.stream.LongStream.range(0, 256)
+                    .filter(seed -> NeuralSelfPlayCache.split(sourceKey, seed)
+                            != NeuralSelfPlayCache.split(soloKey, seed)).findFirst().orElseThrow();
+            Path mixedSerial = temporary.resolve("mixed-serial"), mixedParallel = temporary.resolve("mixed-parallel");
+            NeuralSelfPlayCache.write(archives, mixedSerial, mixedSeed, message -> { });
+            NeuralSelfPlayCache.write(List.of(solo, terminal, source),
+                    mixedParallel, mixedSeed, 8, message -> { });
+            equalFiles(mixedSerial, mixedParallel);
             expect(() -> NeuralSelfPlayCache.write(archives, output, 7, message -> { }));
             require(document(output.resolve("manifest.json")).equals(manifest),
                     "Existing cache was overwritten");
             Path duplicate = temporary.resolve("duplicate");
             expect(() -> NeuralSelfPlayCache.write(List.of(source, source), duplicate, 7, message -> { }));
             require(!Files.exists(duplicate), "Duplicate rejection created an output");
+            expect(() -> NeuralSelfPlayCache.write(List.of(source, source), duplicate, 7, 2, message -> { }));
+            require(!Files.exists(duplicate), "Parallel duplicate rejection created an output");
+            Path alias = temporary.resolve("alias");
+            SelfPlayRecorder.run(alias, new UUID(0, 94),
+                    StandardGameFactory.create1901().snapshot(), options(1902, 2, true), d -> { });
+            expect(() -> NeuralSelfPlayCache.write(List.of(source, alias), duplicate, 7, 2, message -> { }));
+            require(!Files.exists(duplicate), "Parallel duplicate logical key was admitted");
+            expect(() -> NeuralSelfPlayCache.write(archives, duplicate, 7, 0, message -> { }));
+            require(!Files.exists(duplicate), "Invalid worker count created an output");
+
+            Path interrupted = temporary.resolve("interrupted");
+            Thread.currentThread().interrupt();
+            try {
+                expect(() -> NeuralSelfPlayCache.write(archives, interrupted, 7, 2, message -> { }));
+                require(Thread.currentThread().isInterrupted() && !Files.exists(interrupted),
+                        "Pre-interrupted conversion wrote output or cleared interruption");
+            } finally {
+                Thread.interrupted();
+            }
+            Path partial = temporary.resolve("partial");
+            try {
+                expect(() -> NeuralSelfPlayCache.write(archives, partial, 7, 2, message -> {
+                    if (message.startsWith("Policy prepared:"))
+                        Thread.currentThread().interrupt();
+                }));
+                require(Thread.currentThread().isInterrupted()
+                                && !Files.exists(partial.resolve("manifest.json")),
+                        "Interrupted encoding published a completed cache");
+            } finally {
+                Thread.interrupted();
+            }
+            Path failedWrite = temporary.resolve("failed-write");
+            expect(() -> NeuralSelfPlayCache.write(archives, failedWrite, 7, 2, message -> {
+                if (message.equals("Encoding per-game policy shards.")) {
+                    try {
+                        Files.writeString(failedWrite.resolve(".policy-work/0"), "blocked");
+                    } catch (IOException exception) {
+                        throw new java.io.UncheckedIOException(exception);
+                    }
+                }
+            }));
+            require(Files.isRegularFile(failedWrite.resolve(".policy-work/0"))
+                            && !Files.exists(failedWrite.resolve("manifest.json")),
+                    "Failed shard preparation published a completed cache");
             Files.writeString(source.resolve("phases.jsonl"), "corrupted");
             Path corrupt = temporary.resolve("corrupt");
             expect(() -> NeuralSelfPlayCache.write(List.of(source), corrupt, 7, message -> { }));
             require(!Files.exists(corrupt), "Unverified source created an output");
+            expect(() -> NeuralSelfPlayCache.write(List.of(solo, source), corrupt, 7, 2, message -> { }));
+            require(!Files.exists(corrupt), "Parallel unverified source created an output");
             System.out.println("SelfPlayCacheSelfCheck passed.");
         } finally {
             try (var paths = Files.walk(temporary)) {
@@ -287,6 +353,21 @@ public final class SelfPlayCacheSelfCheck {
     private static void equalBytes(ByteBuffer actual, ByteBuffer expected) {
         while (expected.hasRemaining())
             require(actual.get() == expected.get(), "Packed input bytes changed");
+    }
+
+    private static void equalFiles(Path expected, Path actual) throws IOException {
+        List<Path> files;
+        try (var paths = Files.walk(expected)) {
+            files = paths.filter(Files::isRegularFile).map(expected::relativize).sorted().toList();
+        }
+        try (var paths = Files.walk(actual)) {
+            require(paths.filter(Files::isRegularFile).map(actual::relativize).sorted().toList().equals(files),
+                    "Parallel output file set changed");
+        }
+        for (Path file : files)
+            require(Files.mismatch(expected.resolve(file), actual.resolve(file)) == -1,
+                    "Parallel bytes changed: " + file);
+        require(!Files.exists(actual.resolve(".policy-work")), "Completed cache retained temporary shards");
     }
 
     private static ByteBuffer bytes(Path directory, String name) throws IOException {

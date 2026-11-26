@@ -42,15 +42,45 @@ public final class NeuralSelfPlayCache {
     public static String write(
             List<Path> archives, Path output, long splitSeed, Consumer<String> progress
     ) throws IOException {
+        return write(archives, output, splitSeed, 1, progress);
+    }
+
+    public static String write(
+            List<Path> archives, Path output, long splitSeed, int workers, Consumer<String> progress
+    ) throws IOException {
 
         Objects.requireNonNull(progress, "progress");
         if (archives.isEmpty())
             throw new IllegalArgumentException("Supply at least one archive");
-        List<SelfPlayDataset.GameExample> games = SelfPlayDataset.openAll(archives).stream()
+        if (workers < 1)
+            throw new IllegalArgumentException("Worker count must be positive");
+        if (workers > 1)
+            progress.accept("Replaying " + archives.size() + " games with up to " + workers + " workers.");
+        List<SelfPlayDataset.GameExample> games = SelfPlayDataset.openAll(archives, workers).stream()
                 .sorted(Comparator.comparing(SelfPlayDataset.GameExample::logicalKey)).toList();
+        GameWorkerTasks.checkInterrupted();
         Files.createDirectory(output);
         Files.createDirectory(output.resolve("policy"));
         writeText(output.resolve("policy-specification.json"), SelfPlayFiles.json(specification()));
+
+        Path work = output.resolve(".policy-work");
+        List<PreparedPolicy> prepared = List.of();
+        if (workers > 1) {
+            Files.createDirectory(work);
+            List<Integer> indices = new ArrayList<>();
+            for (int index = 0; index < games.size(); index++)
+                indices.add(index);
+            progress.accept("Encoding per-game policy shards.");
+            prepared = GameWorkerTasks.map(indices, workers, index -> {
+                Path directory = Files.createDirectory(work.resolve(Integer.toString(index)));
+                Files.createDirectory(directory.resolve("policy"));
+                List<Map<String, Object>> reports = new ArrayList<>();
+                var game = games.get(index);
+                PolicyReport policy = writePolicy(game, index, directory,
+                        split(game.logicalKey(), splitSeed), reports);
+                return new PreparedPolicy(directory, policy, List.copyOf(reports));
+            }, index -> progress.accept("Policy prepared: " + games.get(index).id()));
+        }
 
         Map<EncodingPurpose, List<ValueDataset.GameExample>> values = new EnumMap<>(EncodingPurpose.class);
         Map<EncodingPurpose, List<Map<String, Object>>> shards = new EnumMap<>(EncodingPurpose.class);
@@ -62,9 +92,12 @@ public final class NeuralSelfPlayCache {
         try (BufferedWriter index = Files.newBufferedWriter(output.resolve("games.jsonl"),
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW)) {
             for (int gameIndex = 0; gameIndex < games.size(); gameIndex++) {
+                GameWorkerTasks.checkInterrupted();
                 var game = games.get(gameIndex);
                 EncodingPurpose purpose = split(game.logicalKey(), splitSeed);
-                PolicyReport policy = writePolicy(game, gameIndex, output, purpose, shards.get(purpose));
+                PolicyReport policy = workers == 1
+                        ? writePolicy(game, gameIndex, output, purpose, shards.get(purpose))
+                        : publishPolicy(prepared.get(gameIndex), output, purpose, shards.get(purpose));
                 policyExamples += policy.examples();
                 List<ValueDataset.Position> positions = game.phases().stream()
                         .filter(phase -> !phase.state().moment().gamePhase().isRetreat())
@@ -96,6 +129,9 @@ public final class NeuralSelfPlayCache {
                         + " value=" + (admitted ? positions.size() : 0));
             }
         }
+        if (workers > 1)
+            Files.delete(work);
+        GameWorkerTasks.checkInterrupted();
         String fingerprint = hash(SCHEMA + "\n" + splitSeed + "\n"
                 + ValueDatasetJson.hash(output.resolve("games.jsonl")));
         NeuralValueCache.write(new Values(values, fingerprint), output.resolve("value"), progress);
@@ -113,7 +149,9 @@ public final class NeuralSelfPlayCache {
                 "policy_splits", policySplits,
                 "value_manifest", describe(output.resolve("value/manifest.json")));
         String text = SelfPlayFiles.json(manifest);
+        GameWorkerTasks.checkInterrupted();
         writeText(output.resolve("manifest.pending"), text);
+        GameWorkerTasks.checkInterrupted();
         Files.move(output.resolve("manifest.pending"), output.resolve("manifest.json"),
                 StandardCopyOption.ATOMIC_MOVE);
         return text;
@@ -121,6 +159,30 @@ public final class NeuralSelfPlayCache {
     }
 
     private record PolicyReport(long examples, long nonMovement, long nonDil, long zeroUnits) { }
+
+    private record PreparedPolicy(
+            Path directory, PolicyReport policy, List<Map<String, Object>> shards
+    ) { }
+
+    private static PolicyReport publishPolicy(
+            PreparedPolicy prepared, Path output, EncodingPurpose split, List<Map<String, Object>> reports
+    ) throws IOException {
+
+        for (Map<String, Object> shard : prepared.shards()) {
+            GameWorkerTasks.checkInterrupted();
+            String name = "policy/" + split.name().toLowerCase(Locale.ROOT)
+                    + "-" + String.format(Locale.ROOT, "%05d", reports.size());
+            Files.move(prepared.directory().resolve(ValueDatasetJson.text(shard, "directory")),
+                    output.resolve(name), StandardCopyOption.ATOMIC_MOVE);
+            Map<String, Object> published = new LinkedHashMap<>(shard);
+            published.put("directory", name);
+            reports.add(published);
+        }
+        Files.delete(prepared.directory().resolve("policy"));
+        Files.delete(prepared.directory());
+        return prepared.policy();
+
+    }
 
     private static PolicyReport writePolicy(
             SelfPlayDataset.GameExample game, int gameIndex, Path output, EncodingPurpose split,
@@ -132,8 +194,10 @@ public final class NeuralSelfPlayCache {
         Throwable failure = null;
         try {
             for (int phaseIndex = 0; phaseIndex < game.phases().size(); phaseIndex++) {
+                GameWorkerTasks.checkInterrupted();
                 var phase = game.phases().get(phaseIndex);
                 for (var decision : phase.decisions()) {
+                    GameWorkerTasks.checkInterrupted();
                     if (!(phase.state() instanceof GameState_Movement movement)) {
                         nonMovement++;
                         continue;

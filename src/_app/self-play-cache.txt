@@ -1,21 +1,37 @@
 SELF-PLAY TRAINING CACHE
 
-Run testing.selfcheck.SelfPlayCacheSelfCheck without arguments first.
+Use a separate build output while any collection, scraping or evaluation JVM
+is running. Leave that JVM's live class directory unchanged.
+
+Run io.training.GameWorkerTasksSelfCheck and
+testing.selfcheck.SelfPlayCacheSelfCheck without arguments first.
 Then run _app.SelfPlayCacheApp from the repository root:
 
   data/self-play-cache-v1 7 data/self-play-smoke-v1
 
 Arguments: new output directory, split seed, one or more completed archives.
+An optional leading --workers <positive-int> enables per-game parallelism:
+
+  --workers 8 data/self-play-cache-parallel-v1 7 data/archive-a data/archive-b
+
+Replace the example archive paths with your completed self-play archives.
+The default is one worker. Existing positional arguments and API calls remain
+serial. SelfPlayBatchApp also keeps its existing serial inner conversion;
+eight collection JVMs do not each start another eight cache workers.
 The output parent must exist. Existing outputs are never overwritten.
 The confirmed all-DiL smoke archive should yield 28 policy examples and
 zero value positions. The dataset fingerprint is printed after completion.
 Keep the same split seed for subsequent batches and checkpoint iterations.
+Keep smoke and evaluation archives out of training cohorts.
 
 Admission and scope
 -------------------
 Every archive passes SelfPlayDataset.openAll before output creation: checksums,
 typed replay, legal candidates, policies, chronology and outcome assessment.
 Duplicate IDs and logical game keys are rejected across the complete input list.
+Replay uses GameWorkerTasks with at most the requested number of local worker
+threads. Independent games have separate game, processor and encoding state.
+Keep archive files and the standard map unchanged while the command runs.
 No source model, historical dataset, training command or TEST payload is opened.
 Recorded model hashes are provenance, not proof of authentic model execution.
 
@@ -68,6 +84,19 @@ atomically last. Failures leave an incomplete directory without that marker.
 Do not consume a partial root merely because its child value manifest exists.
 Keep source archives; this cache does not replace replay evidence.
 
+With multiple workers, policy encoding writes private per-game shards under
+.policy-work. Completed tasks refill the bounded worker window immediately.
+The coordinator then assigns the original shard names in logical-game order,
+writes games.jsonl, builds the value arrays serially and publishes the root
+manifest. Numeric bytes, game indices, splits, receipts and fingerprints match
+one-worker output for the same inputs. Successful runs remove .policy-work.
+Failures may retain private shards for inspection; do not consume them.
+
+Interruption is checked between replay phases and policy examples. A failing
+or interrupted conversion cancels outstanding work and waits for worker cleanup
+before returning. The longest active phase/example may delay cancellation.
+Use a fresh output directory for a retry; partial caches are never resumed.
+
 policy-specification.json embeds the existing movement specification and its
 original SHA-256, plus the new type vocabulary and target semantics.
 Board/context/options use NeuralMovementEncoding without changed IDs or masks.
@@ -103,15 +132,19 @@ Never interpret mean_values as eventual-value labels or log_prior as a target.
 
 Shards never cross games or splits. They hold at most 256 examples and at most
 1000000 legal options or action indices. Oversized individual examples fail.
-This first batch converter retains all validated source games in memory.
-Use small archive batches; streaming large corpora is not implemented here.
+The converter retains all validated source games in memory. Limit archive-batch
+size independently of worker count; streaming large corpora is not implemented
+here. Extra workers need encoding buffers and file handles. Budget them alongside
+other JVMs and PyTorch.
+No network acquisition, SQLite writer, human JSONL conversion or training-batch
+prefetch is parallelized by this command.
 
 Learning boundary
 -----------------
 This step prepares data only. It does not modify weights, the frozen human
 anchor, the live search loop, Java exports or the existing GRU architecture.
 The old single-demonstration movement cache/trainer cannot consume this schema.
-A new reader and type-aware policy training/export are subsequent work.
+The existing type-aware self-play reader, trainer and exporter remain unchanged.
 
 The intended policy loss is -sum_a target(a) * log P(a | state,type), with
 log P(a) the sum of autoregressive conditional log probabilities under FULL
