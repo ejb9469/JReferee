@@ -1,0 +1,68 @@
+WEBDIPLOMACY RAW GAME COLLECTION
+
+Run from the project root with JDK 25 and SQLite JDBC:
+  _app.WebDiplomacyGameScraper <first-id> <last-id> [database-path]
+
+Both endpoints are inclusive webDiplomacy IDs.
+The full candidate list is shuffled once per run, matching DBNGameScraper.
+Each ID is visited at most once per run; the list is held in memory.
+Begin with one known, completed Classic game: use its ID for both endpoints.
+
+Build and storage
+-----------------
+While DiploBN runs, leave out/production/JReferee untouched. Compile separately:
+  javac --release 25 -encoding UTF-8 -sourcepath src -d out/webdiplomacy-scraper-v1 src/_app/WebDiplomacyGameScraper.java
+Use that directory and the SQLite JDBC JAR as the runtime classpath.
+Pass --enable-native-access=ALL-UNNAMED to java for SQLite on JDK 25.
+
+Default database: data/webdiplomacy-catalog.sqlite.
+The launcher refuses data/diplobn-catalog.sqlite and aliases of that file.
+Identity is WEBDIPLOMACY plus GameID. Existing entries are skipped without
+requests or updates. Each import commits separately; earlier imports survive
+failure or cancellation. Missing and filtered IDs are checked again on reruns.
+Rerun the original range to resume: it is reshuffled and saved entries are
+skipped. LastGameID identifies the final attempted candidate.
+
+Selection and payload
+---------------------
+Requires Finished, Won/Drawn, variant 1/Classic and playerTypes=Members.
+Sandbox games are excluded. Members alone cannot establish human-only play.
+Variant/player-type exclusions run before outcome/history validation.
+A blank or unknown gameOver still aborts an otherwise selected game.
+All pressType labels are retained literally. No message files are downloaded.
+
+Schema: jreferee-webdiplomacy-raw-v1. Includes gameID and game/history/variant
+objects containing URL, SHA-256 and exact decoded UTF-8 JSON text. The catalog
+hash covers this envelope. Public member metadata is retained; keep it local.
+Checks cover headers, phase ordering, opening/final positions and array shape.
+sourcePhaseCount includes Finished. Full-history completeness, translation,
+legality, adjudication and training eligibility need separate validation.
+
+Requests and failures
+---------------------
+One serial stream; a one-second pause after each response before another
+request, including fallbacks and redirects. Connect/request timeouts: 10/30s.
+No automatic retry. Keep only one scraper for this site.
+
+Static paths use cache/games/<floor(GameID/100)>/<GameID>/.
+A static 404 uses gamefile.php; redirects must target the expected same-site
+HTTPS file. NOT_FOUND requires the game bootstrap's explicit 404 response
+"Unknown game.". Classic variant data is reused by its advertised version.
+
+HTTP refusals, unexpected redirects, malformed data, inconsistent history and
+persistence errors abort. Retry-After is reported when supplied. Preserve the
+error before retrying. Completion requires Complete=true and exit code 0.
+Ctrl+C stops the run; already committed imports remain available.
+
+Training boundary
+-----------------
+TrainingExportApp supports DIPLOBN only. Do not export this database with it
+or mix these payloads into existing caches. A webDiplomacy phase/order adapter
+and cross-source deduplication are subsequent work. Keep held-out sets fixed.
+
+Source contract
+---------------
+kestasjk/webDiplomacy revision 25fdcc7068510cef7e0a1ed4f3c9baaf9c86ba58:
+api/README.md, doc/gamedata/02-spec.md, lib/gamefiles.php, gamefile.php,
+objects/game.php and robots.txt. The implementation takes precedence over
+draft examples: variant.json has no version field; game.json advertises it.

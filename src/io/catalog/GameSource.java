@@ -8,6 +8,7 @@ package io.catalog;
 public enum GameSource {
 
     DIPLOBN,
+    WEBDIPLOMACY,
     LOCAL_FILE,
     JREFEREE_RECORD
 
