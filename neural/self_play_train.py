@@ -56,22 +56,49 @@ def configure(settings):
     torch.manual_seed(settings.seed)
 
 
-def _cross_entropies(model, roots, settings, backward=False):
+def _timed(timings, stage, operation, *args, **kwargs):
+    if timings is None:
+        return operation(*args, **kwargs)
+    started = time.perf_counter()
+    result = operation(*args, **kwargs)
+    timings[stage] = timings.get(stage, 0.0) + (time.perf_counter() - started)
+    return result
+
+
+def _cross_entropies(model, roots, settings, backward=False, timings=None):
+    require(timings is None or settings.device == "cpu", "Batch timing supports CPU execution only")
     losses = [0.0] * len(roots)
     seen = 0
     with torch.set_grad_enabled(backward):
-        for chunk in candidate_chunks(roots, settings.candidate_batch_size, settings.max_options):
-            batch = CandidateBatch.from_chunk(roots, chunk, settings.device)
-            joint = joint_log_probabilities(model, batch)
-            loss = weighted_loss(joint, batch)
+        chunks = iter(candidate_chunks(roots, settings.candidate_batch_size, settings.max_options))
+        while (chunk := _timed(timings, "candidate_planning", next, chunks, None)) is not None:
+            batch = _timed(timings, "tensor_assembly", CandidateBatch.from_chunk, roots, chunk, settings.device)
+            joint = _timed(timings, "forward_loss", joint_log_probabilities, model, batch)
+            loss = _timed(timings, "forward_loss", weighted_loss, joint, batch)
             if backward:
-                loss.backward()
+                _timed(timings, "backward", loss.backward)
             for (root_index, candidate), logp in zip(chunk.references, joint.detach().cpu().tolist()):
                 losses[root_index] -= roots[root_index].probabilities[candidate] * logp
                 seen += 1
     require(seen == sum(sum(p > 0 for p in root.probabilities) for root in roots),
             "Incomplete candidate pass")
     require(all(math.isfinite(value) and value >= 0 for value in losses), "Invalid root cross-entropy")
+    return losses
+
+
+def _finish_update(model, optimizer, settings):
+    torch.nn.utils.clip_grad_norm_(model.parameters(), settings.gradient_clip, error_if_nonfinite=True)
+    optimizer.step()
+    require(torch.stack([torch.isfinite(p).all() for p in model.parameters()]).all().item(),
+            "Nonfinite policy parameters after optimizer update")
+
+
+def train_batch(model, optimizer, roots, settings, timings=None):
+    """Apply one root-minibatch update, with optional CPU wall-clock measurements."""
+    require(timings is None or settings.device == "cpu", "Batch timing supports CPU execution only")
+    _timed(timings, "optimizer", optimizer.zero_grad, set_to_none=True)
+    losses = _cross_entropies(model, roots, settings, backward=True, timings=timings)
+    _timed(timings, "optimizer", _finish_update, model, optimizer, settings)
     return losses
 
 
@@ -181,12 +208,7 @@ def fit(data, initial_policy, output, settings, progress=None):
         progress.start("TRAIN", f"Epoch {epoch}/{settings.epochs}", len(data.records["TRAIN"]), unit="roots")
         started, total, seen, steps = time.perf_counter(), 0.0, 0, 0
         for records, roots in data.batches("TRAIN", settings.batch_size, settings.seed + epoch - 1):
-            optimizer.zero_grad(set_to_none=True)
-            losses = _cross_entropies(model, roots, settings, backward=True)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), settings.gradient_clip, error_if_nonfinite=True)
-            optimizer.step()
-            require(torch.stack([torch.isfinite(p).all() for p in model.parameters()]).all().item(),
-                    "Nonfinite policy parameters after optimizer update")
+            losses = train_batch(model, optimizer, roots, settings)
             total += math.fsum(losses)
             seen += len(records)
             steps += 1

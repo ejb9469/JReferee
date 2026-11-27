@@ -79,6 +79,62 @@ the final short batch. No division by candidates or unit/order count is used.
 Smaller microbatches reduce memory, not the intended objective; floating-point
 roundoff can still vary slightly with packing/device.
 
+CPU batch profiling
+-------------------
+Use neural.self_play_profile for a bounded timing run on existing approved
+caches. It shares the trainer's train_batch implementation and uses a fresh
+in-memory model and AdamW optimizer. Updates exercise real training computation;
+the modified model is discarded. Only profile.json is written to a NEW output
+directory. Source checkpoints, anchor files and caches remain unchanged.
+
+First run the profiling checks:
+
+  python -m neural.test_self_play_profile --spec data/self-play-round5-main/batch-00/batch/cache/value/specification.json
+
+Then run the measurement:
+
+  python -m neural.self_play_profile --cache data/self-play-round5-main/batch-00/batch/cache --initial-policy data/movement-self-play-v5/policy.pt --anchor data/movement-linear-v1/policy.bin --output data/self-play-profile-v1 --batches 32 --warmup-batches 4 --batch-size 8 --candidate-batch-size 32 --max-options 16384 --threads 4 --seed 7 -v
+
+This command supports CPU execution only. --threads controls PyTorch's CPU
+threads and is independent of the eight Java replay/cache workers. No Java
+compilation or SQLite access is needed; a running scraper can continue.
+Other processes can influence the timings.
+
+The cache reader loads and verifies all cache bytes before the batch loop.
+Startup verification/indexing and model/optimizer setup are reported separately.
+Repeated input preparation therefore measures work on those resident bytes:
+
+  root_decoding       Seeded batch selection and decoding cached root examples.
+  candidate_planning  Target checks and positive-weight candidate microbatching.
+  tensor_assembly     Type features, arrays, tensors and full legal-mask layout.
+  forward_loss        Neural predictions and complete-action loss computation.
+  backward            Gradient computation for each candidate microbatch.
+  optimizer           Gradient reset, clipping, AdamW update and parameter checks.
+  other               Remaining batch bookkeeping and measurement overhead.
+
+Preparation combines the first three rows. Model computation combines the next
+three. All times are nonoverlapping wall-clock seconds; they include waiting or
+CPU contention while the measured operation runs. Progress printing and report
+writes are outside the measured batch intervals.
+
+The first --warmup-batches updates use the same temporary model/optimizer and
+are excluded from the measured totals. Then exactly --batches updates are
+measured in the existing first-epoch TRAIN shuffle. The command rejects a count
+larger than that split can supply; it never cycles or silently shortens the run.
+The final short minibatch, when selected, retains normal root weighting.
+
+Existing admission, anchor, split-seed, duplicate and option-limit checks still
+apply. Cache verification includes stored VALIDATION/value data, but optimizer
+steps use TRAIN only. No validation evaluation, model selection, value fitting,
+TEST evaluation, checkpoint export or promotion is performed. Profiling allows
+an empty VALIDATION split; it does not make such a corpus ready for fitting.
+
+profile.json contains source receipts, settings, startup durations, every
+warm-up/measured batch, and separate summaries. complete=true is written only
+after all requested steps and source-checkpoint/anchor readback checks succeed.
+An interrupted or failed run retains an incomplete report. Retry with a fresh
+output directory. Prefetching is not enabled by this measurement.
+
 Selection and artifacts
 -----------------------
 Both TRAIN and VALIDATION must contain policy roots for fitting. Membership is
@@ -113,6 +169,9 @@ The full self-check covers unchanged initial predictions, complete-action loss,
 zero-weight exclusion, chunk-invariant gradients, finite-difference type
 gradients, causal prefixes, joint-target learning, held-out selection,
 checkpoint reload, epoch-zero ties and output/preflight guards.
+The separate profiling check covers timed/plain update equivalence, profiling
+stage boundaries, warm-up exclusion, bounded TRAIN-only execution, unchanged
+source files and incomplete-report handling.
 
 Without --spec it uses a synthetic map with explicitly test-only hash bindings.
 With --spec it verifies the actual frozen Java value/movement specifications.
