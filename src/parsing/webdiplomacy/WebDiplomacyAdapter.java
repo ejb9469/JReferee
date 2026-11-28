@@ -112,12 +112,10 @@ public final class WebDiplomacyAdapter {
                         && text(game, "playerTypes").equals("Members") && !flag(game, "isSandbox"),
                 "Game differs from the reviewed source selection");
 
-        WebDiplomacyAdapter adapter = new WebDiplomacyAdapter(object(required(raw, "variant")));
         List<Frame> frames = new ArrayList<>();
         int previousRank = -1;
         int lastMovement = -1;
-        for (Object value : array(required(history, "phases"))) {
-            Frame frame = adapter.frame(object(value));
+        for (Frame frame : decodeHistory(object(required(raw, "variant")), history)) {
             require(frame.turn() >= 0, "Negative source turn");
             if (frame.name().equals("Finished")) {
                 require(!frames.isEmpty() && frame.turn() == frames.getLast().turn(),
@@ -152,15 +150,31 @@ public final class WebDiplomacyAdapter {
         require(frames.getFirst().board().equals(StandardGameFactory.create1901().board()),
                 "Opening board differs from standard Classic");
         verifyOwnership(frames);
-        require(frames.getLast().owners().equals(frames.get(frames.size() - 2).owners()),
-                "Finished must retain the preceding source ownership snapshot");
-        require(frames.getLast().reportedCenters().equals(frames.get(frames.size() - 2).reportedCenters()),
-                "Finished must retain the preceding source center visibility");
+        verifyFinishedOwnership(frames);
         int finishedTurn = frames.getLast().turn();
         require(number(game, "turn") == finishedTurn || number(game, "turn") == Math.addExact(finishedTurn, 1),
                 "Game header turn differs from the retained history boundary");
         return new SourceGame(key, sourceHash, text(game, "pressType"), frames);
 
+    }
+
+    /**
+     * Shared source decoding. Callers apply their own timeline and admission
+     * requirements before using the frames for display or replay.
+     */
+    static List<Frame> decodeHistory(Map<String, Object> variant, Map<String, Object> history) {
+        WebDiplomacyAdapter adapter = new WebDiplomacyAdapter(variant);
+        List<Frame> frames = new ArrayList<>();
+        for (Object value : array(required(history, "phases")))
+            frames.add(adapter.frame(object(value)));
+        return List.copyOf(frames);
+    }
+
+    static void verifyFinishedOwnership(List<Frame> frames) {
+        require(frames.getLast().owners().equals(frames.get(frames.size() - 2).owners()),
+                "Finished must retain the preceding source ownership snapshot");
+        require(frames.getLast().reportedCenters().equals(frames.get(frames.size() - 2).reportedCenters()),
+                "Finished must retain the preceding source center visibility");
     }
 
     /**
@@ -451,7 +465,38 @@ public final class WebDiplomacyAdapter {
     public record PlacedUnit(Nation owner, UnitType type, Province location, boolean retreating) { }
 
     public record Submission(String type, Nation owner, UnitType unitType, Province origin,
-                             Province to, Province from, boolean viaConvoy, boolean success, boolean dislodged) { }
+                             Province to, Province from, boolean viaConvoy, boolean success, boolean dislodged)
+            implements contracts.OrderForm {
+
+        @Override
+        public OrderType orderType() {
+            return switch (type) {
+                case "Hold" -> OrderType.HOLD;
+                case "Move" -> OrderType.MOVE;
+                case "Support hold", "Support move" -> OrderType.SUPPORT;
+                case "Convoy" -> OrderType.CONVOY;
+                case "Retreat", "Disband" -> OrderType.RETREAT;
+                case "Build Army", "Build Fleet" -> OrderType.BUILD;
+                case "Destroy" -> OrderType.DESTROY;
+                case "Wait" -> OrderType.WAIVE;
+                default -> throw new ParseException("Unknown order type: " + type);
+            };
+        }
+
+        @Override
+        public Province target() {
+            return switch (type) {
+                case "Move", "Retreat", "Support hold" -> to;
+                case "Support move", "Convoy" -> from;
+                default -> null;
+            };
+        }
+
+        @Override
+        public Province auxiliaryTarget() {
+            return type.equals("Support move") || type.equals("Convoy") ? to : null;
+        }
+    }
 
     public static final class UnrepresentedConvoyException extends UnsupportedOperationException {
         private UnrepresentedConvoyException(Submission source) {
@@ -491,6 +536,15 @@ public final class WebDiplomacyAdapter {
                     require(locations.putIfAbsent(new UnitId(unit.owner(), unit.type(), unit.location()),
                             unit.location()) == null, "Duplicate source unit");
             return new BoardState(locations, owners);
+        }
+
+        public Map<UnitId, Province> dislodged() {
+            Map<UnitId, Province> locations = new LinkedHashMap<>();
+            for (PlacedUnit unit : units)
+                if (unit.retreating())
+                    require(locations.putIfAbsent(new UnitId(unit.owner(), unit.type(), unit.location()),
+                            unit.location()) == null, "Duplicate dislodged source unit");
+            return phase.BoardRules.unitLocations(locations, "dislodged");
         }
 
     }

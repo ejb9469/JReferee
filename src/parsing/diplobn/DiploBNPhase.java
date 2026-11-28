@@ -33,6 +33,7 @@ public final class DiploBNPhase {
 
     private final List<DiploBNOrderResolution> resolutions;
     private final List<DiploBNOrderResolution> retreatResolutions;
+    private final boolean ordersAvailable;
 
 
     DiploBNPhase(
@@ -45,7 +46,8 @@ public final class DiploBNPhase {
             List<RetreatOrder> retreatOrders,
             List<AdjustmentOrder> adjustmentOrders,
             List<DiploBNOrderResolution> resolutions,
-            List<DiploBNOrderResolution> retreatResolutions
+            List<DiploBNOrderResolution> retreatResolutions,
+            boolean ordersAvailable
     ) {
 
         this.sourcePhase = sourcePhase;
@@ -90,6 +92,7 @@ public final class DiploBNPhase {
                 Objects.requireNonNull(
                         retreatResolutions,
                         "retreatResolutions"));
+        this.ordersAvailable = ordersAvailable;
 
     }
 
@@ -164,6 +167,10 @@ public final class DiploBNPhase {
      */
     public List<DiploBNOrderResolution> retreatResolutions() {
         return retreatResolutions;
+    }
+
+    public boolean ordersAvailable() {
+        return ordersAvailable;
     }
 
 }

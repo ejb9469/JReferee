@@ -100,6 +100,12 @@ public final class JsonAccess {
 
     }
 
+    public boolean bool(Object value, String path) {
+        if (!(value instanceof Boolean result))
+            throw errors.apply(path, "Expected boolean");
+        return result;
+    }
+
     public void requireSize(List<?> values, int expectedSize, String path) {
 
         if (values.size() != expectedSize)

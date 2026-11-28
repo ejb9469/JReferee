@@ -9,7 +9,6 @@ import parsing.webdiplomacy.WebDiplomacyGameClient;
 import parsing.webdiplomacy.WebDiplomacyGameClient.SkippedGameException;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,11 +40,6 @@ public final class WebDiplomacyGameScraper {
         checkRange(first, last);
         Path database = (args.length == 3 ? Path.of(args[2])
                 : Path.of("data", "webdiplomacy-catalog.sqlite")).toAbsolutePath().normalize();
-        Path diploBN = Path.of("data", "diplobn-catalog.sqlite").toAbsolutePath().normalize();
-        if (database.equals(diploBN) || Files.exists(database) && Files.exists(diploBN)
-                && Files.isSameFile(database, diploBN))
-            throw new IllegalArgumentException("Use a separate webDiplomacy catalog");
-
         System.out.println("Database file: " + database);
         System.out.println("Raw acquisition only; no training export or replay validation.");
         try (WebDiplomacyGameClient client = new WebDiplomacyGameClient();

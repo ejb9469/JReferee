@@ -232,41 +232,11 @@ public final class WebDiplomacyGameClient implements AutoCloseable {
         List<Object> phases = JSON.array(root.get("phases"), "history.phases");
         if (phases.size() < 2)
             throw new SkippedGameException(SkipReason.INSUFFICIENT_HISTORY);
-        long previous = -1;
-        int previousTurn = -1;
-        for (int index = 0; index < phases.size(); index++) {
-            Map<String, Object> phase = JSON.object(phases.get(index), "history.phases[" + index + "]");
-            int turn = integer(phase, "turn");
-            String name = text(phase, "phase");
-            int rank = switch (name) {
-                case "Diplomacy" -> 0;
-                case "Retreats" -> 1;
-                case "Builds" -> 2;
-                case "Finished" -> 3;
-                default -> throw new IOException("Unknown history phase: " + name);
-            };
-            long position = 4L * turn + rank;
-            require(turn >= 0 && turn <= gameTurn,
-                    context + " has invalid history turn=" + turn + "; game turn=" + gameTurn);
-            require(position > previous, "History phases are repeated or out of order");
-            require(index != 0 || turn == 0 && name.equals("Diplomacy"),
-                    "History does not start in Spring 1901");
-            require(name.equals("Finished") == (index == phases.size() - 1),
-                    "History must end with exactly one Finished position");
-            for (String field : List.of("units", "centers"))
-                JSON.array(phase.get(field), "history.phases[" + index + "]." + field);
-            List<Object> orders = JSON.array(phase.get("orders"), "history.phases[" + index + "].orders");
-            if (index == phases.size() - 1) {
-                // The source appends Finished with the preceding history phase's turn.
-                require(turn == previousTurn,
-                        context + " Finished turn=" + turn
-                                + " differs from preceding history turn=" + previousTurn);
-                require(orders.isEmpty(), context + " Finished position contains orders");
-            }
-            previous = position;
-            previousTurn = turn;
+        try {
+            return WebDiplomacyParser.historyPhases(root, gameTurn).size();
+        } catch (IllegalArgumentException exception) {
+            throw new IOException(context + ": " + exception.getMessage(), exception);
         }
-        return phases.size();
 
     }
 

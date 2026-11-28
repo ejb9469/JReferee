@@ -1,5 +1,11 @@
 package io.catalog;
 
+import game.GameState;
+import game.record.GameHistory;
+import game.record.GameRecord;
+import io.GameHistoryJson;
+
+import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -30,6 +36,14 @@ public class GameCatalog
     public GameCatalog(CatalogStore store, Clock clock) {
         this.store = Objects.requireNonNull(store, "store");
         this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    public CatalogGame catalog(GameRecord record, GameState finalState, String title, String finalStatus) {
+        GameHistory history = GameHistory.from(record, finalState, finalStatus);
+        String payload = GameHistoryJson.write(history);
+        URI uri = URI.create("urn:uuid:" + record.id());
+        return catalog(new GameSourceReference(GameSource.JREFEREE_RECORD, record.id().toString(), uri, uri),
+                title, null, payload, SourceFingerprints.sha256Hex(payload), history.positions().size());
     }
 
 

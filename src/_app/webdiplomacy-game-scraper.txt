@@ -1,6 +1,6 @@
 WEBDIPLOMACY RAW GAME COLLECTION
 
-Run from the project root with JDK 25 and SQLite JDBC:
+Run from the project root with JDK 25, JetBrains annotations and SQLite JDBC:
   _app.WebDiplomacyGameScraper <first-id> <last-id> [database-path]
 
 Both endpoints are inclusive webDiplomacy IDs.
@@ -11,12 +11,13 @@ Begin with one known, completed Classic game: use its ID for both endpoints.
 Build and storage
 -----------------
 While DiploBN runs, leave out/production/JReferee untouched. Compile separately:
-  javac --release 25 -encoding UTF-8 -sourcepath src -d out/webdiplomacy-scraper-v1 src/_app/WebDiplomacyGameScraper.java
-Use that directory and the SQLite JDBC JAR as the runtime classpath.
+  javac --release 25 -encoding UTF-8 -cp /path/to/annotations.jar -sourcepath src -d out/webdiplomacy-scraper-v1 src/_app/WebDiplomacyGameScraper.java
+Use that directory, annotations JAR and SQLite JDBC JAR as the runtime classpath.
 Pass --enable-native-access=ALL-UNNAMED to java for SQLite on JDK 25.
 
 Default database: data/webdiplomacy-catalog.sqlite.
-The launcher refuses data/diplobn-catalog.sqlite and aliases of that file.
+An explicit path may point to a shared catalog containing DiploBN and internal
+snapshot archives. GameBrowserApp decodes all three sources in that catalog.
 Identity is WEBDIPLOMACY plus GameID. Existing entries are skipped without
 requests or updates. Each import commits separately; earlier imports survive
 failure or cancellation. Missing and filtered IDs are checked again on reruns.
@@ -40,8 +41,10 @@ Schema: jreferee-webdiplomacy-raw-v1. Includes gameID and game/history/variant
 objects containing URL, SHA-256 and exact decoded UTF-8 JSON text. The catalog
 hash covers this envelope. Public member metadata is retained; keep it local.
 Checks cover headers, phase ordering, opening/final positions and array shape.
-sourcePhaseCount includes Finished. Full-history completeness, translation,
-legality, adjudication and training eligibility need separate validation.
+sourcePhaseCount includes Finished. WebDiplomacyParser translates this bundle
+for read-only browsing, preserving source outcomes and checking document hashes.
+Full-history completeness, legality, adjudication and training eligibility
+still need separate validation.
 
 Requests and failures
 ---------------------
@@ -68,8 +71,9 @@ Ctrl+C stops the run; already committed imports remain available.
 Training boundary
 -----------------
 TrainingExportApp supports DIPLOBN only. Do not export this database with it
-or mix these payloads into existing caches. A webDiplomacy phase/order adapter
-and cross-source deduplication are subsequent work. Keep held-out sets fixed.
+or mix these payloads into existing caches. The browser's phase/order adapter
+does not establish training eligibility or cross-source deduplication.
+Keep held-out sets fixed.
 
 Source contract
 ---------------

@@ -320,7 +320,7 @@ async function loadGames(requestedOffset) {
             const description = document.createElement("span");
             description.className = "game-description";
             description.textContent =
-                `${entry.source === "JREFEREE" ? "Recorded agent game"
+                `${["JREFEREE", "JREFEREE_RECORD"].includes(entry.source) ? "Recorded game"
                     : entry.competition || "No competition"} · `
                 + `${entry.source}/${entry.externalKey} · `
                 + `${entry.phaseCount} snapshot(s)`;
@@ -401,8 +401,8 @@ async function selectGame(entry) {
         game.phases.forEach((phase, index) => {
 
             $("#phase").append(new Option(
-                `${index + 1}. ${phase.board.year} `
-                    + `${phase.board.phase.replaceAll("_", " ")} `
+                `${index + 1}. ${phase.year ?? phase.board.year} `
+                    + `${(phase.phase ?? phase.board.phase).replaceAll("_", " ")} `
                     + `[${phase.status}]`,
                 String(index)));
 
@@ -438,16 +438,16 @@ async function selectGame(entry) {
 }
 
 function recordedGame() {
-    return game?.source === "JREFEREE";
+    return ["JREFEREE", "JREFEREE_RECORD"].includes(game?.source);
 }
 
 function describeGame() {
 
     const recorded = recordedGame();
     $("#game-details").textContent = recorded
-        ? game.summary
-        : `${game.competition || "No competition"} · DBN ${game.externalKey}`;
-    $("#game-scores").textContent = recorded
+        ? game.summary || `Recorded game · ${game.rulesetId || "Ruleset unavailable"}`
+        : `${game.competition || "No competition"} · ${game.source} ${game.externalKey}`;
+    $("#game-scores").textContent = recorded && game.scores
         ? `${game.scoring}: ` + Object.entries(game.scores)
             .map(([nation, score]) => `${nation} ${score.toFixed(6)}`).join(" · ")
         : "";
@@ -459,14 +459,14 @@ function describeGame() {
             + "Overlays show submissions, not confirmed outcomes. Missing orders are not converted to holds.";
     $("#map-note").textContent =
         "Supply centers use their recorded owner's map color. "
-        + (recorded ? "Small offset units are dislodged and awaiting retreat resolution. "
-            : "Combined source snapshots can show movement and retreat submissions together. ")
+        + "Known dislodged units appear as small offset units. "
+        + (game.source === "DIPLOBN"
+            ? "Combined source snapshots can show movement and retreat submissions together. " : "")
         + "Hover over a unit for its submitted order.";
     $("#orders-note").textContent = recorded
         ? "Only submitted orders are listed. Omitted retreats and automatic disbands appear in recorded results."
-        : "Retreat arrows show submissions, not hypothetical options. "
-            + "Explicit retreat disbands omitted by the parser are not invented.";
-    $("#annotations-title").textContent = recorded ? "Recorded results" : "DBN result annotations";
+        : "Orders retain source targets and available convoy flags. Missing submissions remain unknown.";
+    $("#annotations-title").textContent = recorded ? "Recorded results" : "Source result annotations";
     $("#annotations-note").textContent = recorded
         ? "Actual JReferee outcomes under the recorded ruleset. Structural detectives use only the starting board and orders."
         : "Source annotations, not JReferee verdicts. These annotations are not detective assessment evidence.";
@@ -500,6 +500,7 @@ function resetGame() {
     $("#phase-details").textContent = "";
     $("#province-details").textContent = "Select a province to inspect it.";
     $("#map-warning").textContent = "";
+    $("#map-host").hidden = false;
 
     $("#orders").replaceChildren();
     $("#annotations").replaceChildren();
@@ -556,6 +557,21 @@ function renderPhase() {
     if (!phase)
         return;
 
+    if (!phase.board) {
+        $("#phase-details").textContent =
+            `Snapshot ${phaseIndex + 1}/${game.phases.length} · ${phase.status} · Board unavailable`;
+        $("#map-warning").textContent = phase.boardError;
+        $("#map-host").hidden = true;
+        for (const layer of [unitLayer, orderLayer, retreatLayer, adjustmentLayer])
+            layer.replaceChildren();
+        $("#orders").replaceChildren();
+        $("#annotations").replaceChildren();
+        $("#province-details").textContent = "Source board unavailable for inspection.";
+        DetectivePanel.show(phase.investigation, $("#nation").value, inspectProvince);
+        return;
+    }
+    $("#map-host").hidden = false;
+
     const nation = $("#nation").value;
     const visible = item => !nation || item.nation === nation;
     const orders = phase.orders.filter(visible);
@@ -566,11 +582,13 @@ function renderPhase() {
 
     $("#phase-details").textContent =
         `Snapshot ${phaseIndex + 1}/${game.phases.length} · `
-        + (recordedGame() ? "" : `source code ${phase.sourcePhase} · `)
+        + (phase.sourcePhase == null ? "" : `source ${game.source === "WEBDIPLOMACY" ? "turn" : "code"} ${phase.sourcePhase} · `)
         + `${phase.status} · ${phase.board.units.length} active units · `
-        + (recordedGame() ? `${phase.dislodged.length} dislodged · ` : "")
+        + (phase.dislodgementsKnown ? `${phase.dislodged.length} dislodged · ` : "dislodgements unavailable · ")
         + `${orders.length}/${phase.orders.length} displayed orders · `
         + `${retreatCount} displayed retreat(s)`;
+    if (phase.reportedCenters)
+        $("#phase-details").textContent += ` · ${phase.reportedCenters.length} reported center rows`;
 
     /*
      * Always use the full snapshot, never filtered units or orders.
@@ -597,7 +615,8 @@ function renderPhase() {
         $("#orders"),
         orders,
         order => order.text,
-        recordedGame() ? "No submitted orders for this selection."
+        phase.ordersKnown === false ? "Submissions are unavailable for this position."
+            : recordedGame() ? "No submitted orders for this selection."
             : "No parsed orders for this selection.");
 
     fillList(
@@ -931,7 +950,10 @@ function renderOrders(orders, warnings) {
 
             } else if (order.type === "RETREAT") {
 
-                drawRetreat(origin, order, color);
+                if (order.target == null)
+                    drawDisband(origin, order);
+                else
+                    drawRetreat(origin, order, color);
 
             } else if (order.type === "SUPPORT" || order.type === "CONVOY") {
 
@@ -1339,7 +1361,7 @@ function inspectProvince(province) {
 
     const phase = currentPhase();
 
-    if (!phase)
+    if (!phase?.board)
         return;
 
     selectedProvince = province;

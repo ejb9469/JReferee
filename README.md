@@ -77,6 +77,7 @@ The program's core is a DATC-compliant* Diplomacy adjudicator, written in base* 
     - `DBNGameCatalogApp` — imports & compares game(s) hosted on <u>[diplobn.com](https://diplobn.com/)</u> to local adjudication results; requires a catalog database or import manifest (network access for imports)
     - `DBNChecker` — compares a single game's movement outcomes to local adjudication results, in detail; requires a game URL & network access
     - `DBNGameScraper` — populates the games database with games scraped from diplobn; requires a GameID range & network access
+    - `WebDiplomacyGameScraper` — acquires public, completed Classic games; an explicit database path can point to a shared catalog
     - `DBNTacticsApp` — inspects structural tactical patterns in a single DiploBN game; requires a game URL & network access (does not establish that a tactic succeeded)
     - `BoardViewerApp` — entry point for the graphical board viewer; starts with the standard Spring 1901 position, without a database or trained models
     - `OpeningBrowserApp` — entry point for graphical openings catalog; requires an existing catalog database
@@ -106,6 +107,7 @@ The program's core is a DATC-compliant* Diplomacy adjudicator, written in base* 
     - `BoardState` — immutable representation of a Board State - i.e. unit locations & supply-center ownership
     - `GameState` — *interface of* phase-specific position snapshots, including information needed to continue retreats or adjustments
     - `record` package: `GameRecord` and `GameRecordBuilder` — immutable game history & record-builder; archives submitted orders, phase results, and boards before/after resolution
+    - `record.GameHistory` — read-only historical positions using `BoardState`, `GameMoment`, and `OrderForm`; adapters preserve source results and mark unavailable data
     - ~~`press` package: `PressMessage` and `PressLedger` for basic storage~~ *DEPRECATED*
 
 - ### `analysis.*`
@@ -136,12 +138,76 @@ The program's core is a DATC-compliant* Diplomacy adjudicator, written in base* 
 
 - ### `ui.*`
     - `BoardViewerServer` — loopback-only HTTP endpoints at `GET /api/board` & `GET /api/history` for current board state & supplied game history
-    - `GameBrowserServer` — read-only browser for catalog games or recorded agent games; recorded-game mode requires no database
+    - `GameBrowserServer` — read-only browser for DiploBN, webDiplomacy Classic, and internal snapshot archives in one catalog; recorded-game mode also works without a database
     - `ProposalViewerServer` — local browser interface for candidate orders, policy scores, & optional search diagnostics
     - `BoardSnapshotMapper` / `BoardSnapshotJsonWriter` — dependency-free DTO mapping and JSON serialization for viewer clients
 
 - ### `misc.*`
     - `scoring.ScoringSystem` — enum of tournament scoring rules: e.g. Draw-Size, Sum-of-Squares, C-Diplo 100, Open Mind the Gap, & Duct Tape V2; calculates points from final supply-center counts & provides fixed-scale rewards for agent evaluation
+
+---
+
+## Shared game catalog and viewer
+
+Both scrapers accept an optional database path. To populate a shared catalog,
+pass the same path (for example `data/games.sqlite`) to `DBNGameScraper` and
+`WebDiplomacyGameScraper`. Existing per-provider defaults are unchanged.
+Entries are identified by source plus external ID; matching IDs from different
+providers coexist. Imports do not deduplicate the same real-world game across
+providers.
+
+Run `_app.GameBrowserApp --database data/games.sqlite` to browse the catalog.
+`_app.AgentGameApp --database data/games.sqlite` saves the generated game's
+historical snapshots before opening its existing in-memory viewer. SQLite JDBC
+is required when using a database. Run applications from the repository root.
+
+The common `GameHistory` model uses existing board, calendar, and order contracts.
+`DiploBNGame.history()` and `WebDiplomacyParser.parse(rawBundle)` produce source
+snapshots; `GameHistory.from(game)` captures a live `Game` with unavailable
+submissions. For recorded games, `GameHistory.from(record, finalState, status)`
+retains before-resolution boards, submitted orders, outcomes, and a terminal
+position. `GameCatalog.catalog(record, finalState, title, status)` stores that
+projection using the versioned `GameHistoryJson` format.
+
+Snapshot archives retain internal unit UUIDs and their creation provinces.
+They do not serialize processor provenance, private press, or agent-run scoring
+metadata, and cannot be used to resume a game. Imported unit identities are
+snapshot-local; cross-turn unit tracking requires additional source evidence.
+Historical annotations remain separate from detective findings and local
+adjudication. The existing DiploBN local-analysis behavior is preserved;
+webDiplomacy and internal snapshots do not run a replacement adjudicator.
+
+webDiplomacy decoding covers Classic country/territory IDs, exact coasts,
+movement, retreats (including explicit disbands), builds, destroys, waits,
+source outcomes, convoy flags, and the final `Finished` position. The original
+bundle and its document fingerprints are retained. Unsupported schemas, maps,
+orders, IDs, and malformed fields produce decoding errors. Other variants and
+live webDiplomacy acquisition remain outside this adapter's scope.
+
+`WebDiplomacyParser` reuses `WebDiplomacyAdapter` for map, frame, and order
+decoding. The adapter's TRAIN fixture admission and replay guards remain in
+place; browsing preserves convoy intent even where local replay cannot
+represent it. Nullable Destroy unit types are resolved from the source board.
+Only parent supply-center rows contribute ownership; `reportedCenters` retains
+sparse source visibility, and previously positive ownership cannot disappear.
+Finished retains the preceding source center snapshot. Overlapping terminal
+units produce an explicitly unavailable board in the timeline while earlier
+positions remain viewable; no replacement board is synthesized. Raw evidence
+remains in the catalog. Existing internal snapshot archives remain readable.
+
+Missing orders are never filled with holds. Availability flags distinguish
+absent data from empty arrays. DiploBN retains the existing parser's limitations:
+dislodgement details are unavailable and explicit retreat disbands are omitted
+from its typed submissions. Source result annotations are still retained.
+Training exporters retain their existing source restrictions; browser support
+does not establish training eligibility or adjudication equivalence.
+
+Focused checks: `testing.selfcheck.WebDiplomacyParserSelfCheck` and
+`testing.selfcheck.AgentGameBrowserSelfCheck --catalog` (the latter needs SQLite
+JDBC). They include synthetic shared-adapter/replay checks without external
+fixtures. `WebDiplomacyAdapterSelfCheck` additionally requires its separately
+reviewed, hash-pinned fixture ZIP. Compile with JDK 25+ and the project's
+JetBrains annotations dependency.
 
 ---
 

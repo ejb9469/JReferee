@@ -4,9 +4,11 @@ import analysis.tactics.*;
 import game.BoardState;
 import game.GameMoment;
 import game.record.MovementPhaseRecord;
+import game.record.GameHistory;
 import parsing.diplobn.DiploBNPhase;
 import phase.Order;
 import phase.UnitId;
+import phase.UnitLookup;
 
 import java.util.*;
 
@@ -68,6 +70,28 @@ public final class GameInvestigationJsonWriter {
                 phase.submittedOrders(), false);
     }
 
+    public static String toJson(GameHistory.Position position, String rulesetId, boolean localResolution) {
+        if (position.board() == null)
+            return unavailable("INVALID_INPUT", position.boardError());
+        if (position.terminal() || !position.moment().gamePhase().isMovement() || !position.ordersKnown())
+            return unavailable("NOT_APPLICABLE", "No movement submissions to investigate in this position.");
+        List<Order> orders = new ArrayList<>();
+        for (var submission : position.orders()) {
+            if (!switch (submission.orderType()) {
+                case HOLD, MOVE, SUPPORT, CONVOY -> true;
+                default -> false;
+            })
+                continue;
+            var units = UnitLookup.matchingAt(position.board().locations(),
+                    submission.origin(), unit -> unit.owner() == submission.owner());
+            if (units.size() != 1 || units.getFirst().unitType() != submission.unitType())
+                return unavailable("INVALID_INPUT", "A submission could not be matched to one active unit.");
+            orders.add(new Order(units.getFirst(), submission.orderType(),
+                    submission.target(), submission.auxiliaryTarget()));
+        }
+        return investigate(rulesetId, position.moment(), position.board(), orders, localResolution);
+    }
+
     private static String investigate(
             String rulesetId, GameMoment moment, BoardState board,
             List<Order> submitted, boolean localResolution
@@ -118,7 +142,7 @@ public final class GameInvestigationJsonWriter {
                 localResolution ? BrowserResolvedAnalysis.analyze(structural)
                         : new BrowserResolvedAnalysis.Sections(
                         OutcomeReportJsonWriter.unavailable("DISABLED",
-                                "Archived outcomes appear under recorded results. No local resolution was run."),
+                                "Historical outcomes are displayed separately. No local resolution was run."),
                         BrowserSupportAssessments.unavailable(structural, "DISABLED",
                                 "No alternative adjudication or support assessment was run."));
 

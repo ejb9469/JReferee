@@ -28,7 +28,7 @@ Compile only these four Java files into a fresh output directory:
 Use out/production/JReferee as the compile classpath, and put the new output
 directory first on the runtime classpath. Do not specify src as sourcepath:
 the existing engine classes must remain untouched while scrapers run.
-The accompanying PowerShell block creates an isolated output directory.
+Create an isolated output directory before compiling.
 
 Run testing.selfcheck.WebDiplomacyAdapterSelfCheck with the ZIP argument
 before running the pilot. The reviewed fixture self-check has 26 checks.
@@ -58,6 +58,12 @@ uses the processor's checked omission path.
 Source success/dislodged flags are preserved separately. They never construct
 adjudication inputs. Move success and dislodgement facts are compared after
 resolution; support/hold success flags are not treated as equivalent verdicts.
+
+GameBrowserApp shares the adapter's mechanics decoding through
+WebDiplomacyParser. Display does not call TRAIN fixture admission or movement
+replay: unsupported convoy choices remain visible as source submissions.
+Overlapping terminal boards remain in the viewer timeline with an explicit
+unavailable-board warning. The pinned pilot and its admission gates are unchanged.
 
 Replay boundary
 ---------------
@@ -114,6 +120,7 @@ Source contract at webDiplomacy revision
 
 TRAIN admission, default-order/bot provenance, semantic cross-source duplicate
 screening and an expanded supervised export remain separate gates.
-webdiplomacy-admission.txt describes the bounded raw-TRAIN diagnostic.
+The temporary root-level inventory/admission/fixture scripts and notes have
+been removed. Existing reviewed fixture ZIPs remain valid inputs to this pilot.
 TrainingExportApp still supports DIPLOBN only. Frozen anchors, value models,
 existing held-out populations and the production seed ledger are unchanged.
