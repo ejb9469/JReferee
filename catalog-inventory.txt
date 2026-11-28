@@ -1,0 +1,69 @@
+HUMAN-GAME CATALOG INVENTORY
+
+Save catalog_inventory.py in the project root. It uses only the Python standard
+library and does not import the neural training modules.
+
+Run from the project root:
+
+  .\.venv\Scripts\python.exe .\catalog_inventory.py
+
+Default inputs:
+  data/diplobn-catalog.sqlite
+  data/webdiplomacy-catalog.sqlite
+  data/training-movement-v4/games.jsonl
+
+Use --diplobn, --webdiplomacy or --index to specify different file locations.
+Both catalogs must exist and must be distinct files. Each is expected to contain
+only its named source. Missing paths, source mixing and invalid receipts fail.
+The original index must match its reviewed SHA-256:
+  45107d9f1ebe78f4572deef3504f88f24057a362cfab94421542b429eb0454cc
+Do not alter that guard or substitute a newly exported index.
+
+Output is a new data/catalog-inventory-<guid>.json. An optional --output selects
+another new file whose parent already exists. Existing outputs are refused.
+Send this report and the printed summary for review. Raw game JSON, member
+identities, titles, messages, units and orders are excluded from the report.
+
+Live collection
+---------------
+The scrapers may continue. Connections use SQLite mode=ro and query_only.
+Short autocommit queries capture source/key/hash metadata and read individual
+new TRAIN payloads. No long read transaction spans the whole inventory.
+SQLite locking can still cause brief waits; lock errors are reported normally.
+No journal-mode change, database backup, adjudication or catalog update occurs.
+
+The two catalogs have separate capture times. Imports arriving after a catalog's
+initial capture are excluded until a later run. A final metadata pass records
+later arrivals and rejects changes or deletions of captured identities.
+A frozen training corpus requires a separate admission step.
+
+Splits and duplicates
+---------------------
+Identity is (source, game key). Equal numeric IDs from different providers
+remain different identities. The existing seed-7 source/key hashing assigns
+80/10/10 TRAIN/VALIDATION/TEST buckets. Counts for new non-TRAIN identities
+describe reserved data; those games are not added to the original held-out sets.
+
+Original catalog hashes are compared with the pinned game index. Missing or
+changed original entries produce a diagnostic report and exit code 2, with no
+new payload reads. Existing raw bytes are not rehashed.
+
+Only new TRAIN entries with no other identity sharing their recorded payload
+hash have their payload read and rehashed. The comparison includes original
+and current held-out hashes. Every new TRAIN member of a duplicate group is
+set aside for review; the tool does not choose a winner.
+Hash screening catches identical stored payloads. Different provider formats,
+envelopes or refreshed snapshots require later semantic deduplication.
+
+Metadata and admission
+----------------------
+DiploBN CommunicationType and webDiplomacy pressType remain literal,
+source-specific labels. MISSING and MALFORMED labels are reported explicitly.
+For selected webDiplomacy TRAIN entries, embedded document hashes and the game
+header are checked against the scraper contract. History and variant bodies
+are hashed but are not interpreted as training examples.
+
+Members does not establish human-only play. Reported TRAIN metadata candidates
+still require phase/order translation, legality/replay checks, cross-source
+duplicate review and explicit admission. TrainingExportApp remains DiploBN-only.
+No dataset, model, cache, held-out membership or production seed is changed.

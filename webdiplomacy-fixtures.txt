@@ -1,0 +1,55 @@
+WEBDIPLOMACY ADAPTER FIXTURES
+
+Save webdiplomacy_fixtures.py alongside the previously supplied
+catalog_inventory.py in the project root. Both use only the standard library.
+
+Run:
+
+  .\.venv\Scripts\python.exe .\webdiplomacy_fixtures.py --inventory data/catalog-inventory-eaad25bd8c384b65b2f58447173726b4.json
+
+Default database: data/webdiplomacy-catalog.sqlite.
+Use --database for another location of that same catalog.
+Output: a new data/webdiplomacy-fixtures-<guid>.zip.
+--output may specify another new ZIP file whose parent already exists.
+Existing output files are refused.
+An archive-write failure removes the newly created output before propagating.
+
+The inventory must match its reviewed byte hash. The script independently
+checks the selected source/key TRAIN splits and selects two games from each
+literal press label: NoPress, PublicPressOnly, Regular and RulebookPress.
+Ranking uses SHA-256 of "jreferee-webdip-fixtures-v1\n" followed by the game key.
+Selection is independent of game outcome and does not rebalance training.
+
+The eight selected IDs are:
+  NoPress:         159837, 150854
+  PublicPressOnly: 140643, 138325
+  Regular:        173163, 140665
+  RulebookPress:   443777, 175882
+
+The scraper may continue. Short read-only SQLite queries retrieve only these
+reviewed TRAIN payloads and verify their raw and embedded document hashes.
+A final receipt check rejects changes to selected entries during extraction.
+Missing data, malformed retained fields and checksum differences fail
+explicitly. No source data is repaired, guessed or rewritten.
+
+The ZIP contains manifest.json and eight games/<id>.json mechanics fixtures:
+  - Source identity and hash provenance.
+  - Selected game settings and original territory/country vocabulary.
+  - Complete retained phase sequences, units, center ownership and orders.
+  - Borders, coasts and the buildAnywhere rule when present in the source.
+
+Fields are copied through explicit nested allowlists. Members, messages,
+game titles, URLs, account data and unrelated metadata are excluded.
+Opaque source versions and original hashes are retained for traceability.
+Source success/dislodged flags support later adjudication comparisons; they
+are not predictive inputs or independently verified outcome labels.
+
+These mechanics projections have their own hashes and fixture schemas.
+The original raw hashes identify their sources. Training admission remains
+a separate gate after translation, replay and semantic duplicate checks.
+The sample may omit rare order types; manifest.json reports its coverage.
+
+Send the ZIP and printed summary. It will support real-format adapter and
+replay fixtures before scanning the full captured TRAIN cohort.
+No held-out payloads, database updates, dataset exports, model changes,
+production seeds or network requests are involved.

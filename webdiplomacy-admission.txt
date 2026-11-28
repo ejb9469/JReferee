@@ -1,0 +1,101 @@
+BOUNDED WEBDIPLOMACY RAW-TRAIN ADMISSION DIAGNOSTIC
+
+Run from the project root with JDK 25, existing compiled JReferee classes,
+and the existing Python interpreter. Only Python's standard library is used.
+Keep catalog_inventory.py and webdiplomacy_fixtures.py at the project root.
+SQLite JDBC and the CUDA environment are not used.
+
+Python entrypoint:
+  webdiplomacy_admission.py --inventory <reviewed-inventory.json>
+    --classpath "<fresh-classes>;out\production\JReferee"
+    [--index data/training-movement-v4/games.jsonl]
+    [--diplobn data/diplobn-catalog.sqlite]
+    [--webdiplomacy data/webdiplomacy-catalog.sqlite]
+    [--output <new-report.json>]
+
+Compile these four files into a fresh class directory:
+  src/parsing/webdiplomacy/WebDiplomacyAdapter.java
+  src/_app/WebDiplomacyReplayApp.java
+  src/_app/TrainingSourcePilotApp.java
+  src/testing/selfcheck/WebDiplomacyAdapterSelfCheck.java
+
+Compile against out/production/JReferee without src on the sourcepath.
+Place the fresh directory first on the runtime classpath. Existing engine
+and scraper classes remain unchanged. The known UnitId compatibility-
+constructor deprecation warning does not prevent this isolated build.
+Run the reviewed fixture self-check before the raw diagnostic.
+
+Fixed scope
+-----------
+The original 1,192-game index and the reviewed combined inventory are pinned
+by their existing hashes. All original catalog receipts must still match.
+The reference group contains 942 original DiploBN TRAIN games plus the one
+new, reviewed DiploBN TRAIN game. Only board mechanics are fingerprinted.
+
+The candidate group contains 16 webDiplomacy TRAIN games: the first four
+per literal press label using the existing fixture ranking. This includes
+the eight previously reviewed fixtures. There are no outcome-based filters
+or replacements for rejected candidates. Later imports are not candidates.
+
+All catalog connections use mode=ro, query_only and short autocommit reads.
+Payload reads are preceded by source/key TRAIN checks. Source hashes are
+verified against both the inventory/index and the actual UTF-8 payload.
+Embedded webDiplomacy document hashes and mechanical field types are checked
+by the existing projection helper. Metadata is rechecked after processing.
+No VALIDATION or TEST payload is read. Catalog metadata from every split
+participates in exact raw-hash collision screening.
+
+Only mechanical projections enter a temporary Java request file. Raw game
+envelopes, accounts, titles, URLs and messages are not written there.
+The temporary directory is removed on normal completion and exceptions.
+The final report contains identities, receipts, fingerprints and diagnostics.
+Share that report; keep the databases local.
+
+Ownership and replay
+--------------------
+Sparse neutral center rows follow the verified source contract documented
+in src/_app/webdiplomacy-replay.txt. Once owned, a center must remain
+explicitly owned. Replay also checks the identity of each positive owner.
+
+Each webDiplomacy candidate uses the same independent movement-root replay
+as the fixture pilot. Source result flags only participate in comparisons.
+Adjacent convoy-choice roots and overlapping Finished snapshots retain their
+review findings. Unexpected engine failures stop the run.
+replay_review_clear describes only the evaluated mechanics; it does not
+establish game strength, human-only provenance or terminal value labels.
+
+Semantic collisions
+-------------------
+Fingerprints use consecutive start-of-movement boards from Spring 1901:
+moment, unit owner/type/current location, exact fleet coasts, and positive
+supply-center owners. Neutral explicit and omitted rows have the same meaning.
+Unit UUIDs, provider IDs, metadata, submitted orders and result flags do not
+participate. The same source-neutral codec is used for both providers.
+
+trajectory_sha256 covers the complete movement-board sequence.
+prefix_sha256 covers its first four movement snapshots.
+Equal trajectories and shared prefixes are reported against all 943 TRAIN
+references and the other 15 selected candidates. Prefix collisions can
+also arise from distinct games sharing an opening and require review.
+Short or invalid reference histories leave reference coverage incomplete.
+These fingerprints do not prove the absence of every near-duplicate.
+
+Admission remains blocked
+-------------------------
+The frozen game index contains raw payload hashes, but no semantic
+fingerprints for held-out games. It cannot clear cross-provider held-out
+duplicates. Every candidate therefore retains:
+  HELD_OUT_SEMANTIC_FINGERPRINTS_UNAVAILABLE
+
+There is no override or production-export mode. All admitted fields are
+false, admission_performed is false, and held_out_semantic_clearance is
+BLOCKED_MISSING_FINGERPRINTS. A separately authorized held-out fingerprint
+reference is required before this gate can be cleared.
+
+Exit 2 means a completed diagnostic with admission blockers. It is expected.
+Java execution errors, changed receipts and I/O failures stop the script.
+Existing report paths are refused. complete=true records diagnostic
+completion; it does not authorize using the candidates for training.
+
+No model training, frozen anchor/value change, dataset overwrite, TEST
+evaluation, scraper change, production seed consumption or promotion occurs.
