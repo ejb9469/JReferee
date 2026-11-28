@@ -401,8 +401,8 @@ async function selectGame(entry) {
         game.phases.forEach((phase, index) => {
 
             $("#phase").append(new Option(
-                `${index + 1}. ${phase.board.year} `
-                    + `${phase.board.phase.replaceAll("_", " ")} `
+                `${index + 1}. ${phase.year ?? phase.board.year} `
+                    + `${(phase.phase ?? phase.board.phase).replaceAll("_", " ")} `
                     + `[${phase.status}]`,
                 String(index)));
 
@@ -500,6 +500,7 @@ function resetGame() {
     $("#phase-details").textContent = "";
     $("#province-details").textContent = "Select a province to inspect it.";
     $("#map-warning").textContent = "";
+    $("#map-host").hidden = false;
 
     $("#orders").replaceChildren();
     $("#annotations").replaceChildren();
@@ -556,6 +557,21 @@ function renderPhase() {
     if (!phase)
         return;
 
+    if (!phase.board) {
+        $("#phase-details").textContent =
+            `Snapshot ${phaseIndex + 1}/${game.phases.length} · ${phase.status} · Board unavailable`;
+        $("#map-warning").textContent = phase.boardError;
+        $("#map-host").hidden = true;
+        for (const layer of [unitLayer, orderLayer, retreatLayer, adjustmentLayer])
+            layer.replaceChildren();
+        $("#orders").replaceChildren();
+        $("#annotations").replaceChildren();
+        $("#province-details").textContent = "Source board unavailable for inspection.";
+        DetectivePanel.show(phase.investigation, $("#nation").value, inspectProvince);
+        return;
+    }
+    $("#map-host").hidden = false;
+
     const nation = $("#nation").value;
     const visible = item => !nation || item.nation === nation;
     const orders = phase.orders.filter(visible);
@@ -571,6 +587,8 @@ function renderPhase() {
         + (phase.dislodgementsKnown ? `${phase.dislodged.length} dislodged · ` : "dislodgements unavailable · ")
         + `${orders.length}/${phase.orders.length} displayed orders · `
         + `${retreatCount} displayed retreat(s)`;
+    if (phase.reportedCenters)
+        $("#phase-details").textContent += ` · ${phase.reportedCenters.length} reported center rows`;
 
     /*
      * Always use the full snapshot, never filtered units or orders.
@@ -1343,7 +1361,7 @@ function inspectProvince(province) {
 
     const phase = currentPhase();
 
-    if (!phase)
+    if (!phase?.board)
         return;
 
     selectedProvince = province;

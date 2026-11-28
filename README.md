@@ -184,6 +184,17 @@ bundle and its document fingerprints are retained. Unsupported schemas, maps,
 orders, IDs, and malformed fields produce decoding errors. Other variants and
 live webDiplomacy acquisition remain outside this adapter's scope.
 
+`WebDiplomacyParser` reuses `WebDiplomacyAdapter` for map, frame, and order
+decoding. The adapter's TRAIN fixture admission and replay guards remain in
+place; browsing preserves convoy intent even where local replay cannot
+represent it. Nullable Destroy unit types are resolved from the source board.
+Only parent supply-center rows contribute ownership; `reportedCenters` retains
+sparse source visibility, and previously positive ownership cannot disappear.
+Finished retains the preceding source center snapshot. Overlapping terminal
+units produce an explicitly unavailable board in the timeline while earlier
+positions remain viewable; no replacement board is synthesized. Raw evidence
+remains in the catalog. Existing internal snapshot archives remain readable.
+
 Missing orders are never filled with holds. Availability flags distinguish
 absent data from empty arrays. DiploBN retains the existing parser's limitations:
 dislodgement details are unavailable and explicit retreat disbands are omitted
@@ -193,7 +204,10 @@ does not establish training eligibility or adjudication equivalence.
 
 Focused checks: `testing.selfcheck.WebDiplomacyParserSelfCheck` and
 `testing.selfcheck.AgentGameBrowserSelfCheck --catalog` (the latter needs SQLite
-JDBC). Compile with JDK 25+ and the project's JetBrains annotations dependency.
+JDBC). They include synthetic shared-adapter/replay checks without external
+fixtures. `WebDiplomacyAdapterSelfCheck` additionally requires its separately
+reviewed, hash-pinned fixture ZIP. Compile with JDK 25+ and the project's
+JetBrains annotations dependency.
 
 ---
 

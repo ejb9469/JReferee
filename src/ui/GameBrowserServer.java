@@ -556,8 +556,13 @@ public final class GameBrowserServer implements AutoCloseable {
         out.append(",\"terminal\":").append(phase.terminal());
         out.append(",\"ordersKnown\":").append(phase.ordersKnown());
         out.append(",\"dislodgementsKnown\":").append(phase.dislodgementsKnown());
+        out.append(",\"year\":").append(phase.moment().year()).append(',');
+        field(out, "phase", phase.moment().gamePhase().name());
+        out.append(',');
+        field(out, "boardError", phase.boardError());
+        out.append(",\"reportedCenters\":").append(GameHistoryJson.reportedCenters(phase.reportedCenters()));
 
-        out.append(",\"board\":").append(
+        out.append(",\"board\":").append(phase.board() == null ? "null" :
                 BoardSnapshotJsonWriter.toJson(
                         BoardSnapshotMapper.from(
                                 phase.moment(),

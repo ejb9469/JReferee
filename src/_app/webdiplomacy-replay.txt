@@ -1,0 +1,126 @@
+WEBDIPLOMACY TRAIN MECHANICS PILOT
+
+Main class: _app.WebDiplomacyReplayApp
+Working directory: project root. Requires JDK 25 and existing compiled
+JReferee classes. No Python environment, JDBC database or model is used.
+
+Arguments:
+  reviewed-fixtures.zip [new-report.json]
+
+Reviewed input:
+  data/webdiplomacy-fixtures-4651cb9aab79433ea5b83c22e845b8da.zip
+
+The ZIP is pinned by its complete byte hash:
+  451b2a662c1575d5f9c965d36e3a99dc25b23550d1af2432309180853a084024
+
+Per-file hashes, source receipts, source/key TRAIN splits and the original
+inventory receipt are checked again. ZIP members are read in memory.
+No raw payloads are downloaded or imported.
+
+Build and run
+-------------
+Compile only these four Java files into a fresh output directory:
+  src/parsing/webdiplomacy/WebDiplomacyAdapter.java
+  src/_app/WebDiplomacyReplayApp.java
+  src/_app/TrainingSourcePilotApp.java
+  src/testing/selfcheck/WebDiplomacyAdapterSelfCheck.java
+
+Use out/production/JReferee as the compile classpath, and put the new output
+directory first on the runtime classpath. Do not specify src as sourcepath:
+the existing engine classes must remain untouched while scrapers run.
+Create an isolated output directory before compiling.
+
+Run testing.selfcheck.WebDiplomacyAdapterSelfCheck with the ZIP argument
+before running the pilot. The reviewed fixture self-check has 26 checks.
+
+The pilot writes a fresh JSON report. Existing report paths are refused.
+Exit 0 means no review findings. Exit 2 means the scan completed with review
+findings; it is expected for this sample. Other failures propagate.
+complete=true records completion of the diagnostic scan.
+review_required records whether findings remain; admission_performed is false.
+The report schema is jreferee-webdiplomacy-replay-pilot-v2.
+
+Translation
+-----------
+Classic power names, all 81 playable locations, coast parents, supply-center
+flags, home centers and army/fleet movement borders are checked against
+JReferee. The source's Bulgaria (North Coast) maps to BulEC.
+Only parent supply centers contribute ownership; non-center territory colors
+and child-coast ownership rows do not become supply-center entries.
+
+Support move and Convoy use fromTerrID as the referenced unit's origin and
+toTerrID as its destination. Fleet destinations retain their exact coast.
+Build type comes from Build Army/Build Fleet. A Destroy with null unitType
+resolves the existing unit from its current board location.
+Wait maps to WaiveOrder. Retreat Disband remains in source metadata and
+uses the processor's checked omission path.
+
+Source success/dislodged flags are preserved separately. They never construct
+adjudication inputs. Move success and dislodgement facts are compared after
+resolution; support/hold success flags are not treated as equivalent verdicts.
+
+GameBrowserApp shares the adapter's mechanics decoding through
+WebDiplomacyParser. Display does not call TRAIN fixture admission or movement
+replay: unsupported convoy choices remain visible as source submissions.
+Overlapping terminal boards remain in the viewer timeline with an explicit
+unavailable-board warning. The pinned pilot and its admission gates are unchanged.
+
+Replay boundary
+---------------
+Each movement root starts independently from its source snapshot. Its recorded
+retreats and builds are then resolved through Game with the default
+SZYKMAN_JUSTICE policy. Successor unit positions and center ownership are
+compared before continuing. Source UnitId values are matched to current
+locations when translating successor orders.
+
+The sample contains 123 movement, 85 retreat, 56 build and 8 Finished frames,
+with 4,351 source orders. The current representable portion resolves:
+  121 movements, 84 retreats and 55 adjustments;
+  1,964 move-result and 3,824 dislodgement comparisons;
+  259 unit-snapshot and 253 ownership comparisons;
+  1,820 per-power catalog legality checks.
+
+There are no legality or replay mismatches in that evaluated portion.
+This is conditional diagnostic coverage; no games or examples are admitted.
+
+Review findings
+---------------
+Two adjacent-move roots are excluded because the current Order model cannot
+retain the source convoy choice: 138325 turn 5 and 443777 turn 13.
+The gate covers an explicit convoy flag or a matching convoy submission.
+The original source flag is retained for subsequent rule/representation work.
+
+Two Finished snapshots overlap units: 138325 at Rum and 140665 at Ukr.
+They remain unchanged and are excluded from ordinary final-board verification.
+Finished copies the preceding source center list; it cannot establish a new
+post-adjudication ownership snapshot or an independently verified value label.
+
+Sparse ownership
+----------------
+Classic creates initial territory rows only for positive owners. Movement
+and standoff processing materialize additional rows, and archiving copies
+those rows. Unlisted supply centers are neutral. reportedCenters preserves
+the source visibility; absent rows are never silently added to that set.
+
+Once a center is owned, it must remain explicitly positive in every later
+snapshot. Missing rows and explicit neutral reversions are rejected.
+Replay checks the exact positive owners, including newly captured centers.
+Finished must preserve both the preceding owners and center visibility.
+
+The sample has 29 sparse frames containing 95 implicit neutral entries,
+including 17 movement roots. These are diagnostic counters. The revised
+pilot has five findings, and 120 movement roots have no findings.
+
+Source contract at webDiplomacy revision
+25fdcc7068510cef7e0a1ed4f3c9baaf9c86ba58:
+  gamemaster/adjudicator/pregame.php:138-147
+  gamemaster/orders/diplomacy.php:98-118,145-152
+  gamemaster/game.php:1076-1167
+  map.php:219-234
+
+TRAIN admission, default-order/bot provenance, semantic cross-source duplicate
+screening and an expanded supervised export remain separate gates.
+The temporary root-level inventory/admission/fixture scripts and notes have
+been removed. Existing reviewed fixture ZIPs remain valid inputs to this pilot.
+TrainingExportApp still supports DIPLOBN only. Frozen anchors, value models,
+existing held-out populations and the production seed ledger are unchanged.

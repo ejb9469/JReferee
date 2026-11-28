@@ -212,7 +212,7 @@ public final class AgentGameBrowserSelfCheck {
                 stored = catalog.catalog(new GameSourceReference(
                                 GameSource.DIPLOBN, "browser-selfcheck", url, url),
                         "Catalog fixture", "Browser", payload, SourceFingerprints.sha256Hex(payload), parsed.phases().size());
-                String webPayload = WebDiplomacyParserSelfCheck.bundle();
+                String webPayload = WebDiplomacyParserSelfCheck.overlappingBundle();
                 URI webUrl = URI.create("https://webdiplomacy.net/board.php?gameID=17");
                 web = catalog.catalog(new GameSourceReference(GameSource.WEBDIPLOMACY, "browser-selfcheck", webUrl, webUrl),
                         "webDiplomacy fixture", null, webPayload, SourceFingerprints.sha256Hex(webPayload), 5);
@@ -220,6 +220,10 @@ public final class AgentGameBrowserSelfCheck {
                 require(GameHistoryJson.read(internal.sourcePayload()).equals(
                                 GameHistory.from(recorded.record(), recorded.state(), "FINAL - YEAR_LIMIT")),
                         "Persisted history must retain native unit identities, orders, flags, and outcomes");
+                require(GameHistoryJson.read(internal.sourcePayload()
+                                .replace("\"boardError\":null,", "").replace("\"reportedCenters\":null,", ""))
+                                .equals(GameHistoryJson.read(internal.sourcePayload())),
+                        "Earlier snapshot archives must remain readable without the new availability fields");
                 require(!GameHistory.from(Game.fromState(recorded.state())).positions().getFirst().ordersKnown(),
                         "A live Game snapshot must not invent submissions");
                 var unknown = new DiploBNParser().parse("""
@@ -257,12 +261,18 @@ public final class AgentGameBrowserSelfCheck {
                 Map<?, ?> webFirst = object(array(webGame.get("phases")).getFirst());
                 require(object(array(webFirst.get("orders")).getFirst()).get("text").toString().endsWith("VIA CONVOY"),
                         "Convoy flag must be visible");
+                require(array(webFirst.get("reportedCenters")).size() == 2,
+                        "Non-center and child-coast rows must not inflate center visibility");
                 require(object(object(webFirst.get("investigation")).get("resolvedEvents")).get("status").equals("DISABLED"),
                         "webDiplomacy browsing must not adjudicate source submissions");
                 require(array(object(array(webGame.get("phases")).get(1)).get("dislodged")).size() == 2,
                         "Retreating units must be exposed separately");
                 require(Boolean.TRUE.equals(object(array(webGame.get("phases")).getLast()).get("terminal")),
                         "Finished position must be explicitly terminal");
+                Map<?, ?> unavailable = object(array(webGame.get("phases")).getLast());
+                require(unavailable.get("board") == null && unavailable.get("boardError").toString().contains("Multiple units")
+                        && object(unavailable.get("investigation")).get("status").equals("INVALID_INPUT"),
+                        "A malformed terminal source board must retain its position and an explicit error");
                 Map<?, ?> archived = object(JsonReader.read(get(client, base, "/api/game?id=" + internal.id().value())));
                 require(archived.get("source").equals("JREFEREE_RECORD")
                         && archived.get("rulesetId").equals(recorded.record().rulesetId()),

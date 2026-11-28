@@ -7,6 +7,7 @@ import phase.BoardRules;
 import phase.UnitId;
 import phase.adjustments.DisbandOrder;
 import phase.movement.MovementResult;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
@@ -26,16 +27,40 @@ public record GameHistory(String rulesetId, List<Position> positions) {
                 throw new IllegalArgumentException("Only the last position may be terminal");
     }
 
+    /**
+     * An unrepresentable source terminal board is null with an explicit error.
+     * reportedCenters preserves source-row visibility; null means unavailable.
+     */
     public record Position(
-            Integer sourcePhase, String status, GameMoment moment, BoardState board,
+            Integer sourcePhase, String status, GameMoment moment, @Nullable BoardState board,
             List<Submission> orders, List<Annotation> annotations,
             Map<UnitId, Province> dislodged, boolean dislodgementsKnown,
-            boolean ordersKnown, boolean terminal
+            boolean ordersKnown, boolean terminal,
+            @Nullable Set<Province> reportedCenters, @Nullable String boardError
     ) {
+        public Position(Integer sourcePhase, String status, GameMoment moment, BoardState board,
+                        List<Submission> orders, List<Annotation> annotations,
+                        Map<UnitId, Province> dislodged, boolean dislodgementsKnown,
+                        boolean ordersKnown, boolean terminal) {
+            this(sourcePhase, status, moment, board, orders, annotations, dislodged,
+                    dislodgementsKnown, ordersKnown, terminal, null, null);
+        }
+
         public Position {
             Objects.requireNonNull(status, "status");
             Objects.requireNonNull(moment, "moment");
-            Objects.requireNonNull(board, "board");
+            if (board == null && (!terminal || boardError == null || boardError.isBlank()))
+                throw new IllegalArgumentException("An unavailable terminal board needs an explicit error");
+            if (board != null && boardError != null)
+                throw new IllegalArgumentException("A rendered board cannot have an availability error");
+            if (reportedCenters != null) {
+                reportedCenters = Set.copyOf(reportedCenters);
+                for (Province center : reportedCenters)
+                    if (!center.supplyCenter || center.parent != null)
+                        throw new IllegalArgumentException("Reported center must be a parent supply center");
+                if (board != null && !reportedCenters.containsAll(board.owners().keySet()))
+                    throw new IllegalArgumentException("Owned centers must have source rows");
+            }
             orders = List.copyOf(orders);
             annotations = List.copyOf(annotations);
             dislodged = BoardRules.unitLocations(dislodged, "dislodged");

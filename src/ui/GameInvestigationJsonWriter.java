@@ -71,6 +71,8 @@ public final class GameInvestigationJsonWriter {
     }
 
     public static String toJson(GameHistory.Position position, String rulesetId, boolean localResolution) {
+        if (position.board() == null)
+            return unavailable("INVALID_INPUT", position.boardError());
         if (position.terminal() || !position.moment().gamePhase().isMovement() || !position.ordersKnown())
             return unavailable("NOT_APPLICABLE", "No movement submissions to investigate in this position.");
         List<Order> orders = new ArrayList<>();

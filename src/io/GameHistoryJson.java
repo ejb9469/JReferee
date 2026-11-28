@@ -48,17 +48,26 @@ public final class GameHistoryJson {
             field(out, "dislodgementsKnown", position.dislodgementsKnown());
             out.append(',');
             field(out, "terminal", position.terminal());
-            out.append(",\"units\":").append(units(position.board().locations()));
+            out.append(',');
+            field(out, "boardError", position.boardError());
+            out.append(",\"reportedCenters\":").append(reportedCenters(position.reportedCenters()));
+            out.append(",\"units\":").append(position.board() == null ? "null" : units(position.board().locations()));
             out.append(",\"dislodged\":").append(units(position.dislodged()));
-            out.append(",\"centers\":{");
-            boolean firstCenter = true;
-            for (var center : position.board().owners().entrySet()) {
-                if (!firstCenter)
-                    out.append(',');
-                firstCenter = false;
-                field(out, center.getKey().name(), center.getValue());
+            out.append(",\"centers\":");
+            if (position.board() == null) {
+                out.append("null");
+            } else {
+                out.append('{');
+                boolean firstCenter = true;
+                for (var center : position.board().owners().entrySet()) {
+                    if (!firstCenter)
+                        out.append(',');
+                    firstCenter = false;
+                    field(out, center.getKey().name(), center.getValue());
+                }
+                out.append('}');
             }
-            out.append("},\"orders\":[");
+            out.append(",\"orders\":[");
             boolean firstOrder = true;
             for (var order : position.orders()) {
                 if (!firstOrder)
@@ -111,8 +120,20 @@ public final class GameHistoryJson {
         for (Object value : JSON.array(root.get("positions"), "$.positions")) {
             Map<String, Object> position = JSON.object(value, "$.positions[]");
             Map<Province, Nation> centers = new LinkedHashMap<>();
-            JSON.object(position.get("centers"), "centers").forEach((province, nation) ->
-                    centers.put(Province.valueOf(province), Nation.valueOf(JSON.string(nation, "centers." + province))));
+            Object rawCenters = JSON.required(position, "centers", "position");
+            Object rawUnits = JSON.required(position, "units", "position");
+            if (rawCenters != null)
+                JSON.object(rawCenters, "centers").forEach((province, nation) ->
+                        centers.put(Province.valueOf(province), Nation.valueOf(JSON.string(nation, "centers." + province))));
+            if ((rawCenters == null) != (rawUnits == null))
+                throw new ParseException("position", "Unavailable boards must omit both units and center owners");
+            Set<Province> reportedCenters = null;
+            if (position.get("reportedCenters") != null) {
+                reportedCenters = EnumSet.noneOf(Province.class);
+                for (Object center : JSON.array(position.get("reportedCenters"), "reportedCenters"))
+                    if (!reportedCenters.add(Province.valueOf(JSON.string(center, "reportedCenters[]"))))
+                        throw new ParseException("reportedCenters", "Duplicate source center row");
+            }
             List<GameHistory.Submission> orders = new ArrayList<>();
             for (Object orderValue : JSON.array(position.get("orders"), "orders")) {
                 Map<String, Object> order = JSON.object(orderValue, "orders[]");
@@ -134,11 +155,21 @@ public final class GameHistoryJson {
                     sourcePhase == null ? null : JSON.integer(sourcePhase, "sourcePhase"),
                     text(position, "status"),
                     new GameMoment(JSON.integer(position.get("year"), "year"), GamePhase.valueOf(text(position, "phase"))),
-                    new BoardState(readUnits(position.get("units")), centers), orders, annotations,
+                    rawUnits == null ? null : new BoardState(readUnits(rawUnits), centers), orders, annotations,
                     readUnits(position.get("dislodged")), bool(position, "dislodgementsKnown"),
-                    bool(position, "ordersKnown"), bool(position, "terminal")));
+                    bool(position, "ordersKnown"), bool(position, "terminal"), reportedCenters,
+                    JSON.optionalString(position, "boardError", "position")));
         }
         return new GameHistory(JSON.optionalString(root, "rulesetId", "$"), positions);
+    }
+
+    public static String reportedCenters(Set<Province> centers) {
+        if (centers == null)
+            return "null";
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        centers.stream().sorted(Comparator.comparing(Enum::name))
+                .forEach(center -> out.add("\"" + center.name() + "\""));
+        return out.toString();
     }
 
     private static String units(Map<UnitId, Province> units) {

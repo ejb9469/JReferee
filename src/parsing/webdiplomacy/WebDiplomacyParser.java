@@ -1,20 +1,20 @@
 package parsing.webdiplomacy;
 
-import domain.*;
-import game.*;
+import contracts.OrderForm;
+import game.BoardState;
+import game.GameMoment;
 import game.record.GameHistory;
 import io.catalog.SourceFingerprints;
 import io.json.JsonAccess;
 import io.json.JsonReader;
 import parsing.ParseException;
-import phase.UnitId;
+import parsing.webdiplomacy.WebDiplomacyAdapter.Frame;
 
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
- * Decodes the raw Classic bundle acquired by WebDiplomacyGameClient.
- * Source snapshots and verdicts are retained without running a processor.
+ * Reads acquired raw bundles for historical display. Mechanics decoding is
+ * shared with the adapter; TRAIN admission and replay gates remain separate.
  */
 public final class WebDiplomacyParser {
 
@@ -29,67 +29,53 @@ public final class WebDiplomacyParser {
         Map<String, Object> game = document(bundle, "game");
         Map<String, Object> history = document(bundle, "history");
         Map<String, Object> variant = document(bundle, "variant");
-        for (var entry : Map.of("game", game, "history", history).entrySet()) {
+        for (var entry : Map.of("game", game, "history", history).entrySet())
             require(integer(entry.getValue(), "gameID") == gameId
                             && text(entry.getValue(), "file").equals(entry.getKey()),
                     entry.getKey(), "Game document identity mismatch");
-        }
-        require(integer(variant, "variantID") == 1 && integer(variant, "mapID") == 1
-                        && text(variant, "name").equals("Classic"),
-                "variant", "Only Classic is supported");
         Map<String, Object> gameVariant = JSON.object(game.get("variant"), "game.variant");
         require(integer(gameVariant, "id") == 1 && text(gameVariant, "name").equals("Classic"),
                 "game.variant", "Game does not use Classic");
         require(text(game, "phase").equals("Finished"), "game.phase", "Expected a completed game");
-        Map<Integer, Nation> countries = countries(variant);
-        Map<Integer, Province> territories = territories(variant);
-        List<Object> raw = historyPhases(history, integer(game, "turn"));
+        historyPhases(history, integer(game, "turn"));
+        List<Frame> frames = WebDiplomacyAdapter.decodeHistory(variant, history);
+        WebDiplomacyAdapter.verifyOwnership(frames);
+        WebDiplomacyAdapter.verifyFinishedOwnership(frames);
+        return history(frames);
+    }
+
+    private static GameHistory history(List<Frame> frames) {
         List<GameHistory.Position> positions = new ArrayList<>();
         GameMoment previousMoment = null;
-        for (int index = 0; index < raw.size(); index++) {
-            String path = "history.phases[" + index + "]";
-            Map<String, Object> phase = JSON.object(raw.get(index), path);
-            int turn = integer(phase, "turn");
-            String name = text(phase, "phase");
-            boolean terminal = name.equals("Finished");
-            GameMoment moment = terminal ? previousMoment : moment(turn, name, path);
-            Map<UnitId, Province> units = new LinkedHashMap<>();
-            Map<UnitId, Province> dislodged = new LinkedHashMap<>();
-            for (Object value : JSON.array(phase.get("units"), path + ".units")) {
-                Map<String, Object> unit = JSON.object(value, path + ".units[]");
-                Nation nation = lookup(countries, integer(unit, "countryID"), path);
-                UnitType type = unitType(text(unit, "type"), path);
-                Province location = lookup(territories, integer(unit, "terrID"), path);
-                boolean retreating = bool(unit, "retreating");
-                String identity = gameId + ":" + index + ":" + nation + ":" + type + ":" + location + ":" + retreating;
-                UnitId id = new UnitId(UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8)),
-                        nation, type, location);
-                Map<UnitId, Province> target = retreating ? dislodged : units;
-                require(target.putIfAbsent(id, location) == null, path, "Duplicate unit");
+        for (Frame frame : frames) {
+            boolean terminal = frame.name().equals("Finished");
+            GameMoment moment = terminal ? previousMoment : frame.moment();
+            BoardState board;
+            String boardError = null;
+            try {
+                board = frame.board();
+            } catch (IllegalArgumentException exception) {
+                if (!terminal)
+                    throw exception;
+                board = null;
+                boardError = "Source terminal board is unavailable: " + exception.getMessage();
             }
-            Map<Province, Nation> centers = new LinkedHashMap<>();
-            Set<Province> seenCenters = new HashSet<>();
-            for (Object value : JSON.array(phase.get("centers"), path + ".centers")) {
-                Map<String, Object> center = JSON.object(value, path + ".centers[]");
-                Province province = Province.canonical(lookup(territories, integer(center, "terrID"), path));
-                require(province.supplyCenter && seenCenters.add(province), path, "Invalid or duplicate center");
-                int country = integer(center, "countryID");
-                if (country != 0)
-                    centers.put(province, lookup(countries, country, path));
-            }
+            List<? extends OrderForm> forms = frame.name().equals("Builds")
+                    ? WebDiplomacyAdapter.adjustments(frame, board) : frame.orders();
             List<GameHistory.Submission> orders = new ArrayList<>();
             List<GameHistory.Annotation> annotations = new ArrayList<>();
-            for (Object value : JSON.array(phase.get("orders"), path + ".orders")) {
-                Map<String, Object> order = JSON.object(value, path + ".orders[]");
-                GameHistory.Submission submission = order(order, countries, territories, path);
-                require(orderPhase(submission.orderType()).equals(name), path, "Order belongs to another phase");
-                orders.add(submission);
+            for (int index = 0; index < forms.size(); index++) {
+                OrderForm order = forms.get(index);
+                var submission = frame.orders().get(index);
+                orders.add(new GameHistory.Submission(order.owner(), order.unitType(), submission.origin(),
+                        order.orderType(), order.target(), order.auxiliaryTarget(), submission.viaConvoy()));
                 annotations.add(new GameHistory.Annotation(submission.owner(), submission.origin(),
-                        name.equals("Retreats"), bool(order, "success"),
-                        text(order, "type") + (bool(order, "dislodged") ? "; DISLODGED" : "")));
+                        frame.name().equals("Retreats"), submission.success(),
+                        submission.type() + (submission.dislodged() ? "; DISLODGED" : "")));
             }
-            positions.add(new GameHistory.Position(turn, name, moment, new BoardState(units, centers),
-                    orders, annotations, dislodged, true, true, terminal));
+            positions.add(new GameHistory.Position(frame.turn(), frame.name(), moment, board,
+                    orders, annotations, frame.dislodged(), true, true, terminal,
+                    frame.reportedCenters(), boardError));
             previousMoment = moment;
         }
         return new GameHistory(null, positions);
@@ -116,118 +102,21 @@ public final class WebDiplomacyParser {
             require(turn >= 0 && turn <= gameTurn && 4L * turn + rank > previous,
                     path, "Invalid or unordered turn");
             require(index != 0 || turn == 0 && rank == 0, path, "Expected Spring 1901 first");
+            require(rank != 2 || turn % 2 == 1, path, "Builds must follow Fall");
             require(name.equals("Finished") == (index == phases.size() - 1),
                     path, "Expected exactly one final Finished position");
             JSON.array(phase.get("units"), path + ".units");
             JSON.array(phase.get("centers"), path + ".centers");
             List<Object> orders = JSON.array(phase.get("orders"), path + ".orders");
-            if (name.equals("Finished")) {
-                // Finished shares the turn of the preceding archived phase.
+            if (name.equals("Finished"))
                 require(turn == previousTurn && orders.isEmpty(), path,
                         "Finished must retain the preceding turn and contain no orders");
-            }
             previous = 4L * turn + rank;
             previousTurn = turn;
         }
+        require(gameTurn == previousTurn || gameTurn == (long) previousTurn + 1,
+                "game.turn", "Game header differs from the retained history boundary");
         return phases;
-    }
-
-    private static GameHistory.Submission order(Map<String, Object> raw, Map<Integer, Nation> countries,
-                                                Map<Integer, Province> territories, String path) {
-        String type = text(raw, "type");
-        OrderType orderType = switch (type) {
-            case "Hold" -> OrderType.HOLD;
-            case "Move" -> OrderType.MOVE;
-            case "Support hold", "Support move" -> OrderType.SUPPORT;
-            case "Convoy" -> OrderType.CONVOY;
-            case "Retreat", "Disband" -> OrderType.RETREAT;
-            case "Build Army", "Build Fleet" -> OrderType.BUILD;
-            case "Destroy" -> OrderType.DESTROY;
-            case "Wait" -> OrderType.WAIVE;
-            default -> throw new ParseException(path, "Unknown order type: " + type);
-        };
-        Province origin = territory(raw, "terrID", territories, path);
-        Province to = territory(raw, "toTerrID", territories, path);
-        Province from = territory(raw, "fromTerrID", territories, path);
-        String rawUnit = JSON.optionalString(raw, "unitType", path);
-        UnitType unit = type.equals("Build Army") ? UnitType.ARMY
-                : type.equals("Build Fleet") ? UnitType.FLEET
-                : rawUnit == null ? null : unitType(rawUnit, path);
-        if (rawUnit != null && unit != null)
-            require(unitType(rawUnit, path) == unit, path, "Build unit type mismatch");
-        require(orderType == OrderType.WAIVE || origin != null && unit != null,
-                path, "Missing issuing province or unit type");
-        Province target = switch (type) {
-            case "Move", "Retreat", "Support hold" -> to;
-            case "Support move", "Convoy" -> from;
-            default -> null;
-        };
-        Province auxiliary = type.equals("Support move") || type.equals("Convoy") ? to : null;
-        require(!List.of("Move", "Retreat", "Support hold", "Support move", "Convoy").contains(type)
-                        || target != null, path, "Missing order target");
-        require(!List.of("Support move", "Convoy").contains(type) || auxiliary != null,
-                path, "Missing auxiliary target");
-        return new GameHistory.Submission(lookup(countries, integer(raw, "countryID"), path),
-                unit, origin, orderType, target, auxiliary, bool(raw, "viaConvoy"));
-    }
-
-    private static String orderPhase(OrderType type) {
-        return switch (type) {
-            case RETREAT -> "Retreats";
-            case BUILD, DESTROY, WAIVE -> "Builds";
-            default -> "Diplomacy";
-        };
-    }
-
-    private static GameMoment moment(int turn, String phase, String path) {
-        boolean spring = turn % 2 == 0;
-        require(!phase.equals("Builds") || !spring, path, "Builds must follow Fall");
-        GamePhase gamePhase = switch (phase) {
-            case "Diplomacy" -> spring ? GamePhase.SPRING_MOVEMENT : GamePhase.FALL_MOVEMENT;
-            case "Retreats" -> spring ? GamePhase.SPRING_RETREAT : GamePhase.FALL_RETREAT;
-            case "Builds" -> GamePhase.WINTER_ADJUSTMENT;
-            default -> throw new ParseException(path, "Unknown phase");
-        };
-        return new GameMoment(Math.addExact(Constants.STARTING_YEAR, turn / 2), gamePhase);
-    }
-
-    private static Map<Integer, Nation> countries(Map<String, Object> variant) {
-        Map<Integer, Nation> countries = new LinkedHashMap<>();
-        for (Object value : JSON.array(variant.get("countries"), "variant.countries")) {
-            Map<String, Object> country = JSON.object(value, "variant.countries[]");
-            Nation nation = Nation.valueOf(text(country, "name").toUpperCase(Locale.ROOT));
-            require(countries.putIfAbsent(integer(country, "countryID"), nation) == null,
-                    "variant.countries", "Duplicate country ID");
-        }
-        require(new HashSet<>(countries.values()).size() == 7 && countries.size() == 7,
-                "variant.countries", "Expected seven Classic countries");
-        return countries;
-    }
-
-    private static Map<Integer, Province> territories(Map<String, Object> variant) {
-        Map<String, Province> names = new HashMap<>();
-        for (Province province : Province.values())
-            names.put(province.fullName, province);
-        names.put("St. Petersburg", Province.Stp);
-        names.put("Skagerrack", Province.SKA);
-        names.put("Heligoland Bight", Province.HEL);
-        names.put("Gulf of Lyons", Province.LYO);
-        names.put("Spain (North Coast)", Province.SpaNC);
-        names.put("Spain (South Coast)", Province.SpaSC);
-        names.put("St. Petersburg (North Coast)", Province.StpNC);
-        names.put("St. Petersburg (South Coast)", Province.StpSC);
-        names.put("Bulgaria (North Coast)", Province.BulEC);
-        names.put("Bulgaria (South Coast)", Province.BulSC);
-        Map<Integer, Province> territories = new LinkedHashMap<>();
-        for (Object value : JSON.array(variant.get("territories"), "variant.territories")) {
-            Map<String, Object> territory = JSON.object(value, "variant.territories[]");
-            Province province = names.get(text(territory, "name"));
-            require(province != null, "variant.territories", "Unknown Classic territory: " + territory.get("name"));
-            require(territories.putIfAbsent(integer(territory, "id"), province) == null,
-                    "variant.territories", "Duplicate territory ID");
-        }
-        require(!territories.isEmpty(), "variant.territories", "Missing map");
-        return territories;
     }
 
     private static Map<String, Object> document(Map<String, Object> bundle, String name) {
@@ -240,35 +129,12 @@ public final class WebDiplomacyParser {
         return document;
     }
 
-    private static Province territory(Map<String, Object> raw, String key, Map<Integer, Province> map, String path) {
-        Object value = JSON.required(raw, key, path);
-        return value == null ? null : lookup(map, JSON.integer(value, path + "." + key), path + "." + key);
-    }
-
-    private static UnitType unitType(String type, String path) {
-        return switch (type) {
-            case "Army" -> UnitType.ARMY;
-            case "Fleet" -> UnitType.FLEET;
-            default -> throw new ParseException(path, "Unknown unit type: " + type);
-        };
-    }
-
-    private static <T> T lookup(Map<Integer, T> values, int id, String path) {
-        T value = values.get(id);
-        require(value != null, path, "Unknown source ID: " + id);
-        return value;
-    }
-
     private static String text(Map<String, Object> value, String key) {
         return JSON.string(value.get(key), key);
     }
 
     private static int integer(Map<String, Object> value, String key) {
         return JSON.integer(value.get(key), key);
-    }
-
-    private static boolean bool(Map<String, Object> value, String key) {
-        return JSON.bool(value.get(key), key);
     }
 
     private static void require(boolean condition, String path, String message) {
