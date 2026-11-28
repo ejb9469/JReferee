@@ -262,6 +262,8 @@ These test cases include:
 
 - The Diplomacy Broadcast Network (DiploBN) - https://diplobn.com/
 
+- webDiplomacy - https://webdiplomacy.net
+
 - Inspiration: [DipTool](https://www.hagenah.de/diptool/) and [ChessBase](https://chessbase.com)
 
 ---
