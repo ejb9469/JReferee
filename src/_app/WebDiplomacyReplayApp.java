@@ -28,11 +28,12 @@ import static io.json.JsonEscaper.appendString;
 /**
  * Runs a pinned TRAIN-only mechanics pilot without opening a catalog or model.
  */
+@Deprecated(forRemoval = true)
 public final class WebDiplomacyReplayApp {
 
 
-    private static final String ZIP_HASH = "451b2a662c1575d5f9c965d36e3a99dc25b23550d1af2432309180853a084024";
-    private static final String INVENTORY_HASH = "d576bb5fcf140ccbbcddd70043f8c1759216d4bf316ce26e834af9fc2d1f832c";
+    private static final String ZIP_HASH            = "451b2a662c1575d5f9c965d36e3a99dc25b23550d1af2432309180853a084024";
+    private static final String INVENTORY_HASH      = "d576bb5fcf140ccbbcddd70043f8c1759216d4bf316ce26e834af9fc2d1f832c";
     private static final List<String> KEYS =
             List.of("159837", "150854", "140643", "138325", "173163", "140665", "443777", "175882");
     private static final JsonAccess JSON = new JsonAccess(ParseException::new);

@@ -124,3 +124,30 @@ The temporary root-level inventory/admission/fixture scripts and notes have
 been removed. Existing reviewed fixture ZIPs remain valid inputs to this pilot.
 TrainingExportApp still supports DIPLOBN only. Frozen anchors, value models,
 existing held-out populations and the production seed ledger are unchanged.
+
+Raw TRAIN admission diagnostic
+------------------------------
+The 2026-11-28 raw-TRAIN report completed against 943 DIPLOBN TRAIN references
+and 16 selected webDiplomacy TRAIN candidates. All candidate raw, trajectory
+and four-frame-prefix collision lists were empty against the scanned data.
+Nine candidates passed the evaluated replay checks; seven still need replay
+review. Every candidate remains blocked because held-out semantic fingerprints
+are unavailable. No held-out payloads were opened and no games were admitted.
+
+The report records human_only_verified=false and default_order_status=UNKNOWN.
+At the pinned webDiplomacy source revision, processOrderDiplomacy.create()
+inserts a Hold order for every unit, and completeAll() normalizes incomplete
+orders to Hold. A historical Hold therefore does not prove a player submitted
+that action. The source payload must provide verifiable per-phase submission
+status before a full joint movement action can be used as an observed target.
+playerTypes=Members does not independently prove human-only participation.
+
+For a no-press policy corpus, preserve the literal pressType and require the
+exact NoPress value. Other press labels remain diagnostic evidence; they do not
+become no-press through aliasing. This rule does not establish human or order
+provenance, semantic uniqueness against held-out games, or replay clearance.
+Finished ownership remains unverified for value-label use.
+
+TrainingSourcePilotApp is deprecated for future import work. Keep it as a
+temporary, read-only diagnostic until a cohesive importer owns source
+provenance, split checks, duplicate screening, replay and supervised export.

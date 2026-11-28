@@ -15,6 +15,7 @@ import static _app.PolicyProposalBenchmarkApp.*;
 /**
  * Frozen-validation search budgets with shared pools and fresh payoff tables.
  */
+@Deprecated(forRemoval = false)
 public final class SearchBudgetBenchmarkApp {
 
     public static final String SCHEMA = "jreferee-search-budget-benchmark-v1";

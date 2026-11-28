@@ -33,6 +33,7 @@ import java.util.*;
  * Explicit pool, search, and rollout seeds are diagnostic streams; they do
  * not reproduce a seat's full-game search by using the game seed alone.</p>
  */
+@Deprecated(forRemoval = false)
 public final class AgentExperimentConsoleApp {
 
     private static final String USAGE = "Usage: AgentExperimentConsoleApp "

@@ -18,7 +18,12 @@ import static io.json.JsonEscaper.appendString;
 /**
  * Fingerprints caller-verified TRAIN projections and diagnoses webDiplomacy
  * mechanics. It has no catalog, dataset-export or model access.
+ *
+ * @deprecated Temporary diagnostic.
+ *              A cohesive training-import workflow should replace & supersede this application;
+ *              keep import and admission behavior out of this class.
  */
+@Deprecated(forRemoval = true)
 public final class TrainingSourcePilotApp {
 
 
@@ -40,7 +45,7 @@ public final class TrainingSourcePilotApp {
             String line;
             while ((line = input.readLine()) != null) {
                 require(line.length() <= MAX_LINE && !line.isBlank(), "Invalid request line size");
-                Map<String, Object> request = JSON.object(JsonReader.read(line), "$");
+                Map<String, Object> request = JSON.object(JsonReader.read(line), "$" );
                 String source = text(request, "source"), key = text(request, "game_key");
                 require(identities.add(source + "\n" + key) && identities.size() <= 2000,
                         "Duplicate identity or request limit exceeded");

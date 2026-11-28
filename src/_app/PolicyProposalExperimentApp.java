@@ -26,6 +26,7 @@ import java.util.*;
  * Fresh checks use the same full-policy opponent draws for every method.
  * Opening and contact boards are fixtures; no dataset split is opened.
  */
+@Deprecated(forRemoval = false)
 public final class PolicyProposalExperimentApp {
 
     public enum Method {

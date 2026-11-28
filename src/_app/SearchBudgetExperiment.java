@@ -24,6 +24,7 @@ import java.util.*;
  * Search checkpoints over one set of generated pools.
  * Independent anchor opponents supply one fresh payoff table per pool.
  */
+@Deprecated(forRemoval = false)
 public final class SearchBudgetExperiment {
 
     public record Options(int candidates, int rollouts, int rolloutCandidates, int opponentSamples,

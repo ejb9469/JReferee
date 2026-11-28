@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
  * Paired seed repetitions of the opening and contact proposal experiments.
  * Each repetition contributes one value to a per-power comparison.
  */
+@Deprecated(forRemoval = false)
 public final class PolicyProposalBenchmarkApp {
 
     public static final String SCHEMA = "jreferee-proposal-benchmark-v2";

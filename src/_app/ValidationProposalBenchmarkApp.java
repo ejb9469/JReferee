@@ -19,6 +19,7 @@ import static _app.PolicyProposalBenchmarkApp.*;
  * Paired proposal experiments on frozen validation boards.
  * Summaries give each source game equal weight within a reporting group.
  */
+@Deprecated(forRemoval = false)
 public final class ValidationProposalBenchmarkApp {
 
     private static final String SCHEMA = "jreferee-validation-benchmark-v2";

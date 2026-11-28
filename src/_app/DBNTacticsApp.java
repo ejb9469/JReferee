@@ -27,6 +27,7 @@ import java.util.*;
  * <p>Missing source submissions remain UNKNOWN. Retreat and adjustment
  * snapshots are not passed to the movement-only tactical context.</p>
  */
+@Deprecated(forRemoval = false)
 public final class DBNTacticsApp extends AbstractDiploBNConsoleApp {
 
 
