@@ -1,6 +1,7 @@
 """Distill typed DiL policies with whole-action cross-entropy and held-out selection."""
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 import math
 import os
@@ -10,6 +11,7 @@ import time
 
 import numpy as np
 import torch
+from torch.utils import deterministic
 
 from .progress import Progress
 from .self_play_cache import POWERS, SPLITS, SelfPlayCache, integer, require, sha
@@ -33,6 +35,7 @@ class Settings:
     seed: int = 7
     threads: int = 4
     device: str = "cpu"
+    fill_uninitialized_memory: bool = True
 
     def __post_init__(self):
         integer(self.epochs, 1, 10000, "epochs")
@@ -42,18 +45,83 @@ class Settings:
         integer(self.seed, 0, (1 << 63) - 10001, "training seed")
         integer(self.threads, 1, 256, "threads")
         require(self.device in ("cpu", "cuda"), "Device must be cpu or cuda")
+        require(type(self.fill_uninitialized_memory) is bool, "Allocation-fill setting must be boolean")
+        require(self.device == "cuda" or self.fill_uninitialized_memory,
+                "--no-fill-uninitialized-memory requires --device cuda")
         for name in ("learning_rate", "weight_decay", "gradient_clip"):
             value = getattr(self, name)
             require(type(value) in (int, float) and math.isfinite(value)
                     and (value >= 0 if name == "weight_decay" else value > 0), f"Invalid {name}")
 
 
-def configure(settings):
+def _cuda_precision():
+    torch.set_default_dtype(torch.float32)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    if hasattr(torch.backends, "fp32_precision"):
+        torch.backends.fp32_precision = "ieee"
+        torch.backends.cuda.matmul.fp32_precision = "ieee"
+        torch.backends.cudnn.fp32_precision = "ieee"
+        torch.backends.cudnn.conv.fp32_precision = "ieee"
+        torch.backends.cudnn.rnn.fp32_precision = "ieee"
+        values = [torch.backends.fp32_precision, torch.backends.cuda.matmul.fp32_precision,
+                  torch.backends.cudnn.fp32_precision, torch.backends.cudnn.conv.fp32_precision,
+                  torch.backends.cudnn.rnn.fp32_precision]
+        require(values == ["ieee"] * 5, "IEEE precision settings were not applied")
+        return {"api": "fp32_precision", "values": values}
+    torch.set_float32_matmul_precision("highest")
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    require(not torch.backends.cuda.matmul.allow_tf32 and not torch.backends.cudnn.allow_tf32,
+            "TF32 could not be disabled")
+    return {"api": "allow_tf32", "matmul": False, "cudnn": False}
+
+
+def configure(settings, progress=None):
+    """Configure deterministic execution and report the effective batch runtime."""
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     require(settings.device != "cuda" or torch.cuda.is_available(), "CUDA was requested but is unavailable")
+    precision, gpu = {"api": "unchanged"}, None
+    if settings.device == "cuda":
+        require(os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8",
+                "CUDA training requires CUBLAS_WORKSPACE_CONFIG=:4096:8 before starting Python")
+        require(os.environ.get("TORCH_ALLOW_TF32_CUBLAS_OVERRIDE") != "1",
+                "Remove TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1 for IEEE CUDA training")
+        precision = _cuda_precision()
+        properties = torch.cuda.get_device_properties(torch.cuda.current_device())
+        gpu = {"name": properties.name, "capability": [properties.major, properties.minor],
+               "total_memory_bytes": properties.total_memory}
     torch.set_num_threads(settings.threads)
     torch.use_deterministic_algorithms(True)
     torch.manual_seed(settings.seed)
+    if gpu is not None and progress is not None:
+        progress.summary("INFO", f'CUDA: {gpu["name"]}; IEEE float32; allocation fill '
+                         f'{"on" if settings.fill_uninitialized_memory else "off"}.')
+    return {
+        "device": settings.device, "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "default_dtype": str(torch.get_default_dtype()), "precision": precision,
+        "fill_uninitialized_memory": (settings.fill_uninitialized_memory if gpu is not None
+                                      else deterministic.fill_uninitialized_memory),
+        "cuda_build": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version() if gpu is not None else None,
+        "cublas_workspace": os.environ["CUBLAS_WORKSPACE_CONFIG"], "gpu": gpu,
+    }
+
+
+@contextmanager
+def _allocation_fill(settings):
+    if settings.device == "cpu":
+        yield
+        return
+    require(torch.are_deterministic_algorithms_enabled(), "CUDA batches require deterministic algorithms")
+    previous = deterministic.fill_uninitialized_memory
+    try:
+        deterministic.fill_uninitialized_memory = settings.fill_uninitialized_memory
+        yield
+        require(deterministic.fill_uninitialized_memory is settings.fill_uninitialized_memory
+                and torch.are_deterministic_algorithms_enabled(), "CUDA determinism settings changed")
+    finally:
+        deterministic.fill_uninitialized_memory = previous
 
 
 def _timed(timings, stage, operation, *args, **kwargs):
@@ -96,9 +164,10 @@ def _finish_update(model, optimizer, settings):
 def train_batch(model, optimizer, roots, settings, timings=None):
     """Apply one root-minibatch update, with optional CPU wall-clock measurements."""
     require(timings is None or settings.device == "cpu", "Batch timing supports CPU execution only")
-    _timed(timings, "optimizer", optimizer.zero_grad, set_to_none=True)
-    losses = _cross_entropies(model, roots, settings, backward=True, timings=timings)
-    _timed(timings, "optimizer", _finish_update, model, optimizer, settings)
+    with _allocation_fill(settings):
+        _timed(timings, "optimizer", optimizer.zero_grad, set_to_none=True)
+        losses = _cross_entropies(model, roots, settings, backward=True, timings=timings)
+        _timed(timings, "optimizer", _finish_update, model, optimizer, settings)
     return losses
 
 
@@ -122,21 +191,22 @@ def evaluate(model, data, split, settings, progress=None, label=None):
     start = time.perf_counter()
     rows, games, powers, profiles = [], {}, {}, {}
     orders = candidates = 0
-    for records, roots in data.batches(split, settings.batch_size):
-        losses = _cross_entropies(model, roots, settings)
-        for record, root, loss in zip(records, roots, losses):
-            entropy = -math.fsum(p * math.log(p) for p in root.probabilities if p > 0)
-            uniform = math.fsum(root.probabilities) * math.fsum(math.log(n) for n in root.counts)
-            row = (loss, entropy, uniform)
-            rows.append(row)
-            games.setdefault(record.game, []).append(row)
-            powers.setdefault(POWERS[root.context[0]], []).append(row)
-            profile = ("OPENING" if root.type_ids[0] == 1 else "STANDARD")
-            profile += "/" + ("FINAL" if root.type_ids[1] == 1 else "AVERAGE")
-            profiles.setdefault(profile, []).append(row)
-            orders += record.units
-            candidates += record.positive_candidates
-        progress.update(len(rows))
+    with _allocation_fill(settings):
+        for records, roots in data.batches(split, settings.batch_size):
+            losses = _cross_entropies(model, roots, settings)
+            for record, root, loss in zip(records, roots, losses):
+                entropy = -math.fsum(p * math.log(p) for p in root.probabilities if p > 0)
+                uniform = math.fsum(root.probabilities) * math.fsum(math.log(n) for n in root.counts)
+                row = (loss, entropy, uniform)
+                rows.append(row)
+                games.setdefault(record.game, []).append(row)
+                powers.setdefault(POWERS[root.context[0]], []).append(row)
+                profile = ("OPENING" if root.type_ids[0] == 1 else "STANDARD")
+                profile += "/" + ("FINAL" if root.type_ids[1] == 1 else "AVERAGE")
+                profiles.setdefault(profile, []).append(row)
+                orders += record.units
+                candidates += record.positive_candidates
+            progress.update(len(rows))
     require(len(rows) == len(data.records[split]), "Incomplete root evaluation")
     progress.finish()
     result = _summary(rows)
@@ -153,10 +223,11 @@ def evaluate(model, data, split, settings, progress=None, label=None):
 def verify(data, initial_policy, settings, progress=None):
     progress = Progress() if progress is None else progress
     data.preflight(settings.max_options)
-    configure(settings)
+    runtime = configure(settings, progress)
     model, _, source = load_start(initial_policy, data.spec, data.anchor_sha256, data.split_seed)
     model.to(settings.device)
-    report = {"initial_policy": source, "anchor_sha256": data.anchor_sha256, "splits": {}}
+    report = {"initial_policy": source, "anchor_sha256": data.anchor_sha256,
+              "runtime": runtime, "splits": {}}
     for split in SPLITS:
         if data.records[split]:
             metrics = evaluate(model, data, split, settings, progress)
@@ -173,7 +244,7 @@ def verify(data, initial_policy, settings, progress=None):
 def fit(data, initial_policy, output, settings, progress=None):
     progress = Progress() if progress is None else progress
     data.preflight(settings.max_options, training=True)
-    configure(settings)
+    runtime = configure(settings, progress)
     model, specification, source = load_start(
         initial_policy, data.spec, data.anchor_sha256, data.split_seed)
     model.to(settings.device)
@@ -182,7 +253,7 @@ def fit(data, initial_policy, output, settings, progress=None):
     report = {
         "schema": "jreferee-self-play-policy-training-v1", "complete": False,
         "model_schema": MODEL_SCHEMA, "specification_sha256": SPEC_HASH,
-        "type_encoding": type_specification(), "settings": asdict(settings),
+        "type_encoding": type_specification(), "settings": asdict(settings), "runtime": runtime,
         "initial_policy": source, "anchor_sha256": data.anchor_sha256,
         "self_play_split_seed": str(data.split_seed), "datasets": data.receipts(),
         "producer_checkpoints": list(data.producer_checkpoints),
@@ -260,6 +331,9 @@ def main(argv=None):
     for name in ("learning_rate", "weight_decay", "gradient_clip"):
         parser.add_argument("--" + name.replace("_", "-"), type=float, default=getattr(defaults, name))
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--no-fill-uninitialized-memory", dest="fill_uninitialized_memory",
+                        action="store_false", default=True,
+                        help="CUDA only: skip protective allocation filling in the audited policy batches")
     args = parser.parse_args(argv)
     require((args.verify_only and args.output is None) or (not args.verify_only and args.output is not None),
             "Use --verify-only without --output, or supply a new --output for training")

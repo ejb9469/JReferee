@@ -1,8 +1,9 @@
 TYPE-CONDITIONED SELF-PLAY POLICY LEARNING
 
-Use the existing Python training environment with neural/requirements.txt.
-This step introduces no additional packages. Run from the repository root.
-Here, python means the interpreter from that existing training environment.
+CPU training continues to use the existing environment and neural/requirements.txt.
+The optional CUDA path is described below and uses a separate environment.
+Run from the repository root. In CPU examples, python means the interpreter
+from the existing training environment.
 
 First run the full numerical self-check:
 
@@ -28,6 +29,69 @@ seeds across them are rejected. Keep the same self-play split seed across
 rounds. The optimizer/randomization --seed is a separate setting.
 CPU is the default. --device cuda requires an available compatible runtime;
 unsupported deterministic kernels fail rather than silently falling back.
+
+CUDA execution
+--------------
+The validated Windows environment uses Python 3.12 and PyTorch 2.14.1+cu130
+in .venv-cuda. Use that interpreter for the first integrated GPU run:
+
+  .\.venv-cuda\Scripts\python.exe -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())"
+
+The existing neural/requirements.txt remains the CPU environment's dependency
+specification. Do not install it into .venv-cuda: its torch==2.6.0 pin would
+replace the newer CUDA build. No new installation is needed for the already
+working .venv-cuda environment. Preserve the original .venv.
+
+--device cuda selects deterministic float32 CUDA execution with TF32 disabled.
+The runtime uses the modern IEEE precision controls when available and the
+legacy TF32 controls on older PyTorch; it never mixes the two APIs. cuDNN
+benchmarking is disabled. Model parameters are float32; target weighting and
+whole-action accumulation retain their existing float64 arithmetic.
+Mixed precision, compilation and prefetch are not enabled.
+
+CUBLAS_WORKSPACE_CONFIG defaults to :4096:8 before CUDA computation begins.
+Any different value is rejected for this validated configuration. Remove
+TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1 before starting Python. Missing CUDA support
+or unsupported deterministic kernels cause an explicit failure.
+
+Allocation filling remains enabled by default for CUDA. The opt-in flag
+
+  --device cuda --no-fill-uninitialized-memory
+
+disables PyTorch's protective initialization of otherwise uninitialized
+allocations during policy updates and evaluation. Deterministic algorithms,
+necessary zero initialization, finite-value checks and optimizer behavior
+remain enabled. The previous fill setting is restored afterward, including
+when an update or evaluation raises. Model loading and checkpoint serialization
+run outside this scope. Other trainers and CPU execution are unchanged.
+The flag is rejected without --device cuda.
+
+The audited policy path builds complete input tensors, initializes its
+accumulators and loads complete checkpoint state. The bounded CUDA experiment
+found identical guard-on/off predictions, gradients, optimizer state and final
+parameters. This option still requires fresh validation if that path changes;
+it is not a global allocation policy for unrelated code.
+
+For the first full integrated training/validation cycle, use a NEW candidate
+directory and keep the frozen v5 initialization and round-five caches:
+
+  .\.venv-cuda\Scripts\python.exe -m neural.self_play_train --cache data/self-play-round5-main/batch-00/batch/cache data/self-play-round5-main/batch-01/batch/cache data/self-play-round5-main/batch-02/batch/cache data/self-play-round5-main/batch-03/batch/cache --initial-policy data/movement-self-play-v5/policy.pt --anchor data/movement-linear-v1/policy.bin --output data/gpu-main-validation-v1 --epochs 3 --batch-size 8 --candidate-batch-size 32 --max-options 16384 --learning-rate 0.0001 --weight-decay 0.0001 --gradient-clip 1.0 --threads 4 --seed 7 --device cuda --no-fill-uninitialized-memory -v
+
+This runs initial validation, three complete TRAIN epochs, validation after
+each epoch, held-out checkpoint selection and selected-checkpoint readback.
+It writes a new policy.pt and training.json. It does not promote the candidate
+or touch TEST data. Retaining epoch 0 remains a valid outcome.
+
+training.json records the effective device, precision API, allocation-fill
+setting, CUDA/cuDNN versions and GPU identity under runtime. Epoch timings
+include their validation pass, as before; they cannot be compared directly
+with the temporary experiment's isolated training-batch totals. Checkpoint
+and training-receipt schemas remain compatible with neural.self_play_export.
+
+The trainer has no dependency on gpu_experiment.py, gpu_profile.py or
+gpu_fill_experiment.py. Archive completed temporary scripts with their reports:
+their recorded source hashes no longer match this integrated trainer.
+Keep production adoption deferred until the full-cycle report is reviewed.
 
 Model
 -----
@@ -173,8 +237,20 @@ The separate profiling check covers timed/plain update equivalence, profiling
 stage boundaries, warm-up exclusion, bounded TRAIN-only execution, unchanged
 source files and incomplete-report handling.
 
-Without --spec it uses a synthetic map with explicitly test-only hash bindings.
-With --spec it verifies the actual frozen Java value/movement specifications.
-The fixtures and checkpoints remain temporary; existing weights are untouched.
---data-only runs the standard-library checks without NumPy/PyTorch. It does
-NOT run the numerical/model tests and is not a substitute for the full check.
+The device-runtime checks are separate so --data-only stays standard-library
+only:
+
+  python -m neural.test_self_play_device
+
+They cover CPU-default preservation, CUDA precision API selection, flag and
+environment guards, scoped fill restoration, CLI wiring, and complete
+fit/selection/checkpoint-readback behavior. Local CUDA-path fixtures execute
+tensors on CPU explicitly; the command above does not certify CUDA kernels.
+The full CUDA training command is the user-machine integration validation.
+
+The neural.test_self_play_train command uses a synthetic map with explicitly
+test-only hash bindings when --spec is omitted. With --spec it verifies the
+actual frozen Java value/movement specifications. Its fixtures and checkpoints
+remain temporary; existing weights are untouched. --data-only runs the
+standard-library checks without NumPy/PyTorch. It does NOT run the
+numerical/model tests and is not a substitute for the full check.
