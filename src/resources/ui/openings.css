@@ -171,9 +171,9 @@ select:focus-visible {
 
 #map-host svg {
     display: block;
-    width: 100%;
+    width: 50%;
     height: auto;
-    min-width: 42rem;
+    min-width: 21rem;
 }
 
 .muted,

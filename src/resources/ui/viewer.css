@@ -73,9 +73,9 @@ body {
 
 .map-host svg {
   display: block;
-  width: 100%;
+  width: 50%;
   height: auto;
-  min-width: 55rem;
+  min-width: 27.5rem;
 }
 
 /*

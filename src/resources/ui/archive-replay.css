@@ -114,7 +114,7 @@ article {
 }
 
 .single .map {
-    --map-min-width: 42rem;
+    --map-min-width: 21rem;
 }
 
 .panel .game-records {
@@ -204,8 +204,8 @@ pre {
 
 :host svg {
     display: block;
-    width: 100%;
-    min-width: var(--map-min-width, 32rem);
+    width: 50%;
+    min-width: var(--map-min-width, 16rem);
     height: auto;
 }
 
