@@ -2,8 +2,13 @@ package parsing.diplobn;
 
 import game.Game;
 import game.GamePhase;
+import game.GameMoment;
+import game.record.GameHistory;
+import phase.adjustments.DisbandOrder;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 
@@ -59,6 +64,30 @@ public final class DiploBNGame {
 
     public List<DiploBNPhase> phases() {
         return phases;
+    }
+
+    public GameHistory history() {
+        List<GameHistory.Position> positions = new ArrayList<>();
+        for (DiploBNPhase phase : phases) {
+            List<GameHistory.Submission> orders = new ArrayList<>();
+            phase.movementOrders().forEach(order -> orders.add(
+                    GameHistory.Submission.from(order, phase.board().locationOf(order.unit()))));
+            phase.adjustmentOrders().forEach(order -> orders.add(GameHistory.Submission.from(order,
+                    order instanceof DisbandOrder disband
+                            ? phase.board().locationOf(disband.unit()) : order.origin())));
+            phase.retreatOrders().forEach(order -> orders.add(
+                    GameHistory.Submission.from(order, phase.board().locationOf(order.unit()))));
+            List<GameHistory.Annotation> annotations = new ArrayList<>();
+            List<DiploBNOrderResolution> results = new ArrayList<>(phase.resolutions());
+            results.addAll(phase.retreatResolutions());
+            for (var result : results)
+                annotations.add(new GameHistory.Annotation(result.nation(), result.issuingProvince(),
+                        result.retreatOrder(), result.successful(), result.reason()));
+            positions.add(new GameHistory.Position(phase.sourcePhase(), phase.sourceStatus(),
+                    new GameMoment(phase.sourcePhase() / 10, phase.gamePhase()), phase.board(),
+                    orders, annotations, Map.of(), false, phase.ordersAvailable(), false));
+        }
+        return new GameHistory(null, positions);
     }
 
     /**

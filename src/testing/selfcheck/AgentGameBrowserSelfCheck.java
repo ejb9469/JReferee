@@ -6,6 +6,8 @@ import agents.execution.GameRunner;
 import domain.*;
 import game.*;
 import game.record.GameRecordBuilder;
+import game.record.GameHistory;
+import io.GameHistoryJson;
 import io.catalog.*;
 import io.persistence.SQLiteCatalogStore;
 import misc.scoring.ScoringSystem;
@@ -201,11 +203,31 @@ public final class AgentGameBrowserSelfCheck {
         Path database = Files.createTempFile(Path.of("."), "agent-browser-catalog-", ".sqlite");
         try {
             CatalogGame stored;
+            CatalogGame web;
+            CatalogGame internal;
+            GameRunner.Result recorded = fixture(true);
             try (SQLiteCatalogStore store = new SQLiteCatalogStore(database)) {
+                GameCatalog catalog = new GameCatalog(store);
                 URI url = URI.create("https://diplobn.com/game/?GameID=browser-selfcheck");
-                stored = new GameCatalog(store).catalog(new GameSourceReference(
+                stored = catalog.catalog(new GameSourceReference(
                                 GameSource.DIPLOBN, "browser-selfcheck", url, url),
                         "Catalog fixture", "Browser", payload, SourceFingerprints.sha256Hex(payload), parsed.phases().size());
+                String webPayload = WebDiplomacyParserSelfCheck.bundle();
+                URI webUrl = URI.create("https://webdiplomacy.net/board.php?gameID=17");
+                web = catalog.catalog(new GameSourceReference(GameSource.WEBDIPLOMACY, "browser-selfcheck", webUrl, webUrl),
+                        "webDiplomacy fixture", null, webPayload, SourceFingerprints.sha256Hex(webPayload), 5);
+                internal = catalog.catalog(recorded.record(), recorded.state(), "Recorded fixture", "FINAL - YEAR_LIMIT");
+                require(GameHistoryJson.read(internal.sourcePayload()).equals(
+                                GameHistory.from(recorded.record(), recorded.state(), "FINAL - YEAR_LIMIT")),
+                        "Persisted history must retain native unit identities, orders, flags, and outcomes");
+                require(!GameHistory.from(Game.fromState(recorded.state())).positions().getFirst().ordersKnown(),
+                        "A live Game snapshot must not invent submissions");
+                var unknown = new DiploBNParser().parse("""
+                        {"GamePhases":[{"Phase":19011,"Status":"AwaitingOrders","Units":{}}]}
+                        """).history().positions().getFirst();
+                require(!unknown.ordersKnown() && !unknown.dislodgementsKnown(),
+                        "Absent source data must remain unavailable");
+                require(catalog.all().size() == 3, "Provider-local identities must coexist");
             }
             byte[] before = Files.readAllBytes(database);
             try (GameBrowserServer server = new GameBrowserServer(database, 0, ASSETS);
@@ -213,7 +235,7 @@ public final class AgentGameBrowserSelfCheck {
                 server.start();
                 String base = "http://127.0.0.1:" + server.address().getPort();
                 Map<?, ?> listing = object(JsonReader.read(get(client, base, "/api/games")));
-                require(number(listing.get("total")) == 1 && !listing.containsKey("autoSelect"),
+                require(number(listing.get("total")) == 3 && !listing.containsKey("autoSelect"),
                         "Catalog listing behavior changed");
                 Map<?, ?> game = object(JsonReader.read(get(client, base, "/api/game?id=" + stored.id().value())));
                 require(game.get("source").equals("DIPLOBN") && !game.containsKey("scores"),
@@ -228,6 +250,29 @@ public final class AgentGameBrowserSelfCheck {
                             "Source board changed");
                     require(array(phase.get("annotations")).size()
                             == source.resolutions().size() + source.retreatResolutions().size(), "Source outcomes changed");
+                }
+                Map<?, ?> webGame = object(JsonReader.read(get(client, base, "/api/game?id=" + web.id().value())));
+                require(webGame.get("source").equals("WEBDIPLOMACY")
+                        && array(webGame.get("phases")).size() == 5, "webDiplomacy catalog decoding failed");
+                Map<?, ?> webFirst = object(array(webGame.get("phases")).getFirst());
+                require(object(array(webFirst.get("orders")).getFirst()).get("text").toString().endsWith("VIA CONVOY"),
+                        "Convoy flag must be visible");
+                require(object(object(webFirst.get("investigation")).get("resolvedEvents")).get("status").equals("DISABLED"),
+                        "webDiplomacy browsing must not adjudicate source submissions");
+                require(array(object(array(webGame.get("phases")).get(1)).get("dislodged")).size() == 2,
+                        "Retreating units must be exposed separately");
+                require(Boolean.TRUE.equals(object(array(webGame.get("phases")).getLast()).get("terminal")),
+                        "Finished position must be explicitly terminal");
+                Map<?, ?> archived = object(JsonReader.read(get(client, base, "/api/game?id=" + internal.id().value())));
+                require(archived.get("source").equals("JREFEREE_RECORD")
+                        && archived.get("rulesetId").equals(recorded.record().rulesetId()),
+                        "Internal catalog entry lost its provenance");
+                try (GameBrowserServer memory = new GameBrowserServer(recorded, 0, ASSETS)) {
+                    memory.start();
+                    Map<?, ?> inMemory = object(JsonReader.read(get(client,
+                            "http://127.0.0.1:" + memory.address().getPort(), "/api/game?id=" + recorded.record().id())));
+                    require(archived.get("phases").equals(inMemory.get("phases")),
+                            "Catalog and in-memory histories must render identical positions");
                 }
             }
             require(Arrays.equals(before, Files.readAllBytes(database)), "Browsing modified the catalog");

@@ -7,6 +7,8 @@ import agents.execution.GameRunner;
 import agents.search.PolicyOutput;
 import domain.Nation;
 import game.StandardGameFactory;
+import io.catalog.GameCatalog;
+import io.persistence.SQLiteCatalogStore;
 import misc.scoring.ScoringSystem;
 import phase.movement.MovementProcessor;
 import ui.GameBrowserServer;
@@ -31,7 +33,7 @@ public final class AgentGameApp {
 
     private static final String USAGE = "Usage: AgentGameApp "
             + "[--seed <long>] [--last-year <year>] "
-            + "[--port <0-65535>] [--assets <ui-directory>] "
+            + "[--port <0-65535>] [--assets <ui-directory>] [--database <catalog-path>] "
             + "[--movement-policy <policy>] "
             + "[--candidates <count>] [--iterations <count>] "
             + "[--root-generator <uniform|plausible|coherent_gru_hybrid>] "
@@ -59,6 +61,7 @@ public final class AgentGameApp {
         Path assets = Path.of("src", "resources", "ui");
         Path anchorModel = null;
         Path gruModel = null;
+        Path database = null;
 
         long seed = 7;
         int lastYear = 1903;
@@ -85,6 +88,7 @@ public final class AgentGameApp {
                 case "--last-year" -> lastYear = Integer.parseInt(args[++index]);
                 case "--port" -> port = Integer.parseInt(args[++index]);
                 case "--assets" -> assets = Path.of(args[++index]);
+                case "--database" -> database = Path.of(args[++index]);
                 case "--candidates" -> candidates = Integer.parseInt(args[++index]);
                 case "--iterations" -> iterations = Integer.parseInt(args[++index]);
                 case "--rollouts" -> rollouts = Integer.parseInt(args[++index]);
@@ -186,6 +190,13 @@ public final class AgentGameApp {
 
         System.out.println("END RECORDED AGENT GAME");
 
+        if (database != null) {
+            try (GameCatalog catalog = new GameCatalog(new SQLiteCatalogStore(database))) {
+                catalog.catalog(result.record(), result.state(), "Agent game - seed " + seed,
+                        "FINAL - " + result.reason());
+            }
+            System.out.println("Historical snapshots saved to: " + database.toAbsolutePath());
+        }
         serve(result, port, assets);
 
     }

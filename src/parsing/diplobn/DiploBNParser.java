@@ -89,7 +89,8 @@ public final class DiploBNParser {
                 submittedRetreatOrders.retreatOrders,
                 submittedOrders.adjustmentOrders,
                 submittedOrders.resolutions,
-                submittedRetreatOrders.resolutions);
+                submittedRetreatOrders.resolutions,
+                rawPhase.get("Orders") != null || rawPhase.get("RetreatOrders") != null);
 
     }
 
